@@ -16,8 +16,6 @@ namespace Runtime {
 
 class Renderer;
 class TextMeasurer;
-class Button;
-class TextBlock;
 
 class Element {
 public:
@@ -28,8 +26,6 @@ public:
     virtual void Arrange(const Rect& rect);
     void Paint(Renderer& renderer);
     virtual Element* HitTest(Point point);
-    virtual Button* AsButton();
-    virtual TextBlock* AsText();
     virtual bool SetPointerHover(bool hovered);
     virtual bool SetPointerPressed(bool pressed);
     virtual bool OnPointerDown(Point point);
@@ -43,7 +39,6 @@ public:
     virtual bool OnKeyDown(unsigned key);
 
     Element* FindById(std::string_view id);
-    Button* FindFirstButton();
 
     const std::string& Id() const;
     void SetId(std::string value);

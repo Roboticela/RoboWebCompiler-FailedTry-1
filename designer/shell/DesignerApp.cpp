@@ -3,7 +3,6 @@
 #include "compiler/semantic/ComponentCatalog.h"
 #include "compiler/semantic/UiCompiler.h"
 #include "compiler/types/ValueParser.h"
-#include "components/basic/TextBlock.h"
 #include "designer/model/DesignDocument.h"
 #include "engine/core/Log.h"
 #include "engine/math/Color.h"
@@ -304,12 +303,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         canvas = Rect{LEFT_WIDTH, TOOLBAR_HEIGHT, std::max(0.0f, width - LEFT_WIDTH - RIGHT_WIDTH),
                       std::max(0.0f, height - TOOLBAR_HEIGHT - XML_HEIGHT)};
         libraryRows.clear();
-        const char* libraryNames[] = {"text",     "button",   "iconButton", "link",    "textField", "passwordField", "textArea",
-                                      "numberField", "checkbox", "switch",     "radio",   "slider",    "progress",      "select",
-                                      "column",  "row",      "flex",       "grid",    "stack",     "scroll",        "panel",
-                                      "card",    "spacer",   "divider",    "absolute", "split",    "image",         "alert",
-                                      "badge",   "tabs",     "dialog",     "menu",    "list",      "navbar",        "form",
-                                      "avatar",  "empty",    "skeleton",   "overlay", "container", "wrap"};
+        const char* libraryNames[] = {"frame"};
         constexpr int libraryCount = static_cast<int>(sizeof(libraryNames) / sizeof(libraryNames[0]));
         for (int index = 0; index < libraryCount; ++index) {
             HitRow row;
@@ -990,12 +984,12 @@ int DesignerApp::Run(const DesignerOptions& options) {
 
     if (options.selfTest) {
         std::vector<int> buttonPath;
-        if (document.Root() == nullptr || !FindComponentPath(*document.Root(), "button", buttonPath)) {
-            LogError("Self-test could not find a button.");
+        if (document.Root() == nullptr || !FindComponentPath(*document.Root(), "frame", buttonPath)) {
+            LogError("Self-test could not find a frame.");
             return 1;
         }
-        if (!document.SetAttribute(buttonPath, "text", "Designed")) {
-            LogError("Self-test could not edit the button.");
+        if (!document.SetAttribute(buttonPath, "name", "Designed")) {
+            LogError("Self-test could not edit the frame.");
             return 1;
         }
         selection = buttonPath;

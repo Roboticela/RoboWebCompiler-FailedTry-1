@@ -54,38 +54,50 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
         value.text = std::string(TrimCopyView(raw));
         const char* const* choices = nullptr;
         int choiceCount = 0;
-        if (attribute.name == "variant") {
-            static const char* options[] = {"primary", "secondary", "action", "ghost", "danger"};
+        if (attribute.name == "layout") {
+            static const char* options[] = {"none", "horizontal", "vertical", "grid", "wrap", "stack"};
             choices = options;
-            choiceCount = 5;
-        } else if (attribute.name == "size") {
-            static const char* options[] = {"sm", "md", "lg"};
-            choices = options;
-            choiceCount = 3;
-        } else if (attribute.name == "role") {
-            static const char* options[] = {"display", "h1", "h2", "h3", "subhead", "body", "caption"};
-            choices = options;
-            choiceCount = 7;
-        } else if (attribute.name == "direction") {
-            static const char* options[] = {"row", "column"};
-            choices = options;
-            choiceCount = 2;
-        } else if (attribute.name == "justify") {
-            static const char* options[] = {"start", "center", "end", "spaceBetween"};
+            choiceCount = 6;
+        } else if (attribute.name == "position") {
+            static const char* options[] = {"flow", "absolute", "fixed", "sticky"};
             choices = options;
             choiceCount = 4;
+        } else if (attribute.name == "widthMode" || attribute.name == "heightMode") {
+            static const char* options[] = {"fixed", "fill", "fit", "percent"};
+            choices = options;
+            choiceCount = 4;
+        } else if (attribute.name == "anchor") {
+            static const char* options[] = {"top", "right", "bottom", "left", "center"};
+            choices = options;
+            choiceCount = 5;
+        } else if (attribute.name == "justify") {
+            static const char* options[] = {"start", "center", "end", "left", "right", "top", "bottom", "stretch", "spaceBetween"};
+            choices = options;
+            choiceCount = 9;
         } else if (attribute.name == "wrap") {
             static const char* options[] = {"nowrap", "wrap"};
             choices = options;
             choiceCount = 2;
-        } else if (attribute.name == "orientation") {
-            static const char* options[] = {"horizontal", "vertical"};
-            choices = options;
-            choiceCount = 2;
-        } else if (attribute.name == "tone") {
-            static const char* options[] = {"info", "success", "warning", "danger"};
+        } else if (attribute.name == "overflow") {
+            static const char* options[] = {"visible", "hidden", "scroll", "auto"};
             choices = options;
             choiceCount = 4;
+        } else if (attribute.name == "display") {
+            static const char* options[] = {"normal", "none"};
+            choices = options;
+            choiceCount = 2;
+        } else if (attribute.name == "borderStyle") {
+            static const char* options[] = {"solid", "dashed", "dotted", "none"};
+            choices = options;
+            choiceCount = 4;
+        } else if (attribute.name == "blendMode") {
+            static const char* options[] = {"normal", "multiply", "screen", "overlay", "darken", "lighten"};
+            choices = options;
+            choiceCount = 6;
+        } else if (attribute.name == "cursor") {
+            static const char* options[] = {"default", "pointer", "text", "grab", "grabbing", "resize", "crosshair", "notAllowed"};
+            choices = options;
+            choiceCount = 8;
         } else if (attribute.name == "visibility") {
             static const char* options[] = {"visible", "hidden"};
             choices = options;

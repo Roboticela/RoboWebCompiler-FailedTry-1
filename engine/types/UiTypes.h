@@ -20,55 +20,53 @@ inline constexpr float UNBOUNDED_MEASURE = 100000.0f;
 
 enum class NodeKind : std::uint8_t {
     WINDOW,
-    COLUMN,
-    ROW,
-    FLEX,
+    FRAME,
+    SHADOW,
+};
+
+enum class FrameLayout : std::uint8_t {
+    NONE,
+    HORIZONTAL,
+    VERTICAL,
     GRID,
-    STACK,
-    TEXT,
-    BUTTON,
-    SCROLL,
-    PANEL,
-    CARD,
-    SPACER,
-    DIVIDER,
-    ABSOLUTE,
-    SPLIT,
-    IMAGE,
-    CHECKBOX,
-    SWITCH,
-    RADIO,
-    SLIDER,
-    PROGRESS,
-    TEXT_FIELD,
-    SELECT,
-    OPTION,
-    ALERT,
-    BADGE,
-    LINK,
-    ICON_BUTTON,
-    TABS,
-    TAB,
-    CONTAINER,
     WRAP,
-    NAVBAR,
-    HEADER,
-    SECTION,
-    FOOTER,
-    LIST,
-    LIST_ITEM,
-    MENU,
-    MENU_ITEM,
-    CLIP,
-    ASPECT,
-    OVERLAY,
-    DIALOG,
-    FORM,
-    SKELETON,
-    AVATAR,
-    EMPTY,
-    BREADCRUMB,
-    PAGINATION,
+    STACK,
+};
+
+enum class FramePosition : std::uint8_t {
+    FLOW,
+    ABSOLUTE,
+    FIXED,
+    STICKY,
+};
+
+enum class SizeMode : std::uint8_t {
+    UNSET,
+    FIXED,
+    FILL,
+    FIT,
+    PERCENT,
+};
+
+enum class OverflowMode : std::uint8_t {
+    VISIBLE,
+    HIDDEN,
+    SCROLL,
+    AUTO,
+};
+
+enum class FrameDisplay : std::uint8_t {
+    NORMAL,
+    NONE,
+};
+
+enum class FrameAnchor : std::uint8_t {
+    NONE,
+    TOP,
+    RIGHT,
+    BOTTOM,
+    LEFT,
+    CENTER,
 };
 
 enum class ButtonVariant : std::uint8_t {
@@ -254,104 +252,10 @@ inline const char* NodeKindName(NodeKind kind) {
     switch (kind) {
     case NodeKind::WINDOW:
         return "window";
-    case NodeKind::COLUMN:
-        return "column";
-    case NodeKind::ROW:
-        return "row";
-    case NodeKind::FLEX:
-        return "flex";
-    case NodeKind::GRID:
-        return "grid";
-    case NodeKind::STACK:
-        return "stack";
-    case NodeKind::TEXT:
-        return "text";
-    case NodeKind::BUTTON:
-        return "button";
-    case NodeKind::SCROLL:
-        return "scroll";
-    case NodeKind::PANEL:
-        return "panel";
-    case NodeKind::CARD:
-        return "card";
-    case NodeKind::SPACER:
-        return "spacer";
-    case NodeKind::DIVIDER:
-        return "divider";
-    case NodeKind::ABSOLUTE:
-        return "absolute";
-    case NodeKind::SPLIT:
-        return "split";
-    case NodeKind::IMAGE:
-        return "image";
-    case NodeKind::CHECKBOX:
-        return "checkbox";
-    case NodeKind::SWITCH:
-        return "switch";
-    case NodeKind::RADIO:
-        return "radio";
-    case NodeKind::SLIDER:
-        return "slider";
-    case NodeKind::PROGRESS:
-        return "progress";
-    case NodeKind::TEXT_FIELD:
-        return "textField";
-    case NodeKind::SELECT:
-        return "select";
-    case NodeKind::OPTION:
-        return "option";
-    case NodeKind::ALERT:
-        return "alert";
-    case NodeKind::BADGE:
-        return "badge";
-    case NodeKind::LINK:
-        return "link";
-    case NodeKind::ICON_BUTTON:
-        return "iconButton";
-    case NodeKind::TABS:
-        return "tabs";
-    case NodeKind::TAB:
-        return "tab";
-    case NodeKind::CONTAINER:
-        return "container";
-    case NodeKind::WRAP:
-        return "wrap";
-    case NodeKind::NAVBAR:
-        return "navbar";
-    case NodeKind::HEADER:
-        return "header";
-    case NodeKind::SECTION:
-        return "section";
-    case NodeKind::FOOTER:
-        return "footer";
-    case NodeKind::LIST:
-        return "list";
-    case NodeKind::LIST_ITEM:
-        return "listItem";
-    case NodeKind::MENU:
-        return "menu";
-    case NodeKind::MENU_ITEM:
-        return "menuItem";
-    case NodeKind::CLIP:
-        return "clip";
-    case NodeKind::ASPECT:
-        return "aspect";
-    case NodeKind::OVERLAY:
-        return "overlay";
-    case NodeKind::DIALOG:
-        return "dialog";
-    case NodeKind::FORM:
-        return "form";
-    case NodeKind::SKELETON:
-        return "skeleton";
-    case NodeKind::AVATAR:
-        return "avatar";
-    case NodeKind::EMPTY:
-        return "empty";
-    case NodeKind::BREADCRUMB:
-        return "breadcrumb";
-    case NodeKind::PAGINATION:
-        return "pagination";
+    case NodeKind::FRAME:
+        return "frame";
+    case NodeKind::SHADOW:
+        return "shadow";
     }
     return "unknown";
 }

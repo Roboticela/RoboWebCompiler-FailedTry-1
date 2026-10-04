@@ -1,32 +1,5 @@
 <window width="800" height="600" title="Runtime">
-    <column padding="32" spacing="16" alignment="center">
-        <text id="title" text="Welcome" role="h3" color="#1D1D1F"/>
-        <text id="status" text="Click the button" role="body" color="#6E6E73"/>
-        <button id="helloButton" text="Hello" variant="primary" size="md" onClick="hello"/>
-        <card width="360">
-            <textField placeholder="Email"/>
-            <checkbox text="Remember me"/>
-            <switch text="Notifications" checked="true"/>
-            <slider value="40"/>
-            <progress value="65"/>
-            <alert title="Ready" text="DevKit controls use the same light theme." tone="info"/>
-        </card>
-        <style name="quiet" color="$color.muted" fontSize="$type.caption"/>
-        <state name="note" value="Ready"/>
-        <component name="Hint">
-            <text style="quiet" text="{label}"/>
-        </component>
-        <Hint label="Styles, tokens, and components"/>
-        <text text="{note}"/>
-        <button text="Mark saved" variant="secondary" onClick="set:note=Saved"/>
-        <scroll width="320" height="120" spacing="8" background="$color.surface">
-            <text text="Scroll for more"/>
-            <text text="The thumb sits on the right when this list is taller than the view."/>
-            <text text="Row, grid, flex, and stack still lay out beside these controls."/>
-            <text text="Wheel, drag the thumb, or click the track."/>
-            <badge text="Kit"/>
-            <text text="Tokens, styles, and components stay in the same tree."/>
-            <text text="One more line so the bar has somewhere to travel."/>
-        </scroll>
-    </column>
+    <frame id="root" layout="vertical" width="fill" height="fill" padding="32" gap="16" align="center">
+        <frame id="mark" name="Mark" width="120" height="40" background="#0E7AFF" radius="8" cursor="pointer"/>
+    </frame>
 </window>

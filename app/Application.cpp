@@ -1,8 +1,6 @@
 #include "app/Application.h"
 
 #include "compiler/semantic/UiCompiler.h"
-#include "components/basic/Button.h"
-#include "components/basic/TextBlock.h"
 #include "engine/core/Log.h"
 #include "platform/windows/Dx11Renderer.h"
 #include "platform/windows/Win32Window.h"
@@ -27,15 +25,8 @@ bool UiContext::ConsumeInvalidated() {
     return value;
 }
 
-TextBlock* UiContext::FindText(std::string_view id) const {
-    if (root == nullptr) {
-        return nullptr;
-    }
-    Element* found = root->FindById(id);
-    if (found == nullptr) {
-        return nullptr;
-    }
-    return found->AsText();
+Element* UiContext::Find(std::string_view id) const {
+    return root == nullptr ? nullptr : root->FindById(id);
 }
 
 int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& handlers, RunOptions options) {
@@ -187,12 +178,12 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
             layoutDirty = false;
         }
         if (options.selfTest && !selfTestClicked) {
-            Button* button = root->FindFirstButton();
-            if (button == nullptr || button->Bounds().width < 1.0f || button->Bounds().height < 1.0f) {
-                LogError("Self-test could not find a laid-out button.");
+            Element* frame = root->FindById("mark");
+            if (frame == nullptr || frame->Bounds().width < 1.0f || frame->Bounds().height < 1.0f) {
+                LogError("Self-test could not find a laid-out frame.");
                 return 1;
             }
-            const Rect bounds = button->Bounds();
+            const Rect bounds = frame->Bounds();
             const Point center{bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f};
             input.OnDown(*root, center);
             input.OnUp(*root, center);

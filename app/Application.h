@@ -9,14 +9,13 @@
 namespace Runtime {
 
 class Element;
-class TextBlock;
 
 class UiContext {
 public:
     void Bind(Element* rootElement);
     void Invalidate();
     bool ConsumeInvalidated();
-    TextBlock* FindText(std::string_view id) const;
+    Element* Find(std::string_view id) const;
 
 private:
     Element* root = nullptr;

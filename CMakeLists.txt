@@ -53,24 +53,10 @@ add_library(RuntimeUi STATIC
     ui/input/PointerInput.h
     ui/factory/UiFactory.cpp
     ui/factory/UiFactory.h
-    components/basic/TextBlock.cpp
-    components/basic/TextBlock.h
-    components/basic/Button.cpp
-    components/basic/Button.h
-    components/layout/Column.cpp
-    components/layout/Column.h
-    components/layout/LayoutBoxes.cpp
-    components/layout/LayoutBoxes.h
-    components/layout/Foundations.cpp
-    components/layout/Foundations.h
-    components/layout/Surfaces.cpp
-    components/layout/Surfaces.h
-    components/controls/Controls.cpp
-    components/controls/Controls.h
+    components/frame/Frame.cpp
+    components/frame/Frame.h
     components/layout/WindowElement.cpp
     components/layout/WindowElement.h
-    ui/layout/FlexLayout.cpp
-    ui/layout/FlexLayout.h
     rendering/renderer/Renderer.h
     rendering/text/TextMeasurer.h
 )
@@ -96,10 +82,6 @@ target_link_libraries(RuntimeApp PUBLIC RuntimePlatform)
 add_executable(Hello examples/Hello/Main.cpp)
 target_link_libraries(Hello PRIVATE RuntimeApp)
 target_compile_definitions(Hello PRIVATE "HELLO_XML_PATH=\"${CMAKE_SOURCE_DIR}/examples/Hello/Hello.xml\"")
-
-add_executable(Gallery examples/Gallery/Main.cpp)
-target_link_libraries(Gallery PRIVATE RuntimeApp)
-target_compile_definitions(Gallery PRIVATE "GALLERY_XML_PATH=\"${CMAKE_SOURCE_DIR}/examples/Gallery/Gallery.xml\"")
 
 add_executable(myui tools/cli/Main.cpp)
 target_link_libraries(myui PRIVATE RuntimeApp)

@@ -65,14 +65,6 @@ Element* Element::HitTest(Point point) {
     return HitTestChildren(point);
 }
 
-Button* Element::AsButton() {
-    return nullptr;
-}
-
-TextBlock* Element::AsText() {
-    return nullptr;
-}
-
 bool Element::SetPointerHover(bool value) {
     if (pointerHover == value) {
         return false;
@@ -129,18 +121,6 @@ Element* Element::FindById(std::string_view target) {
     }
     for (const std::unique_ptr<Element>& child : children) {
         if (Element* found = child->FindById(target)) {
-            return found;
-        }
-    }
-    return nullptr;
-}
-
-Button* Element::FindFirstButton() {
-    if (Button* button = AsButton()) {
-        return button;
-    }
-    for (const std::unique_ptr<Element>& child : children) {
-        if (Button* found = child->FindFirstButton()) {
             return found;
         }
     }

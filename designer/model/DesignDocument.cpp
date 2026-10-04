@@ -41,50 +41,10 @@ void AddAttribute(XmlNode& node, std::string name, std::string value) {
 XmlNode MakeComponent(std::string_view name) {
     XmlNode node;
     node.name = std::string(name);
-    if (name == "button") {
-        AddAttribute(node, "text", "Button");
-        AddAttribute(node, "width", "120px");
-        AddAttribute(node, "height", "40px");
-    } else if (name == "text") {
-        AddAttribute(node, "text", "Text");
-    } else if (name == "column" || name == "row") {
-        AddAttribute(node, "spacing", "12");
-    } else if (name == "flex") {
-        AddAttribute(node, "direction", "row");
-        AddAttribute(node, "gap", "12");
-    } else if (name == "grid") {
-        AddAttribute(node, "columns", "2");
-        AddAttribute(node, "columnGap", "12");
-        AddAttribute(node, "rowGap", "12");
-    } else if (name == "scroll" || name == "panel" || name == "card") {
-        AddAttribute(node, "padding", "16");
-        AddAttribute(node, "spacing", "12");
-    } else if (name == "textField" || name == "passwordField" || name == "numberField") {
-        AddAttribute(node, "placeholder", "Type here");
-    } else if (name == "textArea") {
-        AddAttribute(node, "placeholder", "Write a note");
-    } else if (name == "checkbox" || name == "switch" || name == "radio") {
-        AddAttribute(node, "text", name == "checkbox" ? "Check" : (name == "switch" ? "Enabled" : "Choice"));
-    } else if (name == "slider" || name == "progress") {
-        AddAttribute(node, "value", "40");
-    } else if (name == "alert") {
-        AddAttribute(node, "title", "Saved");
-        AddAttribute(node, "text", "The change is stored.");
-        AddAttribute(node, "tone", "success");
-    } else if (name == "badge") {
-        AddAttribute(node, "text", "New");
-    } else if (name == "link") {
-        AddAttribute(node, "text", "Learn more");
-    } else if (name == "iconButton") {
-        AddAttribute(node, "text", "+");
-    } else if (name == "image") {
-        AddAttribute(node, "source", "photo");
+    if (name == "frame") {
         AddAttribute(node, "width", "160");
-        AddAttribute(node, "height", "120");
-    } else if (name == "spacer") {
-        AddAttribute(node, "height", "16");
-    } else if (name == "split") {
-        AddAttribute(node, "ratio", "0.5");
+        AddAttribute(node, "height", "80");
+        AddAttribute(node, "background", "#0E7AFF");
     }
     return node;
 }
