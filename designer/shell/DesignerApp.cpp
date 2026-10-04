@@ -541,6 +541,15 @@ int DesignerApp::Run(const DesignerOptions& options) {
     int fileHover = -1;
     int fileActionHover = 0;
     int fileScroll = 0;
+    bool fileMenuOpen = false;
+    Point fileMenuPoint{};
+    std::string fileMenuTarget;
+    bool fileMenuDirectory = false;
+    int fileMenuHover = -1;
+    std::vector<HitRow> fileMenuRows;
+    bool fileRenaming = false;
+    std::string renameDraft;
+    std::string renameOriginal;
     bool filesDirty = true;
     unsigned lastFileTick = 0;
     std::string lastFileKey;
@@ -652,6 +661,88 @@ int DesignerApp::Run(const DesignerOptions& options) {
         openFolders.push_back(created.generic_string());
         selectedFile = created.generic_string();
         filesDirty = true;
+    };
+    auto closeFileMenu = [&]() {
+        fileMenuOpen = false;
+        fileMenuHover = -1;
+        fileMenuRows.clear();
+    };
+    auto commitFileRename = [&]() {
+        if (!fileRenaming || renameDraft.empty() || renameDraft.find_first_of("\\/:*?\"<>|") != std::string::npos) {
+            fileRenaming = false;
+            return;
+        }
+        const std::filesystem::path source(selectedFile);
+        const std::filesystem::path destination = source.parent_path() / renameDraft;
+        std::error_code error;
+        if (destination != source) {
+            if (std::filesystem::exists(destination, error)) {
+                fileRenaming = false;
+                return;
+            }
+            std::filesystem::rename(source, destination, error);
+            if (!error) {
+                const std::string from = source.generic_string();
+                const std::string to = destination.generic_string();
+                for (std::string& folder : openFolders) {
+                    if (folder == from || (folder.size() > from.size() && folder.compare(0, from.size(), from) == 0 && folder[from.size()] == '/')) {
+                        folder.replace(0, from.size(), to);
+                    }
+                }
+                selectedFile = to;
+                filesDirty = true;
+            }
+        }
+        fileRenaming = false;
+    };
+    auto applyFileAction = [&](int action) {
+        const std::filesystem::path target = fileMenuTarget.empty() ? projectRoot : std::filesystem::path(fileMenuTarget);
+        closeFileMenu();
+        if (action == 0) {
+            const std::string extension = LowerCopy(target.extension().string());
+            if (extension == ".xml" && document.LoadFile(target)) {
+                selection.clear();
+                selections.clear();
+                rebuildPreview();
+            }
+        } else if (action == 1 || action == 2) {
+            selectedFile = target.generic_string();
+            if (action == 1) {
+                createExplorerFile();
+            } else {
+                createExplorerFolder();
+            }
+        } else if (action == 3) {
+            selectedFile = target.generic_string();
+            renameOriginal = target.filename().string();
+            renameDraft = renameOriginal;
+            fileRenaming = true;
+        } else if (action == 4) {
+            if (target != projectRoot) {
+                std::error_code error;
+                const std::string key = target.generic_string();
+                if (std::filesystem::is_directory(target, error)) {
+                    std::filesystem::remove_all(target, error);
+                } else {
+                    std::filesystem::remove(target, error);
+                }
+                if (!error) {
+                    openFolders.erase(std::remove_if(openFolders.begin(), openFolders.end(),
+                                                     [&](const std::string& folder) {
+                                                         return folder == key || (folder.size() > key.size() && folder.compare(0, key.size(), key) == 0 && folder[key.size()] == '/');
+                                                     }),
+                                      openFolders.end());
+                    if (selectedFile == key || (selectedFile.size() > key.size() && selectedFile.compare(0, key.size(), key) == 0 && selectedFile[key.size()] == '/')) {
+                        selectedFile.clear();
+                    }
+                    filesDirty = true;
+                }
+            }
+        } else if (action == 5) {
+            CopyText(target.string());
+        } else if (action == 6) {
+            filesDirty = true;
+        }
     };
 
     auto layoutChrome = [&](float width, float height) {
@@ -830,6 +921,56 @@ int DesignerApp::Run(const DesignerOptions& options) {
             panX = 0.0f;
             panY = 0.0f;
             fitted = true;
+        }
+        fileMenuRows.clear();
+        if (fileMenuOpen) {
+            const char* labels[8] = {};
+            int actions[8] = {};
+            int count = 0;
+            auto addItem = [&](const char* label, int action) {
+                labels[count] = label;
+                actions[count] = action;
+                ++count;
+            };
+            if (!fileMenuTarget.empty() && !fileMenuDirectory) {
+                const std::string extension = LowerCopy(std::filesystem::path(fileMenuTarget).extension().string());
+                if (extension == ".xml") {
+                    addItem("Open", 0);
+                }
+                addItem("Rename", 3);
+                addItem("Delete", 4);
+                addItem("Copy path", 5);
+            } else if (fileMenuDirectory) {
+                addItem("New file", 1);
+                addItem("New folder", 2);
+                if (std::filesystem::path(fileMenuTarget) != projectRoot) {
+                    addItem("Rename", 3);
+                    addItem("Delete", 4);
+                }
+                addItem("Copy path", 5);
+                addItem("Refresh", 6);
+            } else {
+                addItem("New file", 1);
+                addItem("New folder", 2);
+                addItem("Refresh", 6);
+            }
+            const float menuWidth = 176.0f;
+            const float menuHeight = 8.0f + static_cast<float>(count) * 30.0f;
+            float menuX = fileMenuPoint.x;
+            float menuY = fileMenuPoint.y;
+            if (menuX + menuWidth > width - 8.0f) {
+                menuX = std::max(8.0f, width - menuWidth - 8.0f);
+            }
+            if (menuY + menuHeight > height - 8.0f) {
+                menuY = std::max(8.0f, height - menuHeight - 8.0f);
+            }
+            for (int index = 0; index < count; ++index) {
+                HitRow row;
+                row.name = labels[index];
+                row.depth = actions[index];
+                row.rect = Rect{menuX + 4.0f, menuY + 4.0f + static_cast<float>(index) * 30.0f, menuWidth - 8.0f, 28.0f};
+                fileMenuRows.push_back(std::move(row));
+            }
         }
     };
 
@@ -1339,6 +1480,30 @@ int DesignerApp::Run(const DesignerOptions& options) {
 
     window.SetMouseDown([&](Point point) {
         layoutChrome(clientWidth, clientHeight);
+        if (fileMenuOpen) {
+            for (const HitRow& row : fileMenuRows) {
+                if (ContainsPoint(row.rect, point)) {
+                    applyFileAction(row.depth);
+                    paintDirty = true;
+                    return;
+                }
+            }
+            closeFileMenu();
+            paintDirty = true;
+            return;
+        }
+        if (fileRenaming) {
+            bool onDraft = false;
+            for (const FileEntry& entry : fileEntries) {
+                if (entry.path.generic_string() == selectedFile && ContainsPoint(entry.rect, point)) {
+                    onDraft = true;
+                    break;
+                }
+            }
+            if (!onDraft) {
+                commitFileRename();
+            }
+        }
         finishEdit();
         editTarget = EditTarget::NONE;
         drag = DragKind::NONE;
@@ -1382,15 +1547,15 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 lastFileTick = now;
                 lastFileKey = key;
                 selectedFile = key;
-                if (entry.directory && (ContainsPoint(entry.twist, point) || !again)) {
+                if (entry.directory) {
                     const auto found = std::find(openFolders.begin(), openFolders.end(), key);
                     if (found == openFolders.end()) {
                         openFolders.push_back(key);
-                    } else if (ContainsPoint(entry.twist, point) || again) {
+                    } else {
                         openFolders.erase(found);
                     }
                     filesDirty = true;
-                } else if (!entry.directory && again) {
+                } else if (again) {
                     const std::string extension = LowerCopy(entry.path.extension().string());
                     if (extension == ".xml" && document.LoadFile(entry.path)) {
                         selection.clear();
@@ -1690,6 +1855,36 @@ int DesignerApp::Run(const DesignerOptions& options) {
         paintDirty = true;
     });
 
+    window.SetRightDown([&](Point point) {
+        layoutChrome(clientWidth, clientHeight);
+        if (fileRenaming) {
+            commitFileRename();
+        }
+        if (leftNav != 0 || !ContainsPoint(fullSidebar, point)) {
+            closeFileMenu();
+            paintDirty = true;
+            return;
+        }
+        fileMenuOpen = true;
+        fileMenuPoint = point;
+        fileMenuTarget.clear();
+        fileMenuDirectory = false;
+        const float listTop = fullSidebar.y + 72.0f;
+        for (const FileEntry& entry : fileEntries) {
+            if (entry.rect.height < 1.0f || entry.rect.y + entry.rect.height < listTop || entry.rect.y > fullSidebar.y + fullSidebar.height) {
+                continue;
+            }
+            if (ContainsPoint(entry.rect, point)) {
+                fileMenuTarget = entry.path.generic_string();
+                fileMenuDirectory = entry.directory;
+                selectedFile = fileMenuTarget;
+                break;
+            }
+        }
+        layoutChrome(clientWidth, clientHeight);
+        paintDirty = true;
+    });
+
     window.SetMouseMove([&](Point point) {
         applyCursor(point);
         int nextNav = -1;
@@ -1726,6 +1921,19 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if (nextFile != fileHover || nextAction != fileActionHover) {
             fileHover = nextFile;
             fileActionHover = nextAction;
+            paintDirty = true;
+        }
+        int nextMenu = -1;
+        if (fileMenuOpen) {
+            for (int index = 0; index < static_cast<int>(fileMenuRows.size()); ++index) {
+                if (ContainsPoint(fileMenuRows[static_cast<std::size_t>(index)].rect, point)) {
+                    nextMenu = index;
+                    break;
+                }
+            }
+        }
+        if (nextMenu != fileMenuHover) {
+            fileMenuHover = nextMenu;
             paintDirty = true;
         }
         if (drag == DragKind::NONE) {
@@ -2006,6 +2214,30 @@ int DesignerApp::Run(const DesignerOptions& options) {
     });
 
     window.SetKeyDown([&](unsigned key) {
+        if (fileRenaming) {
+            if (key == VK_ESCAPE) {
+                fileRenaming = false;
+                paintDirty = true;
+                return true;
+            }
+            if (key == VK_RETURN) {
+                commitFileRename();
+                paintDirty = true;
+                return true;
+            }
+            if (key == VK_BACK && !renameDraft.empty()) {
+                do {
+                    renameDraft.pop_back();
+                } while (!renameDraft.empty() && (static_cast<unsigned char>(renameDraft.back()) & 0xC0) == 0x80);
+                paintDirty = true;
+            }
+            return true;
+        }
+        if (fileMenuOpen && key == VK_ESCAPE) {
+            closeFileMenu();
+            paintDirty = true;
+            return true;
+        }
         const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         if (control && (key == 'Z' || key == 'Y')) {
             if (key == 'Y' || (GetKeyState(VK_SHIFT) & 0x8000) != 0) {
@@ -2308,6 +2540,13 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if (utf8.empty() || (GetKeyState(VK_CONTROL) & 0x8000) != 0) {
             return;
         }
+        if (fileRenaming) {
+            if (character >= 32 && renameDraft.size() < 180) {
+                renameDraft += utf8;
+                paintDirty = true;
+            }
+            return;
+        }
         if (editTarget == EditTarget::FILTER) {
             layerFilter += utf8;
             paintDirty = true;
@@ -2424,7 +2663,18 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 const Color iconColor = entry.directory ? COLOR_ACCENT : (selected || hovered ? COLOR_INK : COLOR_MUTED);
                 DrawExplorerIcon(renderer, fullSidebar.x + indent + 14.0f, entry.rect.y + 5.0f, entry.directory ? 0 : 1, iconColor);
                 Rect label{fullSidebar.x + indent + 34.0f, entry.rect.y, std::max(0.0f, entry.rect.width - indent - 28.0f), entry.rect.height};
-                DrawLabel(renderer, entry.name, label, selected || hovered ? COLOR_INK : COLOR_MUTED, 12.0f, TextAlign::START);
+                if (fileRenaming && selected) {
+                    renderer.FillRectangle(label, COLOR_FIELD, 4.0f);
+                    renderer.StrokeRectangle(label, COLOR_SELECT, 1.0f, 4.0f);
+                    Rect textRect = label;
+                    textRect.x += 6.0f;
+                    textRect.width = std::max(0.0f, textRect.width - 10.0f);
+                    DrawLabel(renderer, renameDraft, textRect, COLOR_INK, 12.0f, TextAlign::START);
+                    const Size measured = renderer.MeasureText(renameDraft, 12.0f, 100000.0f);
+                    renderer.FillRectangle(Rect{textRect.x + measured.width, label.y + 5.0f, 1.0f, label.height - 10.0f}, COLOR_INK, 0.0f);
+                } else {
+                    DrawLabel(renderer, entry.name, label, selected || hovered ? COLOR_INK : COLOR_MUTED, 12.0f, TextAlign::START);
+                }
             }
             renderer.PopClip();
         }
@@ -2674,6 +2924,24 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     renderer.FillRectangle(row, COLOR_SELECTED, 0.0f);
                 }
                 DrawLabel(renderer, completions[index], row, COLOR_INK, 13.0f, TextAlign::START);
+            }
+        }
+        if (fileMenuOpen && !fileMenuRows.empty()) {
+            const Rect first = fileMenuRows.front().rect;
+            const Rect last = fileMenuRows.back().rect;
+            const Rect popup{first.x - 4.0f, first.y - 4.0f, first.width + 8.0f, last.y + last.height - first.y + 8.0f};
+            renderer.FillRectangle(popup, COLOR_FIELD, 8.0f);
+            renderer.StrokeRectangle(popup, COLOR_LINE, 1.0f, 8.0f);
+            for (int index = 0; index < static_cast<int>(fileMenuRows.size()); ++index) {
+                const HitRow& row = fileMenuRows[static_cast<std::size_t>(index)];
+                if (fileMenuHover == index) {
+                    renderer.FillRectangle(row.rect, COLOR_HOVER, 6.0f);
+                }
+                const Color labelColor = row.depth == 4 ? COLOR_STATUS : COLOR_INK;
+                Rect text = row.rect;
+                text.x += 10.0f;
+                text.width = std::max(0.0f, text.width - 16.0f);
+                DrawLabel(renderer, row.name, text, labelColor, 13.0f, TextAlign::START);
             }
         }
         return renderer.EndFrame();

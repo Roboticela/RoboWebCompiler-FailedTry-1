@@ -48,6 +48,7 @@ public:
     void SetResize(std::function<void(int pixelWidth, int pixelHeight)> callback);
     void SetMouseMove(std::function<void(Point point)> callback);
     void SetMouseDown(std::function<void(Point point)> callback);
+    void SetRightDown(std::function<void(Point point)> callback);
     void SetMouseUp(std::function<void(Point point)> callback);
     void SetMouseLeave(std::function<void()> callback);
     void SetMiddleDown(std::function<void(Point point)> callback);
@@ -73,6 +74,7 @@ private:
     std::function<void(int, int)> onResize;
     std::function<void(Point)> onMouseMove;
     std::function<void(Point)> onMouseDown;
+    std::function<void(Point)> onRightDown;
     std::function<void(Point)> onMouseUp;
     std::function<void()> onMouseLeave;
     std::function<void(Point)> onMiddleDown;

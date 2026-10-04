@@ -174,6 +174,10 @@ void Win32Window::SetMouseDown(std::function<void(Point)> callback) {
     onMouseDown = std::move(callback);
 }
 
+void Win32Window::SetRightDown(std::function<void(Point)> callback) {
+    onRightDown = std::move(callback);
+}
+
 void Win32Window::SetMouseUp(std::function<void(Point)> callback) {
     onMouseUp = std::move(callback);
 }
@@ -273,6 +277,11 @@ LRESULT Win32Window::Handle(UINT message, WPARAM wparam, LPARAM lparam) {
         SetCapture(hwnd);
         if (onMouseDown) {
             onMouseDown(ToDip(lparam));
+        }
+        return 0;
+    case WM_RBUTTONDOWN:
+        if (onRightDown) {
+            onRightDown(ToDip(lparam));
         }
         return 0;
     case WM_LBUTTONUP:
