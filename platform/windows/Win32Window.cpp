@@ -118,6 +118,50 @@ void Win32Window::SetHandCursor(bool enabled) {
     handCursor = enabled;
 }
 
+void Win32Window::SetCursorShape(WindowCursor cursor) {
+    cursorShape = cursor;
+    handCursor = false;
+    ApplyCursor();
+}
+
+void Win32Window::ApplyCursor() {
+    const wchar_t* cursor = IDC_ARROW;
+    if (handCursor) {
+        cursor = IDC_HAND;
+    } else {
+        switch (cursorShape) {
+        case WindowCursor::HAND:
+            cursor = IDC_HAND;
+            break;
+        case WindowCursor::IBEAM:
+            cursor = IDC_IBEAM;
+            break;
+        case WindowCursor::CROSS:
+            cursor = IDC_CROSS;
+            break;
+        case WindowCursor::SIZE_ALL:
+            cursor = IDC_SIZEALL;
+            break;
+        case WindowCursor::SIZE_NS:
+            cursor = IDC_SIZENS;
+            break;
+        case WindowCursor::SIZE_WE:
+            cursor = IDC_SIZEWE;
+            break;
+        case WindowCursor::SIZE_NWSE:
+            cursor = IDC_SIZENWSE;
+            break;
+        case WindowCursor::SIZE_NESW:
+            cursor = IDC_SIZENESW;
+            break;
+        case WindowCursor::ARROW:
+            cursor = IDC_ARROW;
+            break;
+        }
+    }
+    SetCursor(LoadCursorW(nullptr, cursor));
+}
+
 void Win32Window::SetResize(std::function<void(int, int)> callback) {
     onResize = std::move(callback);
 }
@@ -265,8 +309,8 @@ LRESULT Win32Window::Handle(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
     case WM_SETCURSOR:
-        if (handCursor && LOWORD(lparam) == HTCLIENT) {
-            SetCursor(LoadCursorW(nullptr, IDC_HAND));
+        if (LOWORD(lparam) == HTCLIENT) {
+            ApplyCursor();
             return TRUE;
         }
         break;

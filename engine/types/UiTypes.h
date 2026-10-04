@@ -163,7 +163,7 @@ struct Length {
         return Length{0.0f, LengthUnit::FIT};
     }
 
-    float Resolve(float available, float fit) const {
+    float Resolve(float available, float fit, bool allowNegative = false) const {
         float resolved = fit;
         switch (unit) {
         case LengthUnit::PIXELS:
@@ -179,7 +179,7 @@ struct Length {
             resolved = fit;
             break;
         }
-        if (resolved < 0.0f) {
+        if (!allowNegative && resolved < 0.0f) {
             return 0.0f;
         }
         return resolved;

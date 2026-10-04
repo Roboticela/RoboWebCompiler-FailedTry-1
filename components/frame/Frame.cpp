@@ -70,6 +70,22 @@ void Frame::SetAspectRatio(float value) { aspectRatio = value; }
 void Frame::SetPositionMode(FramePosition value) { positionMode = value; }
 void Frame::SetAnchor(FrameAnchor value) { anchor = value; }
 void Frame::SetPadding(Edges value) { padding = value; }
+
+float Frame::ContentX() const {
+    return Bounds().x + padding.left.Resolve(Bounds().width, 0.0f);
+}
+
+float Frame::ContentY() const {
+    return Bounds().y + padding.top.Resolve(Bounds().width, 0.0f) - (Scrolls() ? scrollY : 0.0f);
+}
+
+float Frame::ContentWidth() const {
+    return std::max(0.0f, Bounds().width - padding.SpanX(Bounds().width));
+}
+
+float Frame::ContentHeight() const {
+    return std::max(0.0f, Bounds().height - padding.SpanY(Bounds().width));
+}
 void Frame::SetLayout(FrameLayout value) { layout = value; }
 void Frame::SetShrink(float value) { shrink = value; }
 void Frame::SetBasis(Length value) { basis = value; }
@@ -255,8 +271,8 @@ Size Frame::Measure(TextMeasurer& measurer, float availableWidth, float availabl
 void Frame::Arrange(const Rect& rect) {
     Rect placed = BorderBox(rect);
     if (positionMode == FramePosition::FIXED) {
-        placed.x = OffsetX().Resolve(viewportWidth > 0.0f ? viewportWidth : placed.width, 0.0f);
-        placed.y = OffsetY().Resolve(viewportHeight > 0.0f ? viewportHeight : placed.height, 0.0f);
+        placed.x = OffsetX().Resolve(viewportWidth > 0.0f ? viewportWidth : placed.width, 0.0f, true);
+        placed.y = OffsetY().Resolve(viewportHeight > 0.0f ? viewportHeight : placed.height, 0.0f, true);
     }
     placed.x += translateX;
     placed.y += translateY;
@@ -388,7 +404,7 @@ void Frame::Arrange(const Rect& rect) {
         }
     } else {
         for (Element* child : flow) {
-            child->Arrange(Rect{originX + child->OffsetX().Resolve(bounds.width, 0.0f), originY + child->OffsetY().Resolve(bounds.width, 0.0f),
+            child->Arrange(Rect{originX + child->OffsetX().Resolve(bounds.width, 0.0f, true), originY + child->OffsetY().Resolve(bounds.width, 0.0f, true),
                                 child->Measured().width, child->Measured().height});
         }
     }
@@ -398,8 +414,8 @@ void Frame::Arrange(const Rect& rect) {
         if (frame == nullptr || !frame->OutOfFlow()) {
             continue;
         }
-        float x = originX + frame->OffsetX().Resolve(bounds.width, 0.0f);
-        float y = originY + frame->OffsetY().Resolve(bounds.width, 0.0f);
+        float x = originX + frame->OffsetX().Resolve(bounds.width, 0.0f, true);
+        float y = originY + frame->OffsetY().Resolve(bounds.width, 0.0f, true);
         const float childWidth = frame->Measured().width;
         const float childHeight = frame->Measured().height;
         if (frame->Anchor() == FrameAnchor::CENTER) {
@@ -415,8 +431,8 @@ void Frame::Arrange(const Rect& rect) {
             y = bounds.y + padTop;
         }
         if (frame->PositionMode() == FramePosition::FIXED) {
-            x = frame->OffsetX().Resolve(viewportWidth, 0.0f);
-            y = frame->OffsetY().Resolve(viewportHeight, 0.0f);
+            x = frame->OffsetX().Resolve(viewportWidth, 0.0f, true);
+            y = frame->OffsetY().Resolve(viewportHeight, 0.0f, true);
         }
         frame->Arrange(Rect{x, y, childWidth, childHeight});
     }

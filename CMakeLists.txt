@@ -97,6 +97,7 @@ add_executable(RoboUIDesigner
     designer/Main.cpp
     designer/shell/DesignerApp.cpp
     designer/shell/DesignerApp.h
+    designer/tools/EditorTool.h
 )
 target_link_libraries(RoboUIDesigner PRIVATE RuntimeDesigner RuntimeApp)
 target_compile_definitions(RoboUIDesigner PRIVATE "DESIGNER_HELLO_XML=\"${CMAKE_SOURCE_DIR}/examples/Hello/Hello.xml\"")

@@ -16,6 +16,18 @@
 
 namespace Runtime {
 
+enum class WindowCursor {
+    ARROW,
+    HAND,
+    IBEAM,
+    CROSS,
+    SIZE_ALL,
+    SIZE_NS,
+    SIZE_WE,
+    SIZE_NWSE,
+    SIZE_NESW,
+};
+
 class Win32Window {
 public:
     ~Win32Window();
@@ -31,6 +43,7 @@ public:
     float ClientWidthDip() const;
     float ClientHeightDip() const;
     void SetHandCursor(bool enabled);
+    void SetCursorShape(WindowCursor cursor);
 
     void SetResize(std::function<void(int pixelWidth, int pixelHeight)> callback);
     void SetMouseMove(std::function<void(Point point)> callback);
@@ -48,12 +61,14 @@ private:
     LRESULT Handle(UINT message, WPARAM wparam, LPARAM lparam);
     Point ToDip(LPARAM lparam) const;
     void RefreshClientSize();
+    void ApplyCursor();
 
     HWND hwnd = nullptr;
     float dpi = 96.0f;
     int pixelWidth = 0;
     int pixelHeight = 0;
     bool handCursor = false;
+    WindowCursor cursorShape = WindowCursor::ARROW;
     bool trackingMouse = false;
     std::function<void(int, int)> onResize;
     std::function<void(Point)> onMouseMove;

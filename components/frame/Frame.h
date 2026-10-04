@@ -96,6 +96,10 @@ public:
     const std::vector<FrameShadow>& Shadows() const;
     float Blur() const;
     bool Clips() const;
+    float ContentX() const;
+    float ContentY() const;
+    float ContentWidth() const;
+    float ContentHeight() const;
 
 private:
     bool OutOfFlow() const;

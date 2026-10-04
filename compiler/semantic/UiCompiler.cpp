@@ -157,7 +157,8 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
                           attribute.valueSpan);
             return false;
         }
-        if (parsed->unit == LengthUnit::PIXELS && parsed->value < 0.0f) {
+        const bool offset = attribute.name == "x" || attribute.name == "y";
+        if (!offset && parsed->unit == LengthUnit::PIXELS && parsed->value < 0.0f) {
             AddDiagnostic(diagnostics, DIAGNOSTIC_VALUE_RANGE,
                           "Property '" + attribute.name + "' must be greater than or equal to 0.",
                           attribute.valueLocation, attribute.valueSpan);
