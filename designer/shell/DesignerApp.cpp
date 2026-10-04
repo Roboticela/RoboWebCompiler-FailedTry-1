@@ -79,14 +79,6 @@ bool SamePath(const std::vector<int>& left, const std::vector<int>& right) {
     return left == right;
 }
 
-bool IsStyleProperty(std::string_view name) {
-    return name == "color" || name == "background" || name == "fontSize" || name == "cornerRadius";
-}
-
-bool IsLayoutProperty(std::string_view name) {
-    return name == "width" || name == "height" || name == "padding" || name == "spacing" || name == "alignment";
-}
-
 std::string NodeLabel(const XmlNode& node) {
     std::string label = node.name;
     for (const XmlAttribute& attribute : node.attributes) {
@@ -248,6 +240,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
     int xmlScroll = 0;
     int hierarchyScroll = 0;
     int libraryScroll = 0;
+    int inspectorScroll = 0;
     float zoom = 1.0f;
     float panX = 0.0f;
     float panY = 0.0f;
@@ -303,7 +296,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         canvas = Rect{LEFT_WIDTH, TOOLBAR_HEIGHT, std::max(0.0f, width - LEFT_WIDTH - RIGHT_WIDTH),
                       std::max(0.0f, height - TOOLBAR_HEIGHT - XML_HEIGHT)};
         libraryRows.clear();
-        const char* libraryNames[] = {"frame"};
+        const char* libraryNames[] = {"frame", "shadow"};
         constexpr int libraryCount = static_cast<int>(sizeof(libraryNames) / sizeof(libraryNames[0]));
         for (int index = 0; index < libraryCount; ++index) {
             HitRow row;
@@ -338,6 +331,14 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if (const XmlNode* selected = document.NodeAt(selection)) {
             const ComponentSpec* spec = FindComponent(selected->name);
             if (spec != nullptr) {
+                int propertyCount = 0;
+                for (const PropertySpec& property : spec->properties) {
+                    if (std::string_view(property.name) != "value") {
+                        ++propertyCount;
+                    }
+                }
+                const int visibleRows = std::max(1, static_cast<int>((inspector.height - 72.0f) / 40.0f));
+                inspectorScroll = std::max(0, std::min(inspectorScroll, std::max(0, propertyCount - visibleRows)));
                 int rowIndex = 0;
                 for (const PropertySpec& property : spec->properties) {
                     if (std::string_view(property.name) == "value") {
@@ -345,7 +346,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     }
                     HitRow row;
                     row.name = property.name;
-                    row.rect = Rect{inspector.x + 12.0f, inspector.y + 64.0f + static_cast<float>(rowIndex) * 48.0f, inspector.width - 24.0f, 36.0f};
+                    row.rect = Rect{inspector.x + 12.0f, inspector.y + 64.0f + static_cast<float>(rowIndex - inspectorScroll) * 40.0f,
+                                    inspector.width - 28.0f, 32.0f};
                     propertyRows.push_back(std::move(row));
                     ++rowIndex;
                 }
@@ -496,8 +498,9 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 return;
             }
         }
+        const Rect propertyView{inspector.x, inspector.y + 56.0f, inspector.width, std::max(0.0f, inspector.height - 56.0f)};
         for (const HitRow& row : propertyRows) {
-            if (ContainsPoint(row.rect, point)) {
+            if (ContainsPoint(row.rect, point) && ContainsPoint(propertyView, point)) {
                 editTarget = EditTarget::PROPERTY;
                 propertyName = row.name;
                 propertyDraft = document.Attribute(selection, propertyName);
@@ -641,8 +644,15 @@ int DesignerApp::Run(const DesignerOptions& options) {
             return;
         }
         if (ContainsPoint(library, point)) {
-            constexpr int libraryCount = 42;
-            libraryScroll = std::max(0, std::min(libraryCount - 8, libraryScroll - (delta > 0 ? 1 : -1)));
+            const int libraryCount = static_cast<int>(libraryRows.size());
+            const int visibleRows = std::max(1, static_cast<int>((library.height - 36.0f) / ROW_HEIGHT));
+            libraryScroll = std::max(0, std::min(std::max(0, libraryCount - visibleRows), libraryScroll - (delta > 0 ? 1 : -1)));
+            paintDirty = true;
+            return;
+        }
+        if (ContainsPoint(inspector, point)) {
+            const int visibleRows = std::max(1, static_cast<int>((inspector.height - 72.0f) / 40.0f));
+            inspectorScroll = std::max(0, std::min(std::max(0, static_cast<int>(propertyRows.size()) - visibleRows), inspectorScroll - (delta > 0 ? 1 : -1)));
             paintDirty = true;
             return;
         }
@@ -909,17 +919,30 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if (const XmlNode* selected = document.NodeAt(selection)) {
             DrawLabel(renderer, selected->name, Rect{inspector.x + 12.0f, inspector.y + 30.0f, inspector.width - 24.0f, 24.0f}, COLOR_INK, 16.0f, TextAlign::START);
         }
-        std::string lastGroup;
+        const Rect propertyView{inspector.x, inspector.y + 56.0f, inspector.width, std::max(0.0f, inspector.height - 56.0f)};
+        renderer.PushClip(propertyView);
         for (const HitRow& row : propertyRows) {
-            const std::string group = IsStyleProperty(row.name) ? "Style" : IsLayoutProperty(row.name) ? "Layout" : "Properties";
-            if (group != lastGroup) {
-                lastGroup = group;
+            if (row.rect.y + row.rect.height < propertyView.y || row.rect.y > propertyView.y + propertyView.height) {
+                continue;
             }
             const bool active = editTarget == EditTarget::PROPERTY && propertyName == row.name;
             renderer.FillRectangle(row.rect, active ? COLOR_SELECTED : COLOR_CHROME, 4.0f);
             const std::string value = active ? propertyDraft : document.Attribute(selection, row.name);
             DrawLabel(renderer, row.name, Rect{row.rect.x + 8.0f, row.rect.y, row.rect.width * 0.42f, row.rect.height}, COLOR_MUTED, 12.0f, TextAlign::START);
             DrawLabel(renderer, value.empty() ? "-" : value, Rect{row.rect.x + row.rect.width * 0.42f, row.rect.y, row.rect.width * 0.55f, row.rect.height}, COLOR_INK, 13.0f, TextAlign::START);
+        }
+        renderer.PopClip();
+        const int visibleRows = std::max(1, static_cast<int>((inspector.height - 72.0f) / 40.0f));
+        const int propertyCount = static_cast<int>(propertyRows.size());
+        if (propertyCount > visibleRows && inspector.height > 80.0f) {
+            const float contentHeight = static_cast<float>(propertyCount) * 40.0f;
+            const Rect track{inspector.x + inspector.width - 14.0f, propertyView.y + 4.0f, 8.0f, std::max(8.0f, propertyView.height - 8.0f)};
+            const float thumbHeight = std::min(track.height, std::max(28.0f, track.height * (propertyView.height / contentHeight)));
+            const float travel = std::max(0.0f, track.height - thumbHeight);
+            const float maxScroll = static_cast<float>(std::max(1, propertyCount - visibleRows));
+            const float y = track.y + travel * (static_cast<float>(inspectorScroll) / maxScroll);
+            renderer.FillRectangle(track, COLOR_LINE, 4.0f);
+            renderer.FillRectangle(Rect{track.x, y, track.width, thumbHeight}, COLOR_MUTED, 4.0f);
         }
 
         renderer.FillRectangle(xmlPanel, COLOR_PANEL, 0.0f);

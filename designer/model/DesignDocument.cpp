@@ -45,6 +45,11 @@ XmlNode MakeComponent(std::string_view name) {
         AddAttribute(node, "width", "160");
         AddAttribute(node, "height", "80");
         AddAttribute(node, "background", "#0E7AFF");
+        AddAttribute(node, "radius", "8");
+    } else if (name == "shadow") {
+        AddAttribute(node, "shadowX", "0");
+        AddAttribute(node, "shadowY", "4");
+        AddAttribute(node, "shadowColor", "#1D1D1F");
     }
     return node;
 }

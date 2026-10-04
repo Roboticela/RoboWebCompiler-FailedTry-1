@@ -7,7 +7,7 @@ The key is: **keep the number of primitives small, but make their properties, la
 I recommend these **11**:
 
 ```text
-Frame
+Frame ✅
 Text
 Image
 Vector
@@ -39,157 +39,157 @@ Think of it as Figma's Frame + a general-purpose visual container.
 ### Identity
 
 ```text
-id
-name
-class
-component
-instance
-tag
-role
+id ✅
+name ✅
+class ✅
+component ✅
+instance ✅
+tag ✅
+role ✅
 ```
 
 ### Size
 
 ```text
-width
-height
+width ✅
+height ✅
 
-minWidth
-maxWidth
-minHeight
-maxHeight
+minWidth ✅
+maxWidth ✅
+minHeight ✅
+maxHeight ✅
 
 widthMode:
-    fixed
-    fill
-    fit
-    percent
+    fixed ✅
+    fill ✅
+    fit ✅
+    percent ✅
 
 heightMode:
-    fixed
-    fill
-    fit
-    percent
+    fixed ✅
+    fill ✅
+    fit ✅
+    percent ✅
 
-aspectRatio
+aspectRatio ✅
 ```
 
 ### Position
 
 ```text
-x
-y
-zIndex
+x ✅
+y ✅
+zIndex ✅
 
 position:
-    flow
-    absolute
-    fixed
+    flow ✅
+    absolute ✅
+    fixed ✅
     sticky
 
 anchor:
-    top
-    right
-    bottom
-    left
-    center
+    top ✅
+    right ✅
+    bottom ✅
+    left ✅
+    center ✅
 ```
 
 ### Padding
 
 ```text
-padding
-paddingTop
-paddingRight
-paddingBottom
-paddingLeft
+padding ✅
+paddingTop ✅
+paddingRight ✅
+paddingBottom ✅
+paddingLeft ✅
 ```
 
 ### Margin
 
 ```text
-margin
-marginTop
-marginRight
-marginBottom
-marginLeft
+margin ✅
+marginTop ✅
+marginRight ✅
+marginBottom ✅
+marginLeft ✅
 ```
 
 ### Layout
 
 ```text
 layout:
-    none
-    horizontal
-    vertical
-    grid
-    wrap
-    stack
+    none ✅
+    horizontal ✅
+    vertical ✅
+    grid ✅
+    wrap ✅
+    stack ✅
 ```
 
 ### Flex-like properties
 
 ```text
-grow
+grow ✅
 shrink
-basis
+basis ✅
 
-gap
-rowGap
-columnGap
+gap ✅
+rowGap ✅
+columnGap ✅
 
-align
-justify
+align ✅
+justify ✅
 
-wrap
+wrap ✅
 ```
 
 ### Alignment
 
 ```text
-left
-center
-right
+left ✅
+center ✅
+right ✅
 
-top
-center
-bottom
+top ✅
+center ✅
+bottom ✅
 
-start
-end
-stretch
+start ✅
+end ✅
+stretch ✅
 ```
 
 ### Grid
 
 ```text
-columns
+columns ✅
 rows
 
-columnGap
-rowGap
+columnGap ✅
+rowGap ✅
 
 column
 row
 
-columnSpan
+columnSpan ✅
 rowSpan
 ```
 
 ### Background
 
 ```text
-background
-backgroundColor
+background ✅
+backgroundColor ✅
 gradient
 image
-opacity
+opacity ✅
 ```
 
 Support:
 
 ```text
-solid
+solid ✅
 linearGradient
 radialGradient
 conicGradient
@@ -199,24 +199,24 @@ image
 ### Border
 
 ```text
-borderWidth
-borderColor
-borderStyle
+borderWidth ✅
+borderColor ✅
+borderStyle ✅
 
-borderTop
-borderRight
-borderBottom
-borderLeft
+borderTop ✅
+borderRight ✅
+borderBottom ✅
+borderLeft ✅
 ```
 
 ### Corner radius
 
 ```text
-radius
-radiusTopLeft
-radiusTopRight
-radiusBottomRight
-radiusBottomLeft
+radius ✅
+radiusTopLeft ✅
+radiusTopRight ✅
+radiusBottomRight ✅
+radiusBottomLeft ✅
 ```
 
 ### Shadow
@@ -241,12 +241,12 @@ Allow multiple shadows:
 
 ```text
 overflow:
-    visible
-    hidden
-    scroll
-    auto
+    visible ✅
+    hidden ✅
+    scroll ✅
+    auto ✅
 
-clip
+clip ✅
 clipRadius
 clipPath
 ```
@@ -254,8 +254,8 @@ clipPath
 ### Transform
 
 ```text
-translateX
-translateY
+translateX ✅
+translateY ✅
 
 scale
 scaleX
@@ -275,14 +275,14 @@ transformOrigin
 ### Opacity / visibility
 
 ```text
-opacity
+opacity ✅
 
-visible
-hidden
+visible ✅
+hidden ✅
 
 display:
-    normal
-    none
+    normal ✅
+    none ✅
 ```
 
 ### Blending
@@ -318,8 +318,8 @@ hueRotate
 
 ```text
 cursor:
-    default
-    pointer
+    default ✅
+    pointer ✅
     text
     grab
     grabbing
