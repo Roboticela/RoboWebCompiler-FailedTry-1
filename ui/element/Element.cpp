@@ -239,6 +239,14 @@ void Element::SetOffsetY(Length value) {
     offsetY = value;
 }
 
+FramePosition Element::PositionMode() const {
+    return positionMode;
+}
+
+void Element::SetPositionMode(FramePosition value) {
+    positionMode = value;
+}
+
 void Element::SetChrome(Color color, bool enabled) {
     background = color;
     chromeBackground = enabled;

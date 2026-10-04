@@ -50,6 +50,43 @@ XmlNode MakeComponent(std::string_view name) {
         AddAttribute(node, "shadowX", "0");
         AddAttribute(node, "shadowY", "4");
         AddAttribute(node, "shadowColor", "#1D1D1F");
+    } else if (name == "text") {
+        AddAttribute(node, "text", "Text");
+        AddAttribute(node, "fontSize", "16");
+        AddAttribute(node, "textColor", "#18181A");
+        AddAttribute(node, "width", "80");
+        AddAttribute(node, "height", "24");
+    } else if (name == "image") {
+        AddAttribute(node, "source", "image.png");
+        AddAttribute(node, "width", "120");
+        AddAttribute(node, "height", "80");
+    } else if (name == "vector") {
+        AddAttribute(node, "shape", "ellipse");
+        AddAttribute(node, "width", "64");
+        AddAttribute(node, "height", "64");
+        AddAttribute(node, "fill", "#7EFFF5");
+    } else if (name == "path") {
+        AddAttribute(node, "d", "M0 40 L80 0 L80 40 Z");
+        AddAttribute(node, "width", "80");
+        AddAttribute(node, "height", "40");
+        AddAttribute(node, "stroke", "#18181A");
+        AddAttribute(node, "strokeWidth", "2");
+    } else if (name == "line") {
+        AddAttribute(node, "x2", "80");
+        AddAttribute(node, "stroke", "#18181A");
+        AddAttribute(node, "strokeWidth", "2");
+        AddAttribute(node, "width", "80");
+        AddAttribute(node, "height", "8");
+    } else if (name == "group" || name == "component" || name == "slot" || name == "scroll") {
+        AddAttribute(node, "width", "160");
+        AddAttribute(node, "height", "80");
+        if (name == "component" || name == "slot") {
+            AddAttribute(node, "name", std::string(name));
+        }
+    } else if (name == "instance") {
+        AddAttribute(node, "component", "component");
+        AddAttribute(node, "width", "160");
+        AddAttribute(node, "height", "80");
     }
     return node;
 }

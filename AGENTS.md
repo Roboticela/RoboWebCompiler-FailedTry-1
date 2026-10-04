@@ -8,16 +8,16 @@ I recommend these **11**:
 
 ```text
 Frame ✅
-Text
-Image
-Vector
-Path
-Line
-Group
-Component
-Instance
-Slot
-Scroll
+Text ✅
+Image ✅
+Vector ✅
+Path ✅
+Line ✅
+Group ✅
+Component ✅
+Instance ✅
+Slot ✅
+Scroll ✅
 ```
 
 You can build virtually everything else on top of these.
@@ -335,31 +335,31 @@ cursor:
 Your complete text primitive should support:
 
 ```text
-text
+text ✅
 ```
 
 ### Typography
 
 ```text
 fontFamily
-fontSize
-fontWeight
+fontSize ✅
+fontWeight ✅
 fontStyle
 
 letterSpacing
 wordSpacing
 lineHeight
 
-textColor
+textColor ✅
 ```
 
 ### Alignment
 
 ```text
 textAlign:
-    left
-    center
-    right
+    left ✅
+    center ✅
+    right ✅
     justify
 
 verticalAlign:
@@ -428,9 +428,9 @@ Support:
 Properties:
 
 ```text
-source
-width
-height
+source ✅
+width ✅
+height ✅
 
 fit:
     fill
@@ -440,9 +440,9 @@ fit:
     scaleDown
 
 position
-opacity
+opacity ✅
 
-radius
+radius ✅
 clip
 
 tint
@@ -481,9 +481,9 @@ This is your arbitrary vector shape primitive.
 Properties:
 
 ```text
-fill
-stroke
-strokeWidth
+fill ✅
+stroke ✅
+strokeWidth ✅
 strokeOpacity
 
 lineCap
@@ -527,10 +527,10 @@ You can optionally make `Path` a lower-level primitive than `Vector`.
 Properties:
 
 ```text
-d
+d ✅
 fill
-stroke
-strokeWidth
+stroke ✅
+strokeWidth ✅
 lineCap
 lineJoin
 dash
@@ -552,9 +552,9 @@ dashOffset
 Properties:
 
 ```text
-stroke
-strokeWidth
-opacity
+stroke ✅
+strokeWidth ✅
+opacity ✅
 lineCap
 dash
 dashGap
@@ -577,9 +577,9 @@ A group simply organizes objects.
 Properties:
 
 ```text
-id
-name
-opacity
+id ✅
+name ✅
+opacity ✅
 transform
 rotation
 scale

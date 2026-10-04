@@ -344,6 +344,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
 
     std::vector<int> selection;
     std::vector<std::vector<int>> selections;
+    std::vector<int> hoverPath;
     std::vector<std::vector<int>> collapsedPaths;
     std::vector<std::vector<int>> lockedPaths;
     std::string layerFilter;
@@ -443,7 +444,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         canvas = Rect{LEFT_WIDTH, TOOLBAR_HEIGHT, std::max(0.0f, width - LEFT_WIDTH - RIGHT_WIDTH),
                       std::max(0.0f, height - TOOLBAR_HEIGHT - XML_HEIGHT)};
         libraryRows.clear();
-        const char* libraryNames[] = {"frame", "shadow"};
+        const char* libraryNames[] = {"frame", "text", "image", "vector", "path", "line", "group", "scroll", "component", "instance", "slot", "shadow"};
         constexpr int libraryCount = static_cast<int>(sizeof(libraryNames) / sizeof(libraryNames[0]));
         for (int index = 0; index < libraryCount; ++index) {
             HitRow row;
@@ -550,7 +551,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             tabRows.push_back(std::move(row));
         }
         toolRows.clear();
-        const EditorTool tools[] = {EditorTool::SELECT, EditorTool::FRAME, EditorTool::HAND, EditorTool::ZOOM};
+        const EditorTool tools[] = {EditorTool::SELECT, EditorTool::FRAME, EditorTool::TEXT, EditorTool::IMAGE, EditorTool::LINE, EditorTool::HAND, EditorTool::ZOOM};
         float toolY = TOOLBAR_HEIGHT + 8.0f;
         for (const EditorTool tool : tools) {
             HitRow row;
@@ -770,6 +771,23 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 bestDistance = distance;
             }
         }
+        if (parent != nullptr && preview != nullptr) {
+            Element* selectedElement = ElementAt(preview.get(), selection);
+            for (const std::unique_ptr<Element>& child : parent->Children()) {
+                if (child.get() == selectedElement) {
+                    continue;
+                }
+                const float start = vertical ? child->Bounds().x - origin.x : child->Bounds().y - origin.y;
+                const float span = vertical ? child->Bounds().width : child->Bounds().height;
+                for (const float edge : {originAxis + start, originAxis + start + span}) {
+                    const float distance = std::fabs(edge - boardValue);
+                    if (distance <= threshold && distance < bestDistance) {
+                        bestBoard = edge;
+                        bestDistance = distance;
+                    }
+                }
+            }
+        }
         if (parent != nullptr) {
             for (const float edge : {originAxis, originAxis + ContentSpan(parent, vertical)}) {
                 const float distance = std::fabs(edge - boardValue);
@@ -926,7 +944,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         WindowCursor cursor = WindowCursor::ARROW;
         if (drag == DragKind::PAN || activeTool == EditorTool::HAND || space) {
             cursor = WindowCursor::HAND;
-        } else if (drag == DragKind::MARQUEE || activeTool == EditorTool::FRAME || activeTool == EditorTool::ZOOM) {
+        } else if (drag == DragKind::MARQUEE || EditorToolComponent(activeTool) != nullptr || activeTool == EditorTool::ZOOM) {
             cursor = WindowCursor::CROSS;
         } else if (drag == DragKind::RESIZE) {
             cursor = CursorForHandle(resizeHandle);
@@ -1089,10 +1107,10 @@ int DesignerApp::Run(const DesignerOptions& options) {
             paintDirty = true;
             return;
         }
-        if (ContainsPoint(canvas, point) && activeTool == EditorTool::FRAME) {
+        if (const char* componentName = EditorToolComponent(activeTool); componentName != nullptr && ContainsPoint(canvas, point)) {
             const Point local = toArtboard(point);
             std::vector<int> inserted;
-            if (document.InsertChild(parentForInsert(), "frame", inserted)) {
+            if (document.InsertChild(parentForInsert(), componentName, inserted)) {
                 remember();
                 document.SetAttribute(inserted, "position", "absolute");
                 document.SetAttribute(inserted, "x", std::to_string(static_cast<int>(Snap(local.x))));
@@ -1147,10 +1165,25 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     paintDirty = true;
                     return;
                 }
-                if ((GetKeyState(VK_MENU) & 0x8000) != 0 && !selection.empty()) {
+                if ((GetKeyState(VK_MENU) & 0x8000) != 0 && (GetKeyState(VK_CONTROL) & 0x8000) != 0 && !selection.empty()) {
                     remember();
                     drag = DragKind::REORDER;
                     reorderAnchor = local.y;
+                } else if ((GetKeyState(VK_MENU) & 0x8000) != 0 && !selection.empty()) {
+                    remember();
+                    std::vector<int> parent = path;
+                    if (!parent.empty()) {
+                        parent.pop_back();
+                    }
+                    std::vector<int> inserted;
+                    if (document.PasteXml(parent, document.NodeXml(path), inserted)) {
+                        selectOnly(inserted);
+                        rebuildPreview();
+                        captureDragNodes();
+                        drag = DragKind::MOVE;
+                        snapXActive = false;
+                        snapYActive = false;
+                    }
                 } else if (!selections.empty()) {
                     remember();
                     captureDragNodes();
@@ -1194,6 +1227,17 @@ int DesignerApp::Run(const DesignerOptions& options) {
     window.SetMouseMove([&](Point point) {
         applyCursor(point);
         if (drag == DragKind::NONE) {
+            std::vector<int> nextHover;
+            if (activeTool == EditorTool::SELECT && ContainsPoint(artboardScreen(), point) && preview != nullptr) {
+                Element* hit = preview->HitTest(toArtboard(point));
+                if (hit != nullptr) {
+                    FindElementPath(*preview, hit, nextHover);
+                }
+            }
+            if (nextHover != hoverPath) {
+                hoverPath = std::move(nextHover);
+                paintDirty = true;
+            }
             return;
         }
         if (drag == DragKind::MARQUEE) {
@@ -1310,6 +1354,22 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 const float bottom = resizeOriginY + resizeOriginHeight;
                 y = std::min(bottom - 16.0f, snapAxis(pointerY, false));
                 height = bottom - y;
+            }
+            if ((GetKeyState(VK_SHIFT) & 0x8000) != 0 && resizeOriginWidth > 1.0f && resizeOriginHeight > 1.0f) {
+                const float aspect = resizeOriginWidth / resizeOriginHeight;
+                if (east || west) {
+                    const float nextHeight = std::max(16.0f, width / aspect);
+                    if (north) {
+                        y -= nextHeight - height;
+                    }
+                    height = nextHeight;
+                } else if (north || south) {
+                    const float nextWidth = std::max(16.0f, height * aspect);
+                    if (west) {
+                        x -= nextWidth - width;
+                    }
+                    width = nextWidth;
+                }
             }
             placeSelection(x, y, width, height);
             paintDirty = true;
@@ -1515,6 +1575,21 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
             if (key == 'F') {
                 activeTool = EditorTool::FRAME;
+                paintDirty = true;
+                return true;
+            }
+            if (key == 'T') {
+                activeTool = EditorTool::TEXT;
+                paintDirty = true;
+                return true;
+            }
+            if (key == 'I') {
+                activeTool = EditorTool::IMAGE;
+                paintDirty = true;
+                return true;
+            }
+            if (key == 'L') {
+                activeTool = EditorTool::LINE;
                 paintDirty = true;
                 return true;
             }
@@ -1854,6 +1929,21 @@ int DesignerApp::Run(const DesignerOptions& options) {
         renderer.PopClip();
         renderer.SetTransform(0.0f, 0.0f, 1.0f);
         DrawBorder(renderer, board, COLOR_TICK);
+        if (preview != nullptr) {
+            int childIndex = 0;
+            for (const std::unique_ptr<Element>& child : preview->Children()) {
+                const Rect screen = screenOfPath({childIndex});
+                ++childIndex;
+                if (screen.width < 1.0f) {
+                    continue;
+                }
+                std::string label = child->Id();
+                if (label.empty()) {
+                    label = child->Kind() == NodeKind::FRAME ? "Frame" : NodeKindName(child->Kind());
+                }
+                DrawLabel(renderer, label, Rect{screen.x, screen.y - 16.0f, 140.0f, 14.0f}, COLOR_TICK, 11.0f, TextAlign::START);
+            }
+        }
         auto paintGuide = [&](const EditorGuide& guide) {
             if (guide.vertical) {
                 const float x = board.x + guide.position * zoom;
@@ -1883,6 +1973,12 @@ int DesignerApp::Run(const DesignerOptions& options) {
         const std::string toolLabel = std::string(EditorToolName(activeTool)) + (selections.size() > 1 ? "  " + std::to_string(selections.size()) : "");
         DrawLabel(renderer, toolLabel, Rect{canvas.x + RULER_SIZE + 8.0f, canvas.y + canvas.height - 22.0f, 140.0f, 18.0f}, COLOR_TICK, 12.0f, TextAlign::START);
         const Rect selectedRect = selectedScreen();
+        if (!hoverPath.empty() && !pathSelected(hoverPath) && !SamePath(hoverPath, selection) && activeTool == EditorTool::SELECT) {
+            const Rect hoverRect = screenOfPath(hoverPath);
+            if (hoverRect.width > 1.0f && hoverRect.height > 1.0f) {
+                DrawBorder(renderer, hoverRect, COLOR_ACCENT);
+            }
+        }
         if (selections.size() > 1 && activeTool == EditorTool::SELECT) {
             for (const std::vector<int>& path : selections) {
                 const Rect item = screenOfPath(path);

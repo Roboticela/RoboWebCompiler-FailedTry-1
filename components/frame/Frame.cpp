@@ -21,11 +21,7 @@ Frame* AsFrame(Element& element) {
 }
 
 bool LeavesFlow(const Element& element) {
-    const Frame* frame = AsFrame(element);
-    if (frame == nullptr) {
-        return false;
-    }
-    const FramePosition position = frame->PositionMode();
+    const FramePosition position = element.PositionMode();
     return position == FramePosition::ABSOLUTE || position == FramePosition::FIXED;
 }
 
@@ -67,7 +63,10 @@ void Frame::SetRole(std::string value) { role = std::move(value); }
 void Frame::SetWidthMode(SizeMode value) { widthMode = value; }
 void Frame::SetHeightMode(SizeMode value) { heightMode = value; }
 void Frame::SetAspectRatio(float value) { aspectRatio = value; }
-void Frame::SetPositionMode(FramePosition value) { positionMode = value; }
+void Frame::SetPositionMode(FramePosition value) {
+    positionMode = value;
+    Element::SetPositionMode(value);
+}
 void Frame::SetAnchor(FrameAnchor value) { anchor = value; }
 void Frame::SetPadding(Edges value) { padding = value; }
 
@@ -410,31 +409,31 @@ void Frame::Arrange(const Rect& rect) {
     }
 
     for (const std::unique_ptr<Element>& child : children) {
-        Frame* frame = AsFrame(*child);
-        if (frame == nullptr || !frame->OutOfFlow()) {
+        if (!LeavesFlow(*child)) {
             continue;
         }
-        float x = originX + frame->OffsetX().Resolve(bounds.width, 0.0f, true);
-        float y = originY + frame->OffsetY().Resolve(bounds.width, 0.0f, true);
-        const float childWidth = frame->Measured().width;
-        const float childHeight = frame->Measured().height;
-        if (frame->Anchor() == FrameAnchor::CENTER) {
+        Frame* frame = AsFrame(*child);
+        float x = originX + child->OffsetX().Resolve(bounds.width, 0.0f, true);
+        float y = originY + child->OffsetY().Resolve(bounds.width, 0.0f, true);
+        const float childWidth = child->Measured().width;
+        const float childHeight = child->Measured().height;
+        if (frame != nullptr && frame->Anchor() == FrameAnchor::CENTER) {
             x = bounds.x + (bounds.width - childWidth) * 0.5f;
             y = bounds.y + (bounds.height - childHeight) * 0.5f;
-        } else if (frame->Anchor() == FrameAnchor::RIGHT) {
+        } else if (frame != nullptr && frame->Anchor() == FrameAnchor::RIGHT) {
             x = bounds.x + bounds.width - childWidth - padding.right.Resolve(bounds.width, 0.0f);
-        } else if (frame->Anchor() == FrameAnchor::BOTTOM) {
+        } else if (frame != nullptr && frame->Anchor() == FrameAnchor::BOTTOM) {
             y = bounds.y + bounds.height - childHeight - padding.bottom.Resolve(bounds.width, 0.0f);
-        } else if (frame->Anchor() == FrameAnchor::LEFT) {
+        } else if (frame != nullptr && frame->Anchor() == FrameAnchor::LEFT) {
             x = originX;
-        } else if (frame->Anchor() == FrameAnchor::TOP) {
+        } else if (frame != nullptr && frame->Anchor() == FrameAnchor::TOP) {
             y = bounds.y + padTop;
         }
-        if (frame->PositionMode() == FramePosition::FIXED) {
-            x = frame->OffsetX().Resolve(viewportWidth, 0.0f, true);
-            y = frame->OffsetY().Resolve(viewportHeight, 0.0f, true);
+        if (child->PositionMode() == FramePosition::FIXED) {
+            x = child->OffsetX().Resolve(viewportWidth, 0.0f, true);
+            y = child->OffsetY().Resolve(viewportHeight, 0.0f, true);
         }
-        frame->Arrange(Rect{x, y, childWidth, childHeight});
+        child->Arrange(Rect{x, y, childWidth, childHeight});
     }
 }
 

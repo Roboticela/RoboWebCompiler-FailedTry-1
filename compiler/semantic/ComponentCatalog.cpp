@@ -106,6 +106,58 @@ std::vector<PropertySpec> FrameProperties() {
     };
 }
 
+std::vector<PropertySpec> IdentityProperties() {
+    return {
+        {"id", TypeKind::STRING},
+        {"name", TypeKind::STRING},
+        {"x", TypeKind::LENGTH},
+        {"y", TypeKind::LENGTH},
+        {"width", TypeKind::LENGTH},
+        {"height", TypeKind::LENGTH},
+        {"position", TypeKind::STRING},
+        {"opacity", TypeKind::FLOAT},
+        {"visible", TypeKind::BOOL},
+    };
+}
+
+std::vector<PropertySpec> With(std::vector<PropertySpec> base, std::vector<PropertySpec> extra) {
+    base.insert(base.end(), extra.begin(), extra.end());
+    return base;
+}
+
+std::vector<PropertySpec> TextProperties() {
+    return With(IdentityProperties(), {{"text", TypeKind::STRING},
+                                       {"fontSize", TypeKind::FONT_SIZE},
+                                       {"fontWeight", TypeKind::INT},
+                                       {"textColor", TypeKind::COLOR},
+                                       {"textAlign", TypeKind::STRING}});
+}
+
+std::vector<PropertySpec> ImageProperties() {
+    return With(IdentityProperties(), {{"source", TypeKind::STRING}, {"fit", TypeKind::STRING}, {"radius", TypeKind::LENGTH}});
+}
+
+std::vector<PropertySpec> VectorProperties() {
+    return With(IdentityProperties(), {{"shape", TypeKind::STRING},
+                                       {"fill", TypeKind::COLOR},
+                                       {"stroke", TypeKind::COLOR},
+                                       {"strokeWidth", TypeKind::FLOAT},
+                                       {"radius", TypeKind::LENGTH}});
+}
+
+std::vector<PropertySpec> PathProperties() {
+    return With(IdentityProperties(), {{"d", TypeKind::STRING}, {"fill", TypeKind::COLOR}, {"stroke", TypeKind::COLOR}, {"strokeWidth", TypeKind::FLOAT}});
+}
+
+std::vector<PropertySpec> LineProperties() {
+    return With(IdentityProperties(), {{"x1", TypeKind::FLOAT},
+                                       {"y1", TypeKind::FLOAT},
+                                       {"x2", TypeKind::FLOAT},
+                                       {"y2", TypeKind::FLOAT},
+                                       {"stroke", TypeKind::COLOR},
+                                       {"strokeWidth", TypeKind::FLOAT}});
+}
+
 std::vector<PropertySpec> ShadowProperties() {
     return {
         {"shadow", TypeKind::STRING},
@@ -124,6 +176,16 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"window", NodeKind::WINDOW, true, {{"id", TypeKind::STRING}, {"title", TypeKind::STRING}, {"width", TypeKind::LENGTH}, {"height", TypeKind::LENGTH}, {"background", TypeKind::COLOR}}},
         {"frame", NodeKind::FRAME, true, FrameProperties()},
         {"shadow", NodeKind::SHADOW, false, ShadowProperties()},
+        {"text", NodeKind::TEXT, false, TextProperties()},
+        {"image", NodeKind::IMAGE, false, ImageProperties()},
+        {"vector", NodeKind::VECTOR, false, VectorProperties()},
+        {"path", NodeKind::PATH, false, PathProperties()},
+        {"line", NodeKind::LINE, false, LineProperties()},
+        {"group", NodeKind::GROUP, true, IdentityProperties()},
+        {"component", NodeKind::COMPONENT, true, IdentityProperties()},
+        {"instance", NodeKind::INSTANCE, true, With(IdentityProperties(), {{"component", TypeKind::STRING}})},
+        {"slot", NodeKind::SLOT, true, With(IdentityProperties(), {{"text", TypeKind::STRING}})},
+        {"scroll", NodeKind::SCROLL, true, FrameProperties()},
     };
     return catalog;
 }

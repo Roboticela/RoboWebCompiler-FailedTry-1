@@ -214,6 +214,30 @@ void TestFrameLayout(TestContext& test) {
     Finish(test, "frame layout", before);
 }
 
+void TestPrimitives(TestContext& test) {
+    const int before = test.failed;
+    std::unique_ptr<Element> root = Layout(
+        "<window width=\"300\" height=\"200\"><frame width=\"300\" height=\"200\">"
+        "<text id=\"label\" text=\"Hi\" position=\"absolute\" x=\"10\" y=\"12\" width=\"40\" height=\"20\"/>"
+        "<vector id=\"dot\" shape=\"ellipse\" position=\"absolute\" x=\"20\" y=\"40\" width=\"16\" height=\"16\" fill=\"#000000\"/>"
+        "<line id=\"rule\" x2=\"80\" position=\"absolute\" x=\"0\" y=\"70\" width=\"80\" height=\"8\"/>"
+        "<component name=\"Badge\"><text text=\"Ok\"/></component>"
+        "<instance id=\"badge\" component=\"Badge\" position=\"absolute\" x=\"60\" y=\"20\" width=\"40\" height=\"20\"/>"
+        "<scroll id=\"scroller\" width=\"40\" height=\"40\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    CHECK(test, root != nullptr);
+    CHECK(test, root->FindById("label") != nullptr);
+    CHECK(test, root->FindById("label")->Kind() == NodeKind::TEXT);
+    CHECK(test, std::fabs(root->FindById("label")->Bounds().x - 10.0f) < 0.01f);
+    CHECK(test, root->FindById("dot")->Kind() == NodeKind::VECTOR);
+    CHECK(test, root->FindById("rule")->Kind() == NodeKind::LINE);
+    CHECK(test, root->FindById("badge")->Kind() == NodeKind::INSTANCE);
+    CHECK(test, root->FindById("badge")->Children().size() == 1);
+    CHECK(test, root->FindById("scroller")->Kind() == NodeKind::SCROLL);
+    Finish(test, "primitives", before);
+}
+
 void TestDesignDocumentEditsXml(TestContext& test) {
     const int before = test.failed;
     DesignDocument document;
@@ -249,6 +273,7 @@ int RunUnitTests() {
     TestSuggestions(test);
     TestFrameProperties(test);
     TestFrameLayout(test);
+    TestPrimitives(test);
     TestDesignDocumentEditsXml(test);
     TestIrDump(test);
     if (test.failed == 0) {

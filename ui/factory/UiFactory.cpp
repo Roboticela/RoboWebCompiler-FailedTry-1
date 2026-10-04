@@ -2,6 +2,7 @@
 
 #include "components/frame/Frame.h"
 #include "components/layout/WindowElement.h"
+#include "components/primitive/PrimitiveElement.h"
 
 #include <algorithm>
 
@@ -244,6 +245,102 @@ void ApplyFrame(Frame& frame, const IrNode& node) {
     if (const UiValue* value = FindProperty(node, "opacity")) frame.SetOpacity(static_cast<float>(value->number));
 }
 
+void ApplyCommon(Element& element, const IrNode& node) {
+    if (!node.id.empty()) {
+        element.SetId(node.id);
+    }
+    if (const UiValue* value = FindProperty(node, "x")) {
+        element.SetOffsetX(value->length);
+    }
+    if (const UiValue* value = FindProperty(node, "y")) {
+        element.SetOffsetY(value->length);
+    }
+    if (const UiValue* value = FindProperty(node, "width")) {
+        element.SetWidth(value->length);
+    }
+    if (const UiValue* value = FindProperty(node, "height")) {
+        element.SetHeight(value->length);
+    }
+    if (const UiValue* value = FindProperty(node, "opacity")) {
+        element.SetOpacity(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "visible")) {
+        element.SetVisible(value->boolean);
+    }
+    if (const UiValue* value = FindProperty(node, "position")) {
+        element.SetPositionMode(ParsePosition(value->text));
+    }
+}
+
+void ApplyShape(ShapeElement& shape, const IrNode& node) {
+    ApplyCommon(shape, node);
+    if (const UiValue* value = FindProperty(node, "text")) {
+        shape.SetText(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "name")) {
+        if (shape.Kind() == NodeKind::SLOT || shape.Kind() == NodeKind::COMPONENT) {
+            shape.SetText(value->text);
+        }
+    }
+    if (const UiValue* value = FindProperty(node, "source")) {
+        shape.SetSource(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "d")) {
+        shape.SetPathData(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "shape")) {
+        shape.SetShapeName(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "fill")) {
+        shape.SetFill(value->color);
+    }
+    Color stroke{0.114f, 0.114f, 0.122f, 1.0f};
+    float strokeWidth = shape.Kind() == NodeKind::LINE || shape.Kind() == NodeKind::PATH ? 2.0f : 0.0f;
+    if (const UiValue* value = FindProperty(node, "stroke")) {
+        stroke = value->color;
+        if (strokeWidth <= 0.0f) {
+            strokeWidth = 1.0f;
+        }
+    }
+    if (const UiValue* value = FindProperty(node, "strokeWidth")) {
+        strokeWidth = static_cast<float>(value->number);
+    }
+    shape.SetStroke(stroke, strokeWidth);
+    if (const UiValue* value = FindProperty(node, "radius")) {
+        shape.SetCornerRadius(value->length.value);
+    }
+    Color textColor{0.094f, 0.094f, 0.102f, 1.0f};
+    if (const UiValue* value = FindProperty(node, "textColor")) {
+        textColor = value->color;
+    }
+    TextAlign align = TextAlign::START;
+    if (const UiValue* value = FindProperty(node, "textAlign")) {
+        if (value->text == "center") {
+            align = TextAlign::CENTER;
+        } else if (value->text == "right" || value->text == "end") {
+            align = TextAlign::END;
+        }
+    }
+    shape.SetFont(NumberOf(node, "fontSize", 16.0f), static_cast<int>(NumberOf(node, "fontWeight", 400.0f)), textColor, align);
+    shape.SetLine(NumberOf(node, "x1", 0.0f), NumberOf(node, "y1", 0.0f), NumberOf(node, "x2", 80.0f), NumberOf(node, "y2", 0.0f));
+}
+
+const IrNode* FindNamedComponent(const IrNode& node, std::string_view name) {
+    if (node.kind == NodeKind::COMPONENT) {
+        if (const UiValue* value = FindProperty(node, "name")) {
+            if (value->text == name) {
+                return &node;
+            }
+        }
+    }
+    for (const IrNode& child : node.children) {
+        if (const IrNode* found = FindNamedComponent(child, name)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
     switch (node.kind) {
     case NodeKind::WINDOW:
@@ -252,18 +349,43 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<Frame>();
     case NodeKind::SHADOW:
         return nullptr;
+    case NodeKind::TEXT:
+    case NodeKind::IMAGE:
+    case NodeKind::VECTOR:
+    case NodeKind::PATH:
+    case NodeKind::LINE:
+    case NodeKind::GROUP:
+    case NodeKind::COMPONENT:
+    case NodeKind::INSTANCE:
+    case NodeKind::SLOT:
+        return std::make_unique<ShapeElement>(node.kind);
+    case NodeKind::SCROLL:
+        return std::make_unique<ScrollElement>();
     }
     return nullptr;
 }
 
-void Populate(Element& element, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks) {
+void Populate(Element& element, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks, const IrNode& root) {
     (void)clicks;
     if (Frame* frame = dynamic_cast<Frame*>(&element)) {
         ApplyFrame(*frame, node);
+        ApplyCommon(*frame, node);
+        if (node.kind == NodeKind::SCROLL) {
+            frame->SetOverflow(OverflowMode::SCROLL);
+        }
+    } else if (ShapeElement* shape = dynamic_cast<ShapeElement*>(&element)) {
+        ApplyShape(*shape, node);
     } else {
-        element.SetId(node.id);
+        ApplyCommon(element, node);
     }
-    for (const IrNode& child : node.children) {
+    const IrNode* definition = nullptr;
+    if (node.kind == NodeKind::INSTANCE && node.children.empty()) {
+        if (const UiValue* value = FindProperty(node, "component")) {
+            definition = FindNamedComponent(root, value->text);
+        }
+    }
+    const std::vector<IrNode>& children = definition == nullptr ? node.children : definition->children;
+    for (const IrNode& child : children) {
         if (child.kind == NodeKind::SHADOW) {
             if (Frame* frame = dynamic_cast<Frame*>(&element)) {
                 frame->AddShadow(ReadShadow(child));
@@ -274,7 +396,7 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         if (created == nullptr) {
             continue;
         }
-        Populate(*created, child, clicks);
+        Populate(*created, child, clicks, root);
         element.AddChild(std::move(created));
     }
 }
@@ -286,7 +408,7 @@ std::unique_ptr<Element> Instantiate(const IrNode& root, const std::unordered_ma
     if (created == nullptr) {
         return nullptr;
     }
-    Populate(*created, root, clicks);
+    Populate(*created, root, clicks, root);
     if (!root.states.empty()) {
         created->SeedState(root.states);
     } else {

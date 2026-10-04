@@ -338,7 +338,6 @@ bool Harvest(XmlNode& node, DocumentModel& model, std::vector<Diagnostic>& diagn
                 body.children = child.children;
             }
             model.components[name] = std::move(body);
-            continue;
         }
         ok = Harvest(child, model, diagnostics) && ok;
         kept.push_back(std::move(child));

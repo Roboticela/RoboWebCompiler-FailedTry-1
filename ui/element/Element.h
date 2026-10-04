@@ -68,6 +68,8 @@ public:
     Length OffsetY() const;
     void SetOffsetX(Length value);
     void SetOffsetY(Length value);
+    FramePosition PositionMode() const;
+    void SetPositionMode(FramePosition value);
     void SetChrome(Color background, bool enabled);
     void SetBorder(float thickness, Color color);
     void SetChromeRadius(Length value);
@@ -116,6 +118,7 @@ protected:
     bool visible = true;
     Length offsetX = Length::Pixels(0.0f);
     Length offsetY = Length::Pixels(0.0f);
+    FramePosition positionMode = FramePosition::FLOW;
     bool chromeBackground = false;
     Color background = COLOR_BG_PRIMARY;
     float borderWidth = 0.0f;

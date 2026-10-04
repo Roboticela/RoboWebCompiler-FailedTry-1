@@ -22,6 +22,16 @@ enum class NodeKind : std::uint8_t {
     WINDOW,
     FRAME,
     SHADOW,
+    TEXT,
+    IMAGE,
+    VECTOR,
+    PATH,
+    LINE,
+    GROUP,
+    COMPONENT,
+    INSTANCE,
+    SLOT,
+    SCROLL,
 };
 
 enum class FrameLayout : std::uint8_t {
@@ -256,6 +266,26 @@ inline const char* NodeKindName(NodeKind kind) {
         return "frame";
     case NodeKind::SHADOW:
         return "shadow";
+    case NodeKind::TEXT:
+        return "text";
+    case NodeKind::IMAGE:
+        return "image";
+    case NodeKind::VECTOR:
+        return "vector";
+    case NodeKind::PATH:
+        return "path";
+    case NodeKind::LINE:
+        return "line";
+    case NodeKind::GROUP:
+        return "group";
+    case NodeKind::COMPONENT:
+        return "component";
+    case NodeKind::INSTANCE:
+        return "instance";
+    case NodeKind::SLOT:
+        return "slot";
+    case NodeKind::SCROLL:
+        return "scroll";
     }
     return "unknown";
 }
