@@ -1,0 +1,126 @@
+<window width="1440" height="900" background="#0B1220" title="RoboUIDesigner">
+    <column width="fill" height="fill" background="#0B1220">
+        <row id="titleBar" width="fill" height="52" padding="12 16" alignment="center" background="#101826">
+            <text text="Roboticela" color="#F4F7FB" fontWeight="600" fontSize="15"/>
+            <text text="Website Redesign" color="#8B9BB4" fontSize="14"/>
+            <spacer width="fill"/>
+            <button id="shareButton" text="Share" height="32" background="#1A2433" cornerRadius="8"/>
+            <button id="presentButton" text="Present" height="32" variant="primary"/>
+        </row>
+        <row width="fill" height="fill">
+            <column id="files" width="250" height="fill" background="#101826" padding="12" spacing="8">
+                <row spacing="8" alignment="center">
+                    <button text="Files" height="28" variant="primary" size="sm"/>
+                    <button text="Assets" height="28" background="#1A2433" cornerRadius="8"/>
+                    <button text="Layers" height="28" background="#1A2433" cornerRadius="8"/>
+                </row>
+                <textField placeholder="Search files" height="36"/>
+                <text text="Recent" color="#8B9BB4" fontSize="12" fontWeight="600"/>
+                <text text="Website Redesign" color="#F4F7FB" fontSize="14"/>
+                <text text="Mobile App UI" color="#C5D0E0" fontSize="14"/>
+                <text text="Dashboard Design" color="#C5D0E0" fontSize="14"/>
+                <text text="Brand Assets" color="#C5D0E0" fontSize="14"/>
+                <text text="Projects" color="#8B9BB4" fontSize="12" fontWeight="600"/>
+                <text text="Roboticela OS" color="#F4F7FB" fontSize="14"/>
+                <text text="Marketing Site" color="#C5D0E0" fontSize="14"/>
+                <text text="Mobile App" color="#C5D0E0" fontSize="14"/>
+                <text text="Shared with Me" color="#8B9BB4" fontSize="12" fontWeight="600"/>
+                <text text="Design System" color="#C5D0E0" fontSize="14"/>
+                <text text="Components" color="#C5D0E0" fontSize="14"/>
+                <text text="Drafts" color="#8B9BB4" fontSize="12" fontWeight="600"/>
+                <text id="layersBody" text="Layers follow the open XML." color="#C5D0E0" fontSize="13" width="fill"/>
+            </column>
+            <column width="fill" height="fill" background="#0B1220">
+                <row width="fill" height="44" padding="8 12" alignment="center" background="#101826">
+                    <iconButton text="↖" background="#1A2433"/>
+                    <iconButton text="□" background="#1A2433"/>
+                    <iconButton text="○" background="#1A2433"/>
+                    <iconButton text="T" background="#1A2433"/>
+                    <iconButton text="✎" background="#1A2433"/>
+                    <spacer width="fill"/>
+                    <text id="zoomLabel" text="100%" color="#F4F7FB" fontSize="13"/>
+                    <spacer width="fill"/>
+                    <button text="Design" height="28" variant="primary" size="sm"/>
+                    <button text="AI" height="28" background="#1A2433" cornerRadius="8"/>
+                    <button text="Code" height="28" background="#1A2433" cornerRadius="8"/>
+                    <button text="Comments" height="28" background="#1A2433" cornerRadius="8"/>
+                </row>
+                <row width="fill" height="fill">
+                    <column id="canvas" width="fill" height="fill" background="#0C1422"/>
+                    <column width="300" height="fill" background="#101826" padding="16" spacing="14">
+                        <scroll width="fill" height="fill" spacing="14">
+                            <text text="Position &amp; Size" color="#F4F7FB" fontWeight="600" fontSize="14"/>
+                            <row spacing="8">
+                                <column width="fill" spacing="4">
+                                    <text text="X" color="#8B9BB4" fontSize="12"/>
+                                    <textField id="fieldX" text="0" height="36"/>
+                                </column>
+                                <column width="fill" spacing="4">
+                                    <text text="Y" color="#8B9BB4" fontSize="12"/>
+                                    <textField id="fieldY" text="0" height="36"/>
+                                </column>
+                            </row>
+                            <row spacing="8">
+                                <column width="fill" spacing="4">
+                                    <text text="W" color="#8B9BB4" fontSize="12"/>
+                                    <textField id="fieldW" text="0" height="36"/>
+                                </column>
+                                <column width="fill" spacing="4">
+                                    <text text="H" color="#8B9BB4" fontSize="12"/>
+                                    <textField id="fieldH" text="0" height="36"/>
+                                </column>
+                            </row>
+                            <text text="Appearance" color="#F4F7FB" fontWeight="600" fontSize="14"/>
+                            <row alignment="center" spacing="8">
+                                <text text="Opacity" color="#C5D0E0" fontSize="13" width="72"/>
+                                <slider value="100"/>
+                                <text text="100%" color="#F4F7FB" fontSize="13"/>
+                            </row>
+                            <row alignment="center" spacing="8">
+                                <text text="Radius" color="#C5D0E0" fontSize="13" width="72"/>
+                                <textField id="fieldRadius" text="16" height="36"/>
+                            </row>
+                            <row alignment="center" spacing="8">
+                                <text text="Fill" color="#C5D0E0" fontSize="13" width="72"/>
+                                <textField id="fieldFill" text="#3B8EFF" height="36"/>
+                            </row>
+                            <row alignment="center" spacing="8">
+                                <text text="Stroke" color="#C5D0E0" fontSize="13" width="72"/>
+                                <textField id="fieldStroke" text="#FFFFFF" height="36"/>
+                            </row>
+                            <text text="Typography" color="#F4F7FB" fontWeight="600" fontSize="14"/>
+                            <row spacing="8">
+                                <column width="fill" spacing="4">
+                                    <text text="Size" color="#8B9BB4" fontSize="12"/>
+                                    <textField id="fieldSize" text="16" height="36"/>
+                                </column>
+                                <column width="fill" spacing="4">
+                                    <text text="Weight" color="#8B9BB4" fontSize="12"/>
+                                    <textField id="fieldWeight" text="500" height="36"/>
+                                </column>
+                            </row>
+                            <text text="Effects" color="#F4F7FB" fontWeight="600" fontSize="14"/>
+                            <text text="Drop shadow stays off. Fills, radius, and borders only." color="#8B9BB4" fontSize="12" width="fill"/>
+                        </scroll>
+                        <column width="fill" spacing="8" background="#161E2C" padding="12" cornerRadius="12">
+                            <text text="Easing" color="#F4F7FB" fontWeight="600" fontSize="14"/>
+                            <row spacing="6">
+                                <button text="Linear" height="28" background="#1A2433" cornerRadius="8"/>
+                                <button text="Ease" height="28" variant="primary" size="sm"/>
+                            </row>
+                            <row spacing="6">
+                                <button text="Ease In" height="28" background="#1A2433" cornerRadius="8"/>
+                                <button text="Ease Out" height="28" background="#1A2433" cornerRadius="8"/>
+                            </row>
+                        </column>
+                    </column>
+                </row>
+                <column id="timeline" width="fill" height="196" background="#101826" padding="12" spacing="8">
+                    <row alignment="center" spacing="12">
+                        <iconButton id="playButton" text="▶" background="#1A2433"/>
+                    </row>
+                </column>
+            </column>
+        </row>
+    </column>
+</window>
