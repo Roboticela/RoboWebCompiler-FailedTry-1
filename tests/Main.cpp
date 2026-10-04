@@ -238,6 +238,24 @@ void TestPrimitives(TestContext& test) {
     Finish(test, "primitives", before);
 }
 
+void TestBoards(TestContext& test) {
+    const int before = test.failed;
+    std::unique_ptr<Element> root = Layout(
+        "<window width=\"400\" height=\"300\">"
+        "<frame id=\"first\" width=\"100\" height=\"80\"/>"
+        "<frame id=\"board\" position=\"absolute\" x=\"220\" y=\"40\" width=\"90\" height=\"50\"/>"
+        "<frame id=\"next\" width=\"70\" height=\"30\"/>"
+        "</window>",
+        400.0f, 300.0f);
+    CHECK(test, root != nullptr);
+    CHECK(test, std::fabs(root->FindById("first")->Bounds().x) < 0.01f);
+    CHECK(test, std::fabs(root->FindById("first")->Bounds().y) < 0.01f);
+    CHECK(test, std::fabs(root->FindById("board")->Bounds().x - 220.0f) < 0.01f);
+    CHECK(test, std::fabs(root->FindById("board")->Bounds().y - 40.0f) < 0.01f);
+    CHECK(test, std::fabs(root->FindById("next")->Bounds().y - 80.0f) < 0.01f);
+    Finish(test, "boards", before);
+}
+
 void TestDesignDocumentEditsXml(TestContext& test) {
     const int before = test.failed;
     DesignDocument document;
@@ -274,6 +292,7 @@ int RunUnitTests() {
     TestFrameProperties(test);
     TestFrameLayout(test);
     TestPrimitives(test);
+    TestBoards(test);
     TestDesignDocumentEditsXml(test);
     TestIrDump(test);
     if (test.failed == 0) {

@@ -17,13 +17,15 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace Runtime {
 namespace {
 
 constexpr float TOOLBAR_HEIGHT = 48.0f;
-constexpr float TOOL_RAIL = 48.0f;
+constexpr float ICON_SIDEBAR = 72.0f;
 constexpr float LEFT_WIDTH = 318.0f;
 constexpr float RIGHT_WIDTH = 318.0f;
 constexpr float XML_HEIGHT = 168.0f;
@@ -46,6 +48,9 @@ constexpr Color COLOR_STATUS{1.0f, 0x32 / 255.0f, 0x77 / 255.0f, 1.0f};
 constexpr Color COLOR_GRID{0xE8 / 255.0f, 0xEA / 255.0f, 0xEE / 255.0f, 1.0f};
 constexpr Color COLOR_RULER{0xE8 / 255.0f, 0xEA / 255.0f, 0xEE / 255.0f, 1.0f};
 constexpr Color COLOR_TICK{0x49 / 255.0f, 0x5E / 255.0f, 0x74 / 255.0f, 1.0f};
+constexpr Color COLOR_NAV{0x3B / 255.0f, 0x6F / 255.0f, 0xF0 / 255.0f, 1.0f};
+constexpr Color COLOR_NAV_HOVER{0x4C / 255.0f, 0x80 / 255.0f, 0xF6 / 255.0f, 1.0f};
+constexpr Color COLOR_HOVER{0x2A / 255.0f, 0x30 / 255.0f, 0x34 / 255.0f, 1.0f};
 
 enum class EditTarget {
     NONE,
@@ -114,6 +119,16 @@ WindowCursor CursorForHandle(ResizeHandle handle) {
     }
     return WindowCursor::ARROW;
 }
+
+struct FileEntry {
+    std::filesystem::path path;
+    std::string name;
+    int depth = 0;
+    bool directory = false;
+    bool expanded = false;
+    Rect rect{};
+    Rect twist{};
+};
 
 struct HitRow {
     Rect rect{};
@@ -245,6 +260,44 @@ bool FindComponentPath(const XmlNode& node, std::string_view component, std::vec
     return false;
 }
 
+void DrawIconLine(Renderer& renderer, float x1, float y1, float x2, float y2, Color color) {
+    const float dx = x2 - x1;
+    const float dy = y2 - y1;
+    const float steps = std::max(1.0f, std::max(std::fabs(dx), std::fabs(dy)));
+    const int count = static_cast<int>(steps);
+    for (int index = 0; index <= count; ++index) {
+        const float t = static_cast<float>(index) / steps;
+        renderer.FillRectangle(Rect{x1 + dx * t, y1 + dy * t, 1.5f, 1.5f}, color, 0.5f);
+    }
+}
+
+void DrawNavIcon(Renderer& renderer, float x, float y, int kind, Color color) {
+    if (kind == 0) {
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 6.0f, 16.0f, 11.0f}, color, 1.25f, 2.0f);
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 3.0f, 7.0f, 4.0f}, color, 1.25f, 1.0f);
+    } else if (kind == 1) {
+        renderer.StrokeRectangle(Rect{x + 4.0f, y + 1.0f, 13.0f, 15.0f}, color, 1.25f, 1.5f);
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 4.0f, 13.0f, 15.0f}, color, 1.25f, 1.5f);
+    } else if (kind == 2) {
+        renderer.StrokeRectangle(Rect{x + 4.0f, y + 4.0f, 10.0f, 10.0f}, color, 1.25f, 1.0f);
+        renderer.FillRectangle(Rect{x + 1.0f, y + 1.0f, 3.5f, 3.5f}, color, 1.0f);
+        renderer.FillRectangle(Rect{x + 13.5f, y + 1.0f, 3.5f, 3.5f}, color, 1.0f);
+        renderer.FillRectangle(Rect{x + 1.0f, y + 13.5f, 3.5f, 3.5f}, color, 1.0f);
+        renderer.FillRectangle(Rect{x + 13.5f, y + 13.5f, 3.5f, 3.5f}, color, 1.0f);
+    } else if (kind == 3) {
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 3.0f, 16.0f, 13.0f}, color, 1.25f, 2.0f);
+        renderer.FillRectangle(Rect{x + 4.0f, y + 6.0f, 3.5f, 3.5f}, color, 2.0f);
+        DrawIconLine(renderer, x + 3.0f, y + 13.0f, x + 8.0f, y + 9.0f, color);
+        DrawIconLine(renderer, x + 8.0f, y + 9.0f, x + 15.0f, y + 13.0f, color);
+    } else {
+        const float points[][2] = {{9.0f, 1.0f}, {16.0f, 5.0f}, {16.0f, 13.0f}, {9.0f, 17.0f}, {2.0f, 13.0f}, {2.0f, 5.0f}};
+        for (int index = 0; index < 6; ++index) {
+            const int next = (index + 1) % 6;
+            DrawIconLine(renderer, x + points[index][0], y + points[index][1], x + points[next][0], y + points[next][1], color);
+        }
+    }
+}
+
 void DrawLabel(Renderer& renderer, std::string_view text, const Rect& rect, Color color, float size, TextAlign align) {
     TextStyle style;
     style.fontSize = size;
@@ -315,6 +368,62 @@ float Snap(float value) {
     return std::round(value / SNAP_STEP) * SNAP_STEP;
 }
 
+std::filesystem::path FindProjectRoot() {
+    std::error_code error;
+    std::filesystem::path cursor = std::filesystem::current_path(error);
+    for (int step = 0; step < 6 && !cursor.empty(); ++step) {
+        if (std::filesystem::exists(cursor / "CMakeLists.txt", error)) {
+            return cursor;
+        }
+        cursor = cursor.parent_path();
+    }
+    return std::filesystem::current_path(error);
+}
+
+bool IsHiddenEntry(const std::filesystem::path& path) {
+    const std::string name = path.filename().string();
+    return name == ".git" || name == "build" || name == ".vs";
+}
+
+std::filesystem::path UniqueChild(const std::filesystem::path& directory, const std::string& stem, const std::string& extension) {
+    std::error_code error;
+    std::filesystem::path candidate = directory / (stem + extension);
+    int index = 2;
+    while (std::filesystem::exists(candidate, error)) {
+        candidate = directory / (stem + " " + std::to_string(index) + extension);
+        ++index;
+    }
+    return candidate;
+}
+
+void DrawExplorerIcon(Renderer& renderer, float x, float y, int kind, Color color) {
+    if (kind == 0 || kind == 3) {
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 6.0f, 14.0f, 9.0f}, color, 1.25f, 2.0f);
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 3.0f, 6.0f, 4.0f}, color, 1.25f, 1.0f);
+        if (kind == 3) {
+            renderer.FillRectangle(Rect{x + 11.0f, y + 1.0f, 5.0f, 1.5f}, color, 0.0f);
+            renderer.FillRectangle(Rect{x + 12.5f, y, 1.5f, 5.0f}, color, 0.0f);
+        }
+    } else if (kind == 1 || kind == 2) {
+        renderer.StrokeRectangle(Rect{x + 3.0f, y + 1.0f, 11.0f, 14.0f}, color, 1.25f, 1.5f);
+        renderer.FillRectangle(Rect{x + 5.0f, y + 5.0f, 7.0f, 1.0f}, color, 0.0f);
+        renderer.FillRectangle(Rect{x + 5.0f, y + 8.0f, 7.0f, 1.0f}, color, 0.0f);
+        if (kind == 2) {
+            renderer.FillRectangle(Rect{x + 11.0f, y + 12.0f, 5.0f, 1.5f}, color, 0.0f);
+            renderer.FillRectangle(Rect{x + 12.5f, y + 11.0f, 1.5f, 5.0f}, color, 0.0f);
+        }
+    } else {
+        for (int index = 0; index < 10; ++index) {
+            const float start = 0.8f + static_cast<float>(index) * 0.45f;
+            const float end = start + 0.45f;
+            DrawIconLine(renderer, x + 8.0f + std::cos(start) * 6.0f, y + 8.0f + std::sin(start) * 6.0f, x + 8.0f + std::cos(end) * 6.0f,
+                         y + 8.0f + std::sin(end) * 6.0f, color);
+        }
+        DrawIconLine(renderer, x + 13.0f, y + 3.0f, x + 13.0f, y + 7.0f, color);
+        DrawIconLine(renderer, x + 13.0f, y + 3.0f, x + 9.0f, y + 3.0f, color);
+    }
+}
+
 }  // namespace
 
 int DesignerApp::Run(const DesignerOptions& options) {
@@ -349,6 +458,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
     std::vector<std::vector<int>> lockedPaths;
     std::string layerFilter;
     Rect pageRow{};
+    Rect boardButton{};
     Rect filterRow{};
     EditTarget editTarget = EditTarget::NONE;
     std::string propertyName;
@@ -368,11 +478,17 @@ int DesignerApp::Run(const DesignerOptions& options) {
     ResizeHandle resizeHandle = ResizeHandle::NONE;
     Point dragStart{};
     float reorderAnchor = 0.0f;
+    std::vector<int> pressPath;
     float resizeOriginX = 0.0f;
     float resizeOriginY = 0.0f;
     float resizeOriginWidth = 0.0f;
     float resizeOriginHeight = 0.0f;
     bool showGrid = true;
+    bool showRulers = true;
+    unsigned lastClickTick = 0;
+    std::vector<int> lastClickPath;
+    unsigned lastTitleTick = 0;
+    int lastTitleIndex = -1;
     std::vector<EditorGuide> guides;
     bool guideDraft = false;
     EditorGuide draftGuide{};
@@ -415,8 +531,24 @@ int DesignerApp::Run(const DesignerOptions& options) {
     std::vector<HitRow> propertyRows;
     std::vector<HitRow> deviceRows;
     std::vector<HitRow> toolRows;
-    std::vector<HitRow> tabRows;
-    int leftTab = 0;
+    std::vector<HitRow> navRows;
+    int leftNav = 0;
+    int navHover = -1;
+    const std::filesystem::path projectRoot = FindProjectRoot();
+    std::vector<std::string> openFolders{projectRoot.generic_string()};
+    std::vector<FileEntry> fileEntries;
+    std::string selectedFile;
+    int fileHover = -1;
+    int fileActionHover = 0;
+    int fileScroll = 0;
+    bool filesDirty = true;
+    unsigned lastFileTick = 0;
+    std::string lastFileKey;
+    Rect fileNewRect{};
+    Rect folderNewRect{};
+    Rect refreshRect{};
+    Rect iconSidebar{};
+    Rect fullSidebar{};
     EditorTool activeTool = EditorTool::SELECT;
 
     auto artboardScreen = [&]() {
@@ -428,17 +560,107 @@ int DesignerApp::Run(const DesignerOptions& options) {
         const float safeZoom = zoom > 0.05f ? zoom : 0.05f;
         return Point{(screen.x - board.x) / safeZoom, (screen.y - board.y) / safeZoom};
     };
+    auto workspace = [&]() {
+        const float inset = showRulers ? RULER_SIZE : 0.0f;
+        return Rect{canvas.x + inset, canvas.y + inset, std::max(0.0f, canvas.width - inset), std::max(0.0f, canvas.height - inset)};
+    };
+
+    auto reloadFiles = [&]() {
+        fileEntries.clear();
+        std::error_code error;
+        auto collect = [&](auto&& self, const std::filesystem::path& directory, int depth) -> void {
+            std::vector<std::filesystem::directory_entry> children;
+            for (std::filesystem::directory_iterator it(directory, error), end; it != end; it.increment(error)) {
+                if (error) {
+                    error.clear();
+                    continue;
+                }
+                if (IsHiddenEntry(it->path())) {
+                    continue;
+                }
+                children.push_back(*it);
+            }
+            std::sort(children.begin(), children.end(), [](const std::filesystem::directory_entry& left, const std::filesystem::directory_entry& right) {
+                std::error_code sortError;
+                const bool leftDirectory = left.is_directory(sortError);
+                const bool rightDirectory = right.is_directory(sortError);
+                if (leftDirectory != rightDirectory) {
+                    return leftDirectory;
+                }
+                return LowerCopy(left.path().filename().string()) < LowerCopy(right.path().filename().string());
+            });
+            for (const std::filesystem::directory_entry& child : children) {
+                std::error_code childError;
+                FileEntry entry;
+                entry.path = child.path();
+                entry.name = child.path().filename().string();
+                entry.depth = depth;
+                entry.directory = child.is_directory(childError);
+                entry.expanded = entry.directory && std::find(openFolders.begin(), openFolders.end(), entry.path.generic_string()) != openFolders.end();
+                fileEntries.push_back(entry);
+                if (entry.expanded) {
+                    self(self, entry.path, depth + 1);
+                }
+            }
+        };
+        collect(collect, projectRoot, 0);
+        filesDirty = false;
+    };
+    auto fileDestination = [&]() {
+        std::error_code error;
+        if (!selectedFile.empty()) {
+            const std::filesystem::path selected(selectedFile);
+            if (std::filesystem::is_directory(selected, error)) {
+                return selected;
+            }
+            if (!selected.parent_path().empty()) {
+                return selected.parent_path();
+            }
+        }
+        return projectRoot;
+    };
+    auto createExplorerFile = [&]() {
+        const std::filesystem::path destination = fileDestination();
+        const std::filesystem::path created = UniqueChild(destination, "Untitled", ".xml");
+        std::ofstream output(created);
+        if (!output) {
+            return;
+        }
+        output << "<window width=\"800\" height=\"600\" title=\"Untitled\">\n"
+               << "    <frame name=\"Board 1\" position=\"absolute\" x=\"0\" y=\"0\" width=\"800\" height=\"600\" background=\"#FFFFFF\"/>\n"
+               << "</window>\n";
+        output.close();
+        const std::string folder = destination.generic_string();
+        if (std::find(openFolders.begin(), openFolders.end(), folder) == openFolders.end()) {
+            openFolders.push_back(folder);
+        }
+        selectedFile = created.generic_string();
+        filesDirty = true;
+    };
+    auto createExplorerFolder = [&]() {
+        const std::filesystem::path destination = fileDestination();
+        const std::filesystem::path created = UniqueChild(destination, "New folder", "");
+        std::error_code error;
+        std::filesystem::create_directory(created, error);
+        if (error) {
+            return;
+        }
+        const std::string folder = destination.generic_string();
+        if (std::find(openFolders.begin(), openFolders.end(), folder) == openFolders.end()) {
+            openFolders.push_back(folder);
+        }
+        openFolders.push_back(created.generic_string());
+        selectedFile = created.generic_string();
+        filesDirty = true;
+    };
 
     auto layoutChrome = [&](float width, float height) {
         toolbar = Rect{0.0f, 0.0f, width, TOOLBAR_HEIGHT};
-        const Rect side{TOOL_RAIL, TOOLBAR_HEIGHT, LEFT_WIDTH - TOOL_RAIL, std::max(0.0f, height - TOOLBAR_HEIGHT - XML_HEIGHT)};
-        if (leftTab == 0) {
-            hierarchy = Rect{side.x, side.y + 40.0f, side.width, std::max(0.0f, side.height - 40.0f)};
-            library = Rect{side.x, side.y, side.width, 0.0f};
-        } else {
-            library = Rect{side.x, side.y + 40.0f, side.width, std::max(0.0f, side.height - 40.0f)};
-            hierarchy = Rect{side.x, side.y, side.width, 0.0f};
-        }
+        const float sideHeight = std::max(0.0f, height - TOOLBAR_HEIGHT - XML_HEIGHT);
+        iconSidebar = Rect{0.0f, TOOLBAR_HEIGHT, ICON_SIDEBAR, sideHeight};
+        fullSidebar = Rect{ICON_SIDEBAR, TOOLBAR_HEIGHT, std::max(0.0f, LEFT_WIDTH - ICON_SIDEBAR), sideHeight};
+        hierarchy = Rect{fullSidebar.x, fullSidebar.y, fullSidebar.width, 0.0f};
+        library = Rect{fullSidebar.x, fullSidebar.y, fullSidebar.width, 0.0f};
         xmlPanel = Rect{0.0f, height - XML_HEIGHT, width, XML_HEIGHT};
         inspector = Rect{width - RIGHT_WIDTH, TOOLBAR_HEIGHT, RIGHT_WIDTH, std::max(0.0f, height - TOOLBAR_HEIGHT - XML_HEIGHT)};
         canvas = Rect{LEFT_WIDTH, TOOLBAR_HEIGHT, std::max(0.0f, width - LEFT_WIDTH - RIGHT_WIDTH),
@@ -453,6 +675,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             row.name = libraryNames[index];
             libraryRows.push_back(std::move(row));
         }
+        boardButton = Rect{hierarchy.x + hierarchy.width - 96.0f, hierarchy.y + 2.0f, 84.0f, 22.0f};
         pageRow = Rect{hierarchy.x + 8.0f, hierarchy.y + 28.0f, std::max(0.0f, hierarchy.width - 16.0f), 26.0f};
         filterRow = Rect{hierarchy.x + 8.0f, hierarchy.y + 60.0f, std::max(0.0f, hierarchy.width - 16.0f), 26.0f};
         hierarchyRows.clear();
@@ -541,28 +764,55 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 }
             }
         }
-        tabRows.clear();
-        const char* tabNames[] = {"Layers", "Assets"};
-        for (int index = 0; index < 2; ++index) {
+        navRows.clear();
+        const char* navNames[] = {"Explorer", "Pages", "Library", "Assets", "Variables"};
+        float navY = TOOLBAR_HEIGHT + 12.0f;
+        for (int index = 0; index < 5; ++index) {
             HitRow row;
-            row.name = tabNames[index];
+            row.name = navNames[index];
             row.depth = index;
-            row.rect = Rect{TOOL_RAIL + 8.0f + static_cast<float>(index) * 128.0f, TOOLBAR_HEIGHT + 6.0f, 120.0f, 28.0f};
-            tabRows.push_back(std::move(row));
+            row.rect = Rect{0.0f, navY, ICON_SIDEBAR, 70.0f};
+            navRows.push_back(std::move(row));
+            navY += 74.0f;
+        }
+        const float actionY = fullSidebar.y + 36.0f;
+        refreshRect = Rect{fullSidebar.x + fullSidebar.width - 36.0f, actionY, 28.0f, 28.0f};
+        folderNewRect = Rect{refreshRect.x - 32.0f, actionY, 28.0f, 28.0f};
+        fileNewRect = Rect{folderNewRect.x - 32.0f, actionY, 28.0f, 28.0f};
+        if (leftNav == 0 && filesDirty) {
+            reloadFiles();
+        }
+        if (leftNav != 0) {
+            for (FileEntry& entry : fileEntries) {
+                entry.rect = {};
+                entry.twist = {};
+            }
+        } else {
+            const float listTop = fullSidebar.y + 76.0f;
+            const float listHeight = std::max(0.0f, fullSidebar.height - 76.0f);
+            const int visibleRows = std::max(1, static_cast<int>(listHeight / 28.0f));
+            fileScroll = std::max(0, std::min(fileScroll, std::max(0, static_cast<int>(fileEntries.size()) - visibleRows)));
+            for (int index = 0; index < static_cast<int>(fileEntries.size()); ++index) {
+                FileEntry& entry = fileEntries[static_cast<std::size_t>(index)];
+                const float y = listTop + static_cast<float>(index - fileScroll) * 28.0f;
+                const float indent = 10.0f + static_cast<float>(entry.depth) * 14.0f;
+                entry.rect = Rect{fullSidebar.x + 6.0f, y, std::max(0.0f, fullSidebar.width - 12.0f), 26.0f};
+                entry.twist = Rect{fullSidebar.x + indent, y + 8.0f, 10.0f, 10.0f};
+            }
         }
         toolRows.clear();
         const EditorTool tools[] = {EditorTool::SELECT, EditorTool::FRAME, EditorTool::TEXT, EditorTool::IMAGE, EditorTool::LINE, EditorTool::HAND, EditorTool::ZOOM};
-        float toolY = TOOLBAR_HEIGHT + 8.0f;
+        float toolX = 168.0f;
         for (const EditorTool tool : tools) {
             HitRow row;
             row.name = EditorToolShortcut(tool);
             row.depth = static_cast<int>(tool);
-            row.rect = Rect{8.0f, toolY, 32.0f, 32.0f};
+            row.rect = Rect{toolX, 8.0f, 32.0f, 32.0f};
             toolRows.push_back(std::move(row));
-            toolY += 40.0f;
+            toolX += 36.0f;
         }
         deviceRows.clear();
-        float deviceX = 220.0f;
+        float deviceX = 440.0f;
         for (const DevicePreset& preset : DEVICE_PRESETS) {
             HitRow row;
             row.name = preset.name;
@@ -779,7 +1029,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 }
                 const float start = vertical ? child->Bounds().x - origin.x : child->Bounds().y - origin.y;
                 const float span = vertical ? child->Bounds().width : child->Bounds().height;
-                for (const float edge : {originAxis + start, originAxis + start + span}) {
+                for (const float edge : {originAxis + start, originAxis + start + span * 0.5f, originAxis + start + span}) {
                     const float distance = std::fabs(edge - boardValue);
                     if (distance <= threshold && distance < bestDistance) {
                         bestBoard = edge;
@@ -897,6 +1147,91 @@ int DesignerApp::Run(const DesignerOptions& options) {
         rebuildPreview();
         paintDirty = true;
     };
+    auto boardRect = [&](int index) {
+        Rect box{0.0f, static_cast<float>(index) * (deviceHeight + 80.0f), deviceWidth, deviceHeight};
+        if (preview != nullptr && index >= 0 && index < static_cast<int>(preview->Children().size())) {
+            const Rect bounds = preview->Children()[static_cast<std::size_t>(index)]->Bounds();
+            if (bounds.width > 1.0f && bounds.height > 1.0f) {
+                box = bounds;
+            }
+        }
+        return box;
+    };
+    auto rectsOverlap = [](const Rect& left, const Rect& right) {
+        return left.x < right.x + right.width && left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
+    };
+    auto solidifyBoards = [&]() {
+        if (preview == nullptr || document.Root() == nullptr) {
+            return;
+        }
+        const int count = static_cast<int>(preview->Children().size());
+        for (int index = 0; index < count; ++index) {
+            const std::vector<int> path{index};
+            const Rect box = boardRect(index);
+            const std::string position = document.Attribute(path, "position");
+            const std::string width = document.Attribute(path, "width");
+            const std::string height = document.Attribute(path, "height");
+            if (position != "absolute" && position != "fixed") {
+                document.SetAttribute(path, "position", "absolute");
+                document.SetAttribute(path, "x", pixels(box.x));
+                document.SetAttribute(path, "y", pixels(box.y));
+            }
+            if (width.empty() || width == "fill" || width == "fit") {
+                document.SetAttribute(path, "width", pixels(std::max(16.0f, box.width)));
+            }
+            if (height.empty() || height == "fill" || height == "fit") {
+                document.SetAttribute(path, "height", pixels(std::max(16.0f, box.height)));
+            }
+        }
+        rebuildPreview();
+    };
+    auto addBoard = [&]() {
+        remember();
+        solidifyBoards();
+        const float boardWidth = std::max(16.0f, deviceWidth);
+        const float boardHeight = std::max(16.0f, deviceHeight);
+        float nextX = 0.0f;
+        float nextY = 0.0f;
+        const int existing = preview == nullptr ? 0 : static_cast<int>(preview->Children().size());
+        for (int guard = 0; guard < 32; ++guard) {
+            Rect candidate{nextX, nextY, boardWidth, boardHeight};
+            bool blocked = false;
+            for (int index = 0; index < existing; ++index) {
+                const Rect occupied = boardRect(index);
+                if (!rectsOverlap(candidate, occupied)) {
+                    continue;
+                }
+                nextX = occupied.x + occupied.width + 80.0f;
+                nextY = occupied.y;
+                blocked = true;
+                break;
+            }
+            if (!blocked) {
+                break;
+            }
+        }
+        std::vector<int> inserted;
+        if (!document.InsertChild({}, "frame", inserted)) {
+            historyOpen = false;
+            return;
+        }
+        const int boardNumber = static_cast<int>(inserted.empty() ? 1 : inserted.back() + 1);
+        document.SetAttribute(inserted, "name", "Board " + std::to_string(boardNumber));
+        document.SetAttribute(inserted, "position", "absolute");
+        document.SetAttribute(inserted, "x", pixels(nextX));
+        document.SetAttribute(inserted, "y", pixels(nextY));
+        document.SetAttribute(inserted, "width", pixels(boardWidth));
+        document.SetAttribute(inserted, "height", pixels(boardHeight));
+        document.SetAttribute(inserted, "background", "#FFFFFF");
+        selectOnly(inserted);
+        rebuildPreview();
+        finishEdit();
+        const float centerX = nextX + boardWidth * 0.5f;
+        const float centerY = nextY + boardHeight * 0.5f;
+        panX = (deviceWidth * 0.5f - centerX) * zoom;
+        panY = (deviceHeight * 0.5f - centerY) * zoom;
+        paintDirty = true;
+    };
     auto resizeHandleAt = [&](Point point) {
         const Rect selectedRect = selectedScreen();
         if (selectedRect.width < 1.0f || activeTool != EditorTool::SELECT) {
@@ -939,6 +1274,37 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
         return false;
     };
+    auto boardLabel = [&](const std::vector<int>& path, const Element* element) {
+        std::string label = document.Attribute(path, "name");
+        if (label.empty() && element != nullptr) {
+            label = element->Id();
+        }
+        if (label.empty()) {
+            label = element != nullptr && element->Kind() == NodeKind::FRAME ? "Frame" : (element == nullptr ? "Frame" : NodeKindName(element->Kind()));
+        }
+        return label;
+    };
+    auto boardTitleRect = [&](int index) {
+        const Rect screen = screenOfPath({index});
+        float width = std::max(96.0f, std::min(std::max(0.0f, screen.width), 220.0f));
+        const bool editing = editTarget == EditTarget::PROPERTY && propertyName == "name" && selection.size() == 1 && selection.front() == index;
+        if (editing) {
+            const Size measured = renderer.MeasureText(propertyDraft, 12.0f, 100000.0f);
+            width = std::max(width, measured.width + 16.0f);
+        }
+        return Rect{screen.x, screen.y - 20.0f, width, 20.0f};
+    };
+    auto overBoardTitle = [&](Point point) {
+        if (preview == nullptr) {
+            return false;
+        }
+        for (int index = 0; index < static_cast<int>(preview->Children().size()); ++index) {
+            if (screenOfPath({index}).width > 1.0f && ContainsPoint(boardTitleRect(index), point)) {
+                return true;
+            }
+        }
+        return false;
+    };
     auto applyCursor = [&](Point point) {
         const bool space = (GetKeyState(VK_SPACE) & 0x8000) != 0;
         WindowCursor cursor = WindowCursor::ARROW;
@@ -957,6 +1323,9 @@ int DesignerApp::Run(const DesignerOptions& options) {
             } else if (ContainsPoint(selectedScreen(), point)) {
                 cursor = WindowCursor::SIZE_ALL;
             }
+        }
+        if (drag == DragKind::NONE && activeTool == EditorTool::SELECT && overBoardTitle(point)) {
+            cursor = WindowCursor::IBEAM;
         }
         if (cursor == WindowCursor::ARROW) {
             if (ContainsPoint(xmlPanel, point) || (editTarget == EditTarget::PROPERTY && ContainsPoint(inspector, point))) {
@@ -980,9 +1349,55 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 return;
             }
         }
-        for (const HitRow& row : tabRows) {
+        for (const HitRow& row : navRows) {
             if (ContainsPoint(row.rect, point)) {
-                leftTab = row.depth;
+                leftNav = row.depth;
+                paintDirty = true;
+                return;
+            }
+        }
+        if (leftNav == 0 && ContainsPoint(fullSidebar, point)) {
+            if (ContainsPoint(fileNewRect, point)) {
+                createExplorerFile();
+                paintDirty = true;
+                return;
+            }
+            if (ContainsPoint(folderNewRect, point)) {
+                createExplorerFolder();
+                paintDirty = true;
+                return;
+            }
+            if (ContainsPoint(refreshRect, point)) {
+                filesDirty = true;
+                paintDirty = true;
+                return;
+            }
+            for (const FileEntry& entry : fileEntries) {
+                if (!ContainsPoint(entry.rect, point) || !ContainsPoint(fullSidebar, point)) {
+                    continue;
+                }
+                const unsigned now = GetTickCount();
+                const std::string key = entry.path.generic_string();
+                const bool again = lastFileKey == key && now - lastFileTick < 400;
+                lastFileTick = now;
+                lastFileKey = key;
+                selectedFile = key;
+                if (entry.directory && (ContainsPoint(entry.twist, point) || !again)) {
+                    const auto found = std::find(openFolders.begin(), openFolders.end(), key);
+                    if (found == openFolders.end()) {
+                        openFolders.push_back(key);
+                    } else if (ContainsPoint(entry.twist, point) || again) {
+                        openFolders.erase(found);
+                    }
+                    filesDirty = true;
+                } else if (!entry.directory && again) {
+                    const std::string extension = LowerCopy(entry.path.extension().string());
+                    if (extension == ".xml" && document.LoadFile(entry.path)) {
+                        selection.clear();
+                        selections.clear();
+                        rebuildPreview();
+                    }
+                }
                 paintDirty = true;
                 return;
             }
@@ -1010,6 +1425,10 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 paintDirty = true;
                 return;
             }
+        }
+        if (hierarchy.height > 1.0f && ContainsPoint(boardButton, point)) {
+            addBoard();
+            return;
         }
         if (hierarchy.height > 1.0f && ContainsPoint(filterRow, point)) {
             editTarget = EditTarget::FILTER;
@@ -1045,7 +1464,19 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 } else if ((GetKeyState(VK_SHIFT) & 0x8000) != 0) {
                     toggleSelect(row.path);
                 } else {
+                    const unsigned now = GetTickCount();
+                    const bool rename = SamePath(lastClickPath, row.path) && now - lastClickTick < 400;
                     selectOnly(row.path);
+                    lastClickTick = now;
+                    lastClickPath = row.path;
+                    if (rename) {
+                        remember();
+                        editTarget = EditTarget::PROPERTY;
+                        propertyName = "name";
+                        propertyDraft = document.Attribute(row.path, "name");
+                        propertyOriginal = propertyDraft;
+                        replaceProperty = true;
+                    }
                 }
                 paintDirty = true;
                 return;
@@ -1125,7 +1556,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
         const Rect horizontalRuler{canvas.x + RULER_SIZE, canvas.y, std::max(0.0f, canvas.width - RULER_SIZE), RULER_SIZE};
         const Rect verticalRuler{canvas.x, canvas.y + RULER_SIZE, RULER_SIZE, std::max(0.0f, canvas.height - RULER_SIZE)};
-        if (ContainsPoint(horizontalRuler, point) || ContainsPoint(verticalRuler, point)) {
+        if (showRulers && (ContainsPoint(horizontalRuler, point) || ContainsPoint(verticalRuler, point))) {
             const Rect board = artboardScreen();
             guideDraft = true;
             draftGuide.vertical = ContainsPoint(verticalRuler, point);
@@ -1146,21 +1577,56 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 return;
             }
         }
-        if (ContainsPoint(artboardScreen(), point) && preview != nullptr && activeTool == EditorTool::SELECT) {
+        if (ContainsPoint(workspace(), point) && preview != nullptr && activeTool == EditorTool::SELECT) {
+            pressPath.clear();
+            int titleIndex = 0;
+            for (const std::unique_ptr<Element>& child : preview->Children()) {
+                (void)child;
+                const Rect screen = screenOfPath({titleIndex});
+                if (screen.width > 1.0f && ContainsPoint(boardTitleRect(titleIndex), point)) {
+                    const unsigned now = GetTickCount();
+                    const bool rename = lastTitleIndex == titleIndex && now - lastTitleTick < 400;
+                    lastTitleTick = now;
+                    lastTitleIndex = titleIndex;
+                    selectOnly({titleIndex});
+                    if (rename && !pathLocked(selection)) {
+                        remember();
+                        editTarget = EditTarget::PROPERTY;
+                        propertyName = "name";
+                        propertyDraft = boardLabel(selection, ElementAt(preview.get(), selection));
+                        propertyOriginal = document.Attribute(selection, "name");
+                        replaceProperty = true;
+                    } else if (!pathLocked(selection)) {
+                        remember();
+                        captureDragNodes();
+                        drag = DragKind::MOVE;
+                        dragStart = point;
+                        snapXActive = false;
+                        snapYActive = false;
+                    }
+                    applyCursor(point);
+                    paintDirty = true;
+                    return;
+                }
+                ++titleIndex;
+            }
             const Point local = toArtboard(point);
             Element* hit = preview->HitTest(local);
             std::vector<int> path;
             if (hit != nullptr && FindElementPath(*preview, hit, path)) {
                 const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                const bool keepBoard = !shift && selection.size() == 1 && !path.empty() && path.front() == selection.front() && path.size() > selection.size();
                 if (shift) {
                     toggleSelect(path);
+                } else if (keepBoard) {
+                    pressPath = path;
                 } else if (!pathSelected(path)) {
                     selectOnly(path);
                 } else {
                     selection = path;
                 }
                 dragStart = point;
-                if (pathLocked(path)) {
+                if (pathLocked(selection.empty() ? path : selection)) {
                     applyCursor(point);
                     paintDirty = true;
                     return;
@@ -1226,9 +1692,45 @@ int DesignerApp::Run(const DesignerOptions& options) {
 
     window.SetMouseMove([&](Point point) {
         applyCursor(point);
+        int nextNav = -1;
+        if (drag == DragKind::NONE) {
+            for (const HitRow& row : navRows) {
+                if (ContainsPoint(row.rect, point)) {
+                    nextNav = row.depth;
+                    break;
+                }
+            }
+        }
+        if (nextNav != navHover) {
+            navHover = nextNav;
+            paintDirty = true;
+        }
+        int nextFile = -1;
+        int nextAction = 0;
+        if (drag == DragKind::NONE && leftNav == 0) {
+            if (ContainsPoint(fileNewRect, point)) {
+                nextAction = 1;
+            } else if (ContainsPoint(folderNewRect, point)) {
+                nextAction = 2;
+            } else if (ContainsPoint(refreshRect, point)) {
+                nextAction = 3;
+            } else {
+                for (int index = 0; index < static_cast<int>(fileEntries.size()); ++index) {
+                    if (ContainsPoint(fileEntries[static_cast<std::size_t>(index)].rect, point)) {
+                        nextFile = index;
+                        break;
+                    }
+                }
+            }
+        }
+        if (nextFile != fileHover || nextAction != fileActionHover) {
+            fileHover = nextFile;
+            fileActionHover = nextAction;
+            paintDirty = true;
+        }
         if (drag == DragKind::NONE) {
             std::vector<int> nextHover;
-            if (activeTool == EditorTool::SELECT && ContainsPoint(artboardScreen(), point) && preview != nullptr) {
+            if (activeTool == EditorTool::SELECT && ContainsPoint(workspace(), point) && preview != nullptr) {
                 Element* hit = preview->HitTest(toArtboard(point));
                 if (hit != nullptr) {
                     FindElementPath(*preview, hit, nextHover);
@@ -1259,6 +1761,10 @@ int DesignerApp::Run(const DesignerOptions& options) {
             return;
         }
         if (drag == DragKind::MOVE && !dragNodes.empty()) {
+            const float travel = std::hypot(point.x - dragStart.x, point.y - dragStart.y);
+            if (travel < 3.0f) {
+                return;
+            }
             const float dx = (point.x - dragStart.x) / zoom;
             const float dy = (point.y - dragStart.y) / zoom;
             const EditorDragNode& primary = dragNodes.front();
@@ -1431,6 +1937,13 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 selection = selections.empty() ? std::vector<int>{} : selections.back();
             }
         }
+        if (drag == DragKind::MOVE) {
+            const float travel = std::hypot(point.x - dragStart.x, point.y - dragStart.y);
+            if (travel < 3.0f && !pressPath.empty()) {
+                selectOnly(pressPath);
+            }
+        }
+        pressPath.clear();
         guideDraft = false;
         snapXActive = false;
         snapYActive = false;
@@ -1463,6 +1976,13 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if (ContainsPoint(inspector, point)) {
             const int visibleRows = std::max(1, static_cast<int>((inspector.height - 72.0f) / 40.0f));
             inspectorScroll = std::max(0, std::min(std::max(0, static_cast<int>(propertyRows.size()) - visibleRows), inspectorScroll - (delta > 0 ? 1 : -1)));
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 0 && ContainsPoint(fullSidebar, point)) {
+            const float listHeight = std::max(0.0f, fullSidebar.height - 76.0f);
+            const int visibleRows = std::max(1, static_cast<int>(listHeight / 28.0f));
+            fileScroll = std::max(0, std::min(std::max(0, static_cast<int>(fileEntries.size()) - visibleRows), fileScroll - (delta > 0 ? 1 : -1)));
             paintDirty = true;
             return;
         }
@@ -1617,6 +2137,15 @@ int DesignerApp::Run(const DesignerOptions& options) {
             if (key == 'G') {
                 showGrid = !showGrid;
                 paintDirty = true;
+                return true;
+            }
+            if (key == 'R') {
+                showRulers = !showRulers;
+                paintDirty = true;
+                return true;
+            }
+            if (key == 'B') {
+                addBoard();
                 return true;
             }
             if (!selection.empty() && !pathLocked(selection)) {
@@ -1818,7 +2347,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         renderer.BeginFrame(COLOR_CHROME);
         renderer.FillRectangle(toolbar, COLOR_PANEL, 0.0f);
         renderer.FillRectangle(Rect{0.0f, TOOLBAR_HEIGHT - 1.0f, clientWidth, 1.0f}, COLOR_LINE, 0.0f);
-        DrawLabel(renderer, "RoboUIDesigner", Rect{16.0f, 0.0f, 180.0f, TOOLBAR_HEIGHT}, COLOR_INK, 14.0f, TextAlign::START);
+        DrawLabel(renderer, "RoboUIDesigner", Rect{16.0f, 0.0f, 146.0f, TOOLBAR_HEIGHT}, COLOR_INK, 14.0f, TextAlign::START);
         for (std::size_t index = 0; index < deviceRows.size(); ++index) {
             const bool active = static_cast<int>(index) == deviceIndex;
             if (active) {
@@ -1829,13 +2358,12 @@ int DesignerApp::Run(const DesignerOptions& options) {
         DrawLabel(renderer, (std::to_string(static_cast<int>(zoom * 100.0f)) + "%").c_str(), Rect{clientWidth - 80.0f, 0.0f, 64.0f, TOOLBAR_HEIGHT},
                   COLOR_ACCENT, 13.0f, TextAlign::CENTER);
 
-        const float sideHeight = std::max(0.0f, clientHeight - TOOLBAR_HEIGHT - XML_HEIGHT);
-        renderer.FillRectangle(Rect{0.0f, TOOLBAR_HEIGHT, TOOL_RAIL, sideHeight}, COLOR_PANEL, 0.0f);
-        renderer.FillRectangle(Rect{TOOL_RAIL, TOOLBAR_HEIGHT, LEFT_WIDTH - TOOL_RAIL, sideHeight}, COLOR_PANEL, 0.0f);
+        renderer.FillRectangle(iconSidebar, COLOR_PANEL, 0.0f);
+        renderer.FillRectangle(fullSidebar, COLOR_PANEL, 0.0f);
         renderer.FillRectangle(inspector, COLOR_PANEL, 0.0f);
-        renderer.FillRectangle(Rect{TOOL_RAIL - 1.0f, TOOLBAR_HEIGHT, 1.0f, sideHeight}, COLOR_LINE, 0.0f);
-        renderer.FillRectangle(Rect{LEFT_WIDTH - 1.0f, TOOLBAR_HEIGHT, 1.0f, sideHeight}, COLOR_LINE, 0.0f);
-        renderer.FillRectangle(Rect{clientWidth - RIGHT_WIDTH, TOOLBAR_HEIGHT, 1.0f, sideHeight}, COLOR_LINE, 0.0f);
+        renderer.FillRectangle(Rect{ICON_SIDEBAR - 1.0f, TOOLBAR_HEIGHT, 1.0f, iconSidebar.height}, COLOR_LINE, 0.0f);
+        renderer.FillRectangle(Rect{LEFT_WIDTH - 1.0f, TOOLBAR_HEIGHT, 1.0f, iconSidebar.height}, COLOR_LINE, 0.0f);
+        renderer.FillRectangle(Rect{clientWidth - RIGHT_WIDTH, TOOLBAR_HEIGHT, 1.0f, iconSidebar.height}, COLOR_LINE, 0.0f);
         for (const HitRow& row : toolRows) {
             const bool active = static_cast<int>(activeTool) == row.depth;
             if (active) {
@@ -1843,105 +2371,117 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
             DrawLabel(renderer, row.name, row.rect, active ? COLOR_ACCENT : COLOR_MUTED, 13.0f, TextAlign::CENTER);
         }
-        for (const HitRow& row : tabRows) {
-            const bool active = leftTab == row.depth;
+        for (const HitRow& row : navRows) {
+            const bool active = leftNav == row.depth;
+            const bool hovered = navHover == row.depth;
+            const Rect iconBox{row.rect.x + (row.rect.width - 36.0f) * 0.5f, row.rect.y + 2.0f, 36.0f, 36.0f};
             if (active) {
-                renderer.FillRectangle(row.rect, COLOR_SELECTED, 8.0f);
+                renderer.FillRectangle(iconBox, hovered ? COLOR_NAV_HOVER : COLOR_NAV, 10.0f);
+            } else if (hovered) {
+                renderer.FillRectangle(iconBox, COLOR_HOVER, 10.0f);
+                renderer.StrokeRectangle(iconBox, COLOR_LINE, 1.0f, 10.0f);
             }
-            DrawLabel(renderer, row.name, row.rect, active ? COLOR_ACCENT : COLOR_MUTED, 13.0f, TextAlign::CENTER);
+            const Color iconColor = active || hovered ? COLOR_INK : COLOR_MUTED;
+            DrawNavIcon(renderer, iconBox.x + 9.0f, iconBox.y + 9.0f, row.depth, iconColor);
+            DrawLabel(renderer, row.name, Rect{row.rect.x + 2.0f, row.rect.y + 40.0f, row.rect.width - 4.0f, 16.0f}, active || hovered ? COLOR_INK : COLOR_MUTED, 11.0f,
+                      TextAlign::CENTER);
         }
-        auto paintListBar = [&](const Rect& viewport, int itemCount, int scrollRows) {
-            const float contentHeight = 36.0f + static_cast<float>(itemCount) * ROW_HEIGHT;
-            const float maxScroll = contentHeight - viewport.height;
-            if (maxScroll <= 1.0f || viewport.height <= 16.0f) {
-                return;
-            }
-            const Rect track{viewport.x + viewport.width - 14.0f, viewport.y + 8.0f, 8.0f, viewport.height - 16.0f};
-            const float thumbHeight = std::min(track.height, std::max(28.0f, track.height * (viewport.height / contentHeight)));
-            const float travel = std::max(0.0f, track.height - thumbHeight);
-            const float offset = static_cast<float>(scrollRows) * ROW_HEIGHT;
-            const float y = track.y + travel * std::min(1.0f, offset / maxScroll);
-            renderer.FillRectangle(track, COLOR_LINE, 4.0f);
-            renderer.FillRectangle(Rect{track.x, y, track.width, thumbHeight}, COLOR_MUTED, 4.0f);
-        };
-        if (library.height > 1.0f) {
-            DrawLabel(renderer, "Components", Rect{library.x + 12.0f, library.y, library.width - 24.0f, 28.0f}, COLOR_MUTED, 12.0f, TextAlign::START);
-            renderer.PushClip(library);
-            for (const HitRow& row : libraryRows) {
-                if (row.rect.y + row.rect.height < library.y || row.rect.y > library.y + library.height) {
+        if (leftNav == 0 && fullSidebar.width > 1.0f) {
+            DrawLabel(renderer, "Explorer", Rect{fullSidebar.x + 14.0f, fullSidebar.y + 8.0f, fullSidebar.width - 28.0f, 22.0f}, COLOR_MUTED, 12.0f, TextAlign::START);
+            auto paintAction = [&](const Rect& rect, int kind, int action, Color color) {
+                if (fileActionHover == action) {
+                    renderer.FillRectangle(rect, COLOR_HOVER, 8.0f);
+                }
+                DrawExplorerIcon(renderer, rect.x + 6.0f, rect.y + 6.0f, kind, color);
+            };
+            paintAction(fileNewRect, 2, 1, fileActionHover == 1 ? COLOR_INK : COLOR_MUTED);
+            paintAction(folderNewRect, 3, 2, fileActionHover == 2 ? COLOR_INK : COLOR_MUTED);
+            paintAction(refreshRect, 4, 3, fileActionHover == 3 ? COLOR_INK : COLOR_MUTED);
+            const Rect fileList{fullSidebar.x, fullSidebar.y + 72.0f, fullSidebar.width, std::max(0.0f, fullSidebar.height - 72.0f)};
+            renderer.PushClip(fileList);
+            for (int index = 0; index < static_cast<int>(fileEntries.size()); ++index) {
+                const FileEntry& entry = fileEntries[static_cast<std::size_t>(index)];
+                if (entry.rect.y + entry.rect.height < fileList.y || entry.rect.y > fileList.y + fileList.height) {
                     continue;
                 }
-                renderer.FillRectangle(row.rect, COLOR_FIELD, 8.0f);
-                DrawLabel(renderer, row.name, row.rect, COLOR_MUTED, 13.0f, TextAlign::CENTER);
+                const bool selected = selectedFile == entry.path.generic_string();
+                const bool hovered = fileHover == index;
+                if (selected) {
+                    renderer.FillRectangle(entry.rect, COLOR_SELECTED, 6.0f);
+                } else if (hovered) {
+                    renderer.FillRectangle(entry.rect, COLOR_HOVER, 6.0f);
+                }
+                const float indent = 10.0f + static_cast<float>(entry.depth) * 14.0f;
+                if (entry.directory) {
+                    if (entry.expanded) {
+                        DrawIconLine(renderer, entry.twist.x, entry.twist.y + 2.0f, entry.twist.x + 4.0f, entry.twist.y + 6.0f, COLOR_MUTED);
+                        DrawIconLine(renderer, entry.twist.x + 4.0f, entry.twist.y + 6.0f, entry.twist.x + 8.0f, entry.twist.y + 2.0f, COLOR_MUTED);
+                    } else {
+                        DrawIconLine(renderer, entry.twist.x, entry.twist.y, entry.twist.x + 4.0f, entry.twist.y + 4.0f, COLOR_MUTED);
+                        DrawIconLine(renderer, entry.twist.x + 4.0f, entry.twist.y + 4.0f, entry.twist.x, entry.twist.y + 8.0f, COLOR_MUTED);
+                    }
+                }
+                const Color iconColor = entry.directory ? COLOR_ACCENT : (selected || hovered ? COLOR_INK : COLOR_MUTED);
+                DrawExplorerIcon(renderer, fullSidebar.x + indent + 14.0f, entry.rect.y + 5.0f, entry.directory ? 0 : 1, iconColor);
+                Rect label{fullSidebar.x + indent + 34.0f, entry.rect.y, std::max(0.0f, entry.rect.width - indent - 28.0f), entry.rect.height};
+                DrawLabel(renderer, entry.name, label, selected || hovered ? COLOR_INK : COLOR_MUTED, 12.0f, TextAlign::START);
             }
             renderer.PopClip();
-            paintListBar(library, static_cast<int>(libraryRows.size()), libraryScroll);
         }
-        if (hierarchy.height > 1.0f) {
-            DrawLabel(renderer, "Pages", Rect{hierarchy.x + 12.0f, hierarchy.y + 2.0f, hierarchy.width - 24.0f, 24.0f}, COLOR_MUTED, 12.0f, TextAlign::START);
-            renderer.FillRectangle(pageRow, COLOR_SELECTED, 6.0f);
-            const std::string pageName = std::filesystem::path(document.FilePath()).stem().string();
-            DrawLabel(renderer, pageName.empty() ? "Page 1" : pageName, pageRow, COLOR_ACCENT, 13.0f, TextAlign::START);
-            renderer.FillRectangle(filterRow, editTarget == EditTarget::FILTER ? COLOR_SELECTED : COLOR_FIELD, 6.0f);
-            DrawLabel(renderer, layerFilter.empty() ? "Search layers" : layerFilter, filterRow, layerFilter.empty() ? COLOR_MUTED : COLOR_INK, 12.0f, TextAlign::START);
-        }
-        const Rect layerList{hierarchy.x, hierarchy.y + 96.0f, hierarchy.width, std::max(0.0f, hierarchy.height - 96.0f)};
-        renderer.PushClip(layerList);
-        for (const HitRow& row : hierarchyRows) {
-            if (hierarchy.height < 1.0f || row.rect.y + row.rect.height < layerList.y || row.rect.y > layerList.y + layerList.height) {
-                continue;
-            }
-            const bool selectedRow = pathSelected(row.path) || SamePath(row.path, selection);
-            if (selectedRow) {
-                renderer.FillRectangle(row.rect, COLOR_SELECTED, 6.0f);
-            }
-            if (row.branch) {
-                DrawLabel(renderer, row.expanded ? "-" : "+", row.twist, COLOR_MUTED, 14.0f, TextAlign::CENTER);
-            }
-            Rect label = row.rect;
-            label.x += static_cast<float>(row.depth) * 14.0f + 22.0f;
-            label.width -= static_cast<float>(row.depth) * 14.0f + 70.0f;
-            DrawLabel(renderer, row.name, label, row.hidden ? COLOR_LINE : (selectedRow ? COLOR_ACCENT : COLOR_MUTED), 13.0f, TextAlign::START);
-            renderer.FillRectangle(row.eye, row.hidden ? COLOR_FIELD : COLOR_ACCENT, 8.0f);
-            renderer.FillRectangle(row.lock, row.locked ? COLOR_ACCENT : COLOR_FIELD, 3.0f);
-        }
-        renderer.PopClip();
-        paintListBar(hierarchy, static_cast<int>(hierarchyRows.size()), hierarchyScroll);
-
         renderer.FillRectangle(canvas, COLOR_CANVAS, 0.0f);
         renderer.PushClip(canvas);
         const Rect board = artboardScreen();
         renderer.SetTransform(board.x, board.y, zoom);
-        renderer.PushClip(Rect{0.0f, 0.0f, deviceWidth, deviceHeight});
-        renderer.FillRectangle(Rect{0.0f, 0.0f, deviceWidth, deviceHeight}, COLOR_BOARD, 0.0f);
-        if (showGrid) {
-            const float gridStep = 16.0f;
-            for (float x = gridStep; x < deviceWidth; x += gridStep) {
-                renderer.FillRectangle(Rect{x, 0.0f, 1.0f / zoom, deviceHeight}, COLOR_GRID, 0.0f);
+        auto drawGrid = [&](const Rect& area) {
+            if (!showGrid || area.width < 1.0f || area.height < 1.0f) {
+                return;
             }
-            for (float y = gridStep; y < deviceHeight; y += gridStep) {
-                renderer.FillRectangle(Rect{0.0f, y, deviceWidth, 1.0f / zoom}, COLOR_GRID, 0.0f);
+            const bool fine = zoom >= 8.0f && area.width <= 180.0f && area.height <= 180.0f;
+            const float step = fine ? 1.0f : 16.0f;
+            for (float x = area.x + step; x < area.x + area.width; x += step) {
+                renderer.FillRectangle(Rect{x, area.y, 1.0f / zoom, area.height}, COLOR_GRID, 0.0f);
             }
-        }
+            for (float y = area.y + step; y < area.y + area.height; y += step) {
+                renderer.FillRectangle(Rect{area.x, y, area.width, 1.0f / zoom}, COLOR_GRID, 0.0f);
+            }
+        };
         if (preview != nullptr) {
-            preview->Paint(renderer);
+            for (const std::unique_ptr<Element>& child : preview->Children()) {
+                const Rect area = child->Bounds();
+                if (area.width < 1.0f || area.height < 1.0f) {
+                    continue;
+                }
+                renderer.FillRectangle(area, COLOR_BOARD, 0.0f);
+                drawGrid(area);
+                child->Paint(renderer);
+            }
         }
-        renderer.PopClip();
         renderer.SetTransform(0.0f, 0.0f, 1.0f);
-        DrawBorder(renderer, board, COLOR_TICK);
         if (preview != nullptr) {
             int childIndex = 0;
             for (const std::unique_ptr<Element>& child : preview->Children()) {
-                const Rect screen = screenOfPath({childIndex});
+                const std::vector<int> childPath{childIndex};
+                const Rect screen = screenOfPath(childPath);
                 ++childIndex;
                 if (screen.width < 1.0f) {
                     continue;
                 }
-                std::string label = child->Id();
-                if (label.empty()) {
-                    label = child->Kind() == NodeKind::FRAME ? "Frame" : NodeKindName(child->Kind());
+                const bool selectedBoard = pathSelected(childPath) || SamePath(childPath, selection);
+                DrawBorder(renderer, screen, selectedBoard ? COLOR_SELECT : COLOR_TICK);
+                const bool editing = editTarget == EditTarget::PROPERTY && propertyName == "name" && SamePath(childPath, selection);
+                const Rect title = boardTitleRect(childIndex - 1);
+                if (editing) {
+                    renderer.FillRectangle(title, COLOR_BOARD, 2.0f);
+                    renderer.StrokeRectangle(title, COLOR_SELECT, 1.0f, 2.0f);
+                    Rect textRect = title;
+                    textRect.x += 4.0f;
+                    textRect.width = std::max(0.0f, textRect.width - 8.0f);
+                    DrawLabel(renderer, propertyDraft, textRect, COLOR_INK, 12.0f, TextAlign::START);
+                    const Size measured = renderer.MeasureText(propertyDraft, 12.0f, 100000.0f);
+                    renderer.FillRectangle(Rect{textRect.x + measured.width, title.y + 3.0f, 1.0f, title.height - 6.0f}, COLOR_INK, 0.0f);
+                } else {
+                    DrawLabel(renderer, boardLabel(childPath, child.get()), title, selectedBoard ? COLOR_SELECT : COLOR_TICK, 12.0f, TextAlign::START);
                 }
-                DrawLabel(renderer, label, Rect{screen.x, screen.y - 16.0f, 140.0f, 14.0f}, COLOR_TICK, 11.0f, TextAlign::START);
             }
         }
         auto paintGuide = [&](const EditorGuide& guide) {
@@ -1971,7 +2511,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
         }
         const std::string toolLabel = std::string(EditorToolName(activeTool)) + (selections.size() > 1 ? "  " + std::to_string(selections.size()) : "");
-        DrawLabel(renderer, toolLabel, Rect{canvas.x + RULER_SIZE + 8.0f, canvas.y + canvas.height - 22.0f, 140.0f, 18.0f}, COLOR_TICK, 12.0f, TextAlign::START);
+        const float rulerInset = showRulers ? RULER_SIZE : 0.0f;
+        DrawLabel(renderer, toolLabel, Rect{canvas.x + rulerInset + 8.0f, canvas.y + canvas.height - 22.0f, 140.0f, 18.0f}, COLOR_TICK, 12.0f, TextAlign::START);
         const Rect selectedRect = selectedScreen();
         if (!hoverPath.empty() && !pathSelected(hoverPath) && !SamePath(hoverPath, selection) && activeTool == EditorTool::SELECT) {
             const Rect hoverRect = screenOfPath(hoverPath);
@@ -2012,6 +2553,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             renderer.FillRectangle(marquee, COLOR_SELECT_WASH, 0.0f);
             DrawBorder(renderer, marquee, COLOR_SELECT);
         }
+        if (showRulers) {
         renderer.FillRectangle(Rect{canvas.x, canvas.y, canvas.width, RULER_SIZE}, COLOR_PANEL, 0.0f);
         renderer.FillRectangle(Rect{canvas.x, canvas.y, RULER_SIZE, canvas.height}, COLOR_PANEL, 0.0f);
         if (selectedRect.width > 1.0f && selectedRect.height > 1.0f) {
@@ -2044,6 +2586,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         renderer.FillRectangle(Rect{canvas.x, canvas.y, RULER_SIZE, RULER_SIZE}, COLOR_PANEL, 0.0f);
         renderer.FillRectangle(Rect{canvas.x, canvas.y + RULER_SIZE - 1.0f, canvas.width, 1.0f}, COLOR_LINE, 0.0f);
         renderer.FillRectangle(Rect{canvas.x + RULER_SIZE - 1.0f, canvas.y, 1.0f, canvas.height}, COLOR_LINE, 0.0f);
+        }
         renderer.PopClip();
 
         DrawLabel(renderer, "Design", Rect{inspector.x + 12.0f, inspector.y + 8.0f, inspector.width - 24.0f, 24.0f}, COLOR_MUTED, 12.0f, TextAlign::START);

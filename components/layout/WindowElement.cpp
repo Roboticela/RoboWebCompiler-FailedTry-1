@@ -19,11 +19,19 @@ Size WindowElement::Measure(TextMeasurer& measurer, float availableWidth, float 
 
 void WindowElement::Arrange(const Rect& rect) {
     bounds = BorderBox(rect);
-    float y = bounds.y;
+    float flowY = bounds.y;
     for (const std::unique_ptr<Element>& child : children) {
         const Size size = child->Measured();
-        child->Arrange(Rect{bounds.x, y, size.width, size.height});
-        y += size.height;
+        if (child->PositionMode() == FramePosition::ABSOLUTE) {
+            const float x = bounds.x + child->OffsetX().Resolve(bounds.width, 0.0f, true);
+            const float y = bounds.y + child->OffsetY().Resolve(bounds.height, 0.0f, true);
+            child->Arrange(Rect{x, y, size.width, size.height});
+            continue;
+        }
+        child->Arrange(Rect{bounds.x, flowY, size.width, size.height});
+        if (child->PositionMode() != FramePosition::FIXED) {
+            flowY += size.height;
+        }
     }
 }
 
