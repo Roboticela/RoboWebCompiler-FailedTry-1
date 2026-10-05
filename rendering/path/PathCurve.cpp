@@ -8,7 +8,7 @@
 namespace Runtime {
 namespace {
 
-constexpr int CURVE_STEPS = 8;
+constexpr int CURVE_STEPS = 16;
 
 struct Pen {
     float x = 0.0f;
@@ -21,17 +21,49 @@ struct Pen {
 };
 
 float ReadNumber(std::string_view data, std::size_t& index) {
-    while (index < data.size() && (data[index] == ' ' || data[index] == ',' || data[index] == '\n' || data[index] == '\t')) {
+    while (index < data.size() && (data[index] == ' ' || data[index] == ',' || data[index] == '\n' || data[index] == '\r' || data[index] == '\t')) {
         ++index;
     }
     const std::size_t start = index;
     if (index < data.size() && (data[index] == '-' || data[index] == '+')) {
         ++index;
     }
-    while (index < data.size() && (std::isdigit(static_cast<unsigned char>(data[index])) || data[index] == '.')) {
+    bool digits = false;
+    if (index < data.size() && data[index] == '.') {
         ++index;
+        while (index < data.size() && std::isdigit(static_cast<unsigned char>(data[index]))) {
+            digits = true;
+            ++index;
+        }
+    } else {
+        while (index < data.size() && std::isdigit(static_cast<unsigned char>(data[index]))) {
+            digits = true;
+            ++index;
+        }
+        if (index < data.size() && data[index] == '.') {
+            ++index;
+            while (index < data.size() && std::isdigit(static_cast<unsigned char>(data[index]))) {
+                digits = true;
+                ++index;
+            }
+        }
     }
-    if (start == index) {
+    if (digits && index < data.size() && (data[index] == 'e' || data[index] == 'E')) {
+        const std::size_t mark = index++;
+        if (index < data.size() && (data[index] == '+' || data[index] == '-')) {
+            ++index;
+        }
+        bool exponent = false;
+        while (index < data.size() && std::isdigit(static_cast<unsigned char>(data[index]))) {
+            exponent = true;
+            ++index;
+        }
+        if (!exponent) {
+            index = mark;
+        }
+    }
+    if (!digits) {
+        index = start;
         return 0.0f;
     }
     return std::strtof(std::string(data.substr(start, index - start)).c_str(), nullptr);
@@ -113,11 +145,12 @@ void Arc(std::vector<PathSample>& points, Pen& pen, float radiusX, float radiusY
     } else if (sweep && delta < 0.0f) {
         delta += 6.2831853f;
     }
-    for (int step = 1; step <= CURVE_STEPS; ++step) {
-        const float angle = start + delta * (static_cast<float>(step) / static_cast<float>(CURVE_STEPS));
+    const int arcSteps = std::max(CURVE_STEPS, static_cast<int>(std::ceil(std::fabs(delta) / (3.14159265f / 24.0f))));
+    for (int step = 1; step <= arcSteps; ++step) {
+        const float angle = start + delta * (static_cast<float>(step) / static_cast<float>(arcSteps));
         const float localX = rx * std::cos(angle);
         const float localY = ry * std::sin(angle);
-        Add(points, centerX + localX, centerY + localY);
+        Add(points, centerX + cosPhi * localX - sinPhi * localY, centerY + sinPhi * localX + cosPhi * localY);
     }
     pen.x = endX;
     pen.y = endY;
@@ -126,34 +159,65 @@ void Arc(std::vector<PathSample>& points, Pen& pen, float radiusX, float radiusY
 
 }  // namespace
 
-std::vector<PathSample> SamplePath(std::string_view data) {
+bool StartsNumber(std::string_view data, std::size_t index) {
+    while (index < data.size() && (data[index] == ' ' || data[index] == ',' || data[index] == '\n' || data[index] == '\r' || data[index] == '\t')) {
+        ++index;
+    }
+    if (index >= data.size()) {
+        return false;
+    }
+    const char character = data[index];
+    return character == '+' || character == '-' || character == '.' || (character >= '0' && character <= '9');
+}
+
+std::vector<PathContour> SampleContours(std::string_view data) {
+    std::vector<PathContour> contours;
     std::vector<PathSample> points;
     Pen pen;
     std::size_t index = 0;
+    char command = 0;
+    auto finish = [&](bool closed) {
+        if (points.size() > 1) {
+            contours.push_back(PathContour{std::move(points), closed});
+        }
+        points.clear();
+    };
     while (index < data.size()) {
-        while (index < data.size() && (data[index] == ' ' || data[index] == ',' || data[index] == '\n' || data[index] == '\t')) {
+        while (index < data.size() && (data[index] == ' ' || data[index] == ',' || data[index] == '\n' || data[index] == '\r' || data[index] == '\t')) {
             ++index;
         }
         if (index >= data.size()) {
             break;
         }
-        const char command = data[index];
+        if ((data[index] >= 'A' && data[index] <= 'Z') || (data[index] >= 'a' && data[index] <= 'z')) {
+            command = data[index++];
+        } else if (command == 0 || !StartsNumber(data, index)) {
+            break;
+        }
         const bool relative = command >= 'a' && command <= 'z';
         const char absolute = relative ? static_cast<char>(command - 'a' + 'A') : command;
-        if (absolute < 'A' || absolute > 'Z') {
-            ++index;
+        if (absolute == 'Z') {
+            Add(points, pen.startX, pen.startY);
+            pen.x = pen.startX;
+            pen.y = pen.startY;
+            pen.previous = 'Z';
+            finish(true);
             continue;
         }
-        ++index;
+        if (!StartsNumber(data, index)) {
+            break;
+        }
         const float originX = relative ? pen.x : 0.0f;
         const float originY = relative ? pen.y : 0.0f;
         if (absolute == 'M') {
+            finish(false);
             pen.x = originX + ReadNumber(data, index);
             pen.y = originY + ReadNumber(data, index);
             pen.startX = pen.x;
             pen.startY = pen.y;
             Add(points, pen.x, pen.y);
             pen.previous = 'M';
+            command = relative ? 'l' : 'L';
         } else if (absolute == 'L') {
             pen.x = originX + ReadNumber(data, index);
             pen.y = originY + ReadNumber(data, index);
@@ -204,12 +268,16 @@ std::vector<PathSample> SamplePath(std::string_view data) {
             const float x = originX + ReadNumber(data, index);
             const float y = originY + ReadNumber(data, index);
             Arc(points, pen, rx, ry, rotation, large > 0.5f, sweep > 0.5f, x, y);
-        } else if (absolute == 'Z') {
-            Add(points, pen.startX, pen.startY);
-            pen.x = pen.startX;
-            pen.y = pen.startY;
-            pen.previous = 'Z';
         }
+    }
+    finish(false);
+    return contours;
+}
+
+std::vector<PathSample> SamplePath(std::string_view data) {
+    std::vector<PathSample> points;
+    for (const PathContour& contour : SampleContours(data)) {
+        points.insert(points.end(), contour.points.begin(), contour.points.end());
     }
     return points;
 }

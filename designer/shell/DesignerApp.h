@@ -8,6 +8,7 @@ namespace Runtime {
 struct DesignerOptions {
     bool selfTest = false;
     std::filesystem::path file;
+    std::filesystem::path folder;
 };
 
 class DesignerApp {

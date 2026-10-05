@@ -1,3 +1,4 @@
+#include "designer/assets/IconPack.h"
 #include "designer/shell/DesignerApp.h"
 
 #include "compiler/semantic/ComponentCatalog.h"
@@ -32,7 +33,8 @@
 namespace Runtime {
 namespace {
 
-constexpr float TOOLBAR_HEIGHT = 48.0f;
+constexpr float TOOLBAR_HEIGHT = 36.0f;
+constexpr float TAB_HEIGHT = 34.0f;
 constexpr float ICON_SIDEBAR = 72.0f;
 constexpr float LEFT_WIDTH = 318.0f;
 constexpr float RIGHT_WIDTH = 318.0f;
@@ -65,6 +67,8 @@ enum class EditTarget {
     PROPERTY,
     XML,
     FILTER,
+    LIBRARY,
+    ASSET,
 };
 
 enum class DragKind {
@@ -139,6 +143,27 @@ struct FileEntry {
     Rect twist{};
 };
 
+struct WorkTab {
+    std::string path;
+    bool designer = false;
+    std::string editorText;
+    bool binary = false;
+    bool dirty = false;
+    int scroll = 0;
+    std::size_t caret = 0;
+    std::vector<int> selection;
+    std::vector<std::vector<int>> selections;
+    std::vector<std::string> undoStack;
+    std::vector<std::string> redoStack;
+    float zoom = 1.0f;
+    float panX = 0.0f;
+    float panY = 0.0f;
+    bool fitted = false;
+    float deviceWidth = 800.0f;
+    float deviceHeight = 600.0f;
+    int deviceIndex = 0;
+};
+
 struct HitRow {
     Rect rect{};
     Rect eye{};
@@ -198,7 +223,7 @@ std::string LowerCopy(std::string_view text) {
 std::string NodeLabel(const XmlNode& node) {
     std::string label = node.name;
     for (const XmlAttribute& attribute : node.attributes) {
-        if (attribute.name == "id" || attribute.name == "text") {
+        if (attribute.name == "id" || attribute.name == "name" || attribute.name == "text") {
             label += "  ";
             label += attribute.value;
             break;
@@ -304,6 +329,296 @@ void FillTriangle(Renderer& renderer, float ax, float ay, float bx, float by, fl
         if (right - left >= 0.5f) {
             renderer.FillRectangle(Rect{left, static_cast<float>(scan), right - left, 1.0f}, color, 0.0f);
         }
+    }
+}
+
+void DrawStroke(Renderer& renderer, float x1, float y1, float x2, float y2, Color color, float thickness) {
+    const float dx = x2 - x1;
+    const float dy = y2 - y1;
+    const float length = std::sqrt(dx * dx + dy * dy);
+    const int count = std::max(1, static_cast<int>(length / 0.7f));
+    for (int index = 0; index <= count; ++index) {
+        const float t = static_cast<float>(index) / static_cast<float>(count);
+        const float px = x1 + dx * t - thickness * 0.5f;
+        const float py = y1 + dy * t - thickness * 0.5f;
+        renderer.FillRectangle(Rect{px, py, thickness, thickness}, color, thickness * 0.5f);
+    }
+}
+
+void DrawMenuCheck(Renderer& renderer, float x, float y, Color color) {
+    DrawStroke(renderer, x + 2.0f, y + 7.0f, x + 6.0f, y + 11.5f, color, 2.0f);
+    DrawStroke(renderer, x + 5.5f, y + 11.5f, x + 13.0f, y + 3.0f, color, 2.0f);
+}
+
+void DrawPageIcon(Renderer& renderer, float x, float y, Color color) {
+    renderer.StrokeRectangle(Rect{x + 3.0f, y + 1.0f, 10.0f, 14.0f}, color, 1.25f, 1.5f);
+    renderer.FillRectangle(Rect{x + 5.5f, y + 5.0f, 5.0f, 1.25f}, color, 0.5f);
+    renderer.FillRectangle(Rect{x + 5.5f, y + 8.0f, 5.0f, 1.25f}, color, 0.5f);
+}
+
+void DrawFolderIcon(Renderer& renderer, float x, float y, Color color) {
+    renderer.StrokeRectangle(Rect{x + 1.0f, y + 5.0f, 14.0f, 9.0f}, color, 1.25f, 2.0f);
+    renderer.StrokeRectangle(Rect{x + 1.0f, y + 2.5f, 6.0f, 3.5f}, color, 1.25f, 1.0f);
+}
+
+void DrawMenuIcon(Renderer& renderer, float x, float y, int action, Color color) {
+    switch (action) {
+    case 0:
+    case 13:
+        DrawPageIcon(renderer, x, y, color);
+        renderer.StrokeRectangle(Rect{x + 8.0f, y + 7.0f, 6.0f, 5.0f}, color, 1.15f, 1.0f);
+        break;
+    case 7:
+        DrawStroke(renderer, x + 5.0f, y + 3.0f, x + 2.0f, y + 8.0f, color, 1.4f);
+        DrawStroke(renderer, x + 2.0f, y + 8.0f, x + 5.0f, y + 13.0f, color, 1.4f);
+        DrawStroke(renderer, x + 10.0f, y + 3.0f, x + 13.0f, y + 8.0f, color, 1.4f);
+        DrawStroke(renderer, x + 13.0f, y + 8.0f, x + 10.0f, y + 13.0f, color, 1.4f);
+        break;
+    case 1:
+    case 10:
+        DrawPageIcon(renderer, x, y, color);
+        renderer.FillRectangle(Rect{x + 11.0f, y + 10.0f, 5.0f, 1.4f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 12.8f, y + 8.2f, 1.4f, 5.0f}, color, 0.5f);
+        break;
+    case 2:
+    case 11:
+    case 14:
+        DrawFolderIcon(renderer, x, y, color);
+        break;
+    case 12:
+    case 18:
+        renderer.StrokeRectangle(Rect{x + 3.0f, y + 2.0f, 11.0f, 9.0f}, color, 1.25f, 1.5f);
+        renderer.FillRectangle(Rect{x + 1.0f, y + 12.0f, 12.0f, 1.25f}, color, 0.5f);
+        break;
+    case 15:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 3.0f, 12.0f, 11.0f}, color, 1.25f, 1.5f);
+        renderer.FillRectangle(Rect{x + 5.0f, y + 3.0f, 6.0f, 4.0f}, color, 1.0f);
+        renderer.FillRectangle(Rect{x + 6.5f, y + 10.0f, 3.0f, 1.25f}, color, 0.5f);
+        break;
+    case 16:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 4.0f, 12.0f, 10.0f}, color, 1.25f, 1.5f);
+        renderer.FillRectangle(Rect{x + 11.0f, y + 1.0f, 4.0f, 1.3f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 12.3f, y + 1.0f, 1.3f, 4.0f}, color, 0.5f);
+        break;
+    case 54:
+        FillTriangle(renderer, x + 5.0f, y + 3.0f, x + 5.0f, y + 13.0f, x + 13.0f, y + 8.0f, color);
+        break;
+    case 17:
+        DrawFolderIcon(renderer, x, y, color);
+        DrawStroke(renderer, x + 8.0f, y + 7.0f, x + 13.0f, y + 12.0f, color, 1.4f);
+        break;
+    case 19:
+        renderer.StrokeRectangle(Rect{x + 3.0f, y + 3.0f, 10.0f, 10.0f}, color, 1.25f, 5.0f);
+        renderer.FillRectangle(Rect{x + 7.3f, y + 2.0f, 1.4f, 6.0f}, color, 0.5f);
+        break;
+    case 20:
+        DrawStroke(renderer, x + 12.0f, y + 5.0f, x + 5.0f, y + 5.0f, color, 1.5f);
+        DrawStroke(renderer, x + 5.0f, y + 5.0f, x + 8.0f, y + 2.2f, color, 1.5f);
+        DrawStroke(renderer, x + 5.0f, y + 5.0f, x + 8.0f, y + 7.8f, color, 1.5f);
+        DrawStroke(renderer, x + 6.0f, y + 8.0f, x + 12.0f, y + 12.0f, color, 1.5f);
+        break;
+    case 21:
+        DrawStroke(renderer, x + 4.0f, y + 5.0f, x + 11.0f, y + 5.0f, color, 1.5f);
+        DrawStroke(renderer, x + 11.0f, y + 5.0f, x + 8.0f, y + 2.2f, color, 1.5f);
+        DrawStroke(renderer, x + 11.0f, y + 5.0f, x + 8.0f, y + 7.8f, color, 1.5f);
+        DrawStroke(renderer, x + 10.0f, y + 8.0f, x + 4.0f, y + 12.0f, color, 1.5f);
+        break;
+    case 22:
+        DrawStroke(renderer, x + 3.0f, y + 3.0f, x + 13.0f, y + 13.0f, color, 1.4f);
+        DrawStroke(renderer, x + 13.0f, y + 3.0f, x + 3.0f, y + 13.0f, color, 1.4f);
+        renderer.FillRectangle(Rect{x + 2.0f, y + 2.0f, 3.2f, 3.2f}, color, 1.6f);
+        renderer.FillRectangle(Rect{x + 10.8f, y + 2.0f, 3.2f, 3.2f}, color, 1.6f);
+        break;
+    case 23:
+    case 53:
+        renderer.StrokeRectangle(Rect{x + 4.0f, y + 4.0f, 9.0f, 10.0f}, color, 1.25f, 1.5f);
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 9.0f, 10.0f}, color, 1.25f, 1.5f);
+        break;
+    case 5:
+    case 24:
+        renderer.StrokeRectangle(Rect{x + 4.0f, y + 3.0f, 8.0f, 11.0f}, color, 1.25f, 1.5f);
+        renderer.FillRectangle(Rect{x + 3.0f, y + 1.5f, 10.0f, 2.5f}, color, 1.0f);
+        break;
+    case 4:
+    case 25:
+        renderer.StrokeRectangle(Rect{x + 4.0f, y + 4.0f, 8.0f, 10.0f}, color, 1.25f, 1.0f);
+        renderer.FillRectangle(Rect{x + 3.0f, y + 2.5f, 10.0f, 1.4f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 6.5f, y + 1.0f, 3.0f, 1.5f}, color, 0.5f);
+        break;
+    case 26:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 12.0f, 12.0f}, color, 1.25f, 2.0f);
+        renderer.FillRectangle(Rect{x + 5.0f, y + 5.0f, 6.0f, 6.0f}, color, 1.0f);
+        break;
+    case 27:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 12.0f, 12.0f}, color, 1.25f, 2.0f);
+        DrawStroke(renderer, x + 4.0f, y + 12.0f, x + 12.0f, y + 4.0f, color, 1.4f);
+        break;
+    case 28:
+    case 29:
+    case 48:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 8.0f, 8.0f}, color, 1.25f, 4.0f);
+        DrawStroke(renderer, x + 9.0f, y + 9.0f, x + 13.5f, y + 13.5f, color, 1.6f);
+        if (action == 28) {
+            renderer.FillRectangle(Rect{x + 4.5f, y + 5.3f, 3.0f, 1.3f}, color, 0.5f);
+            renderer.FillRectangle(Rect{x + 5.35f, y + 4.4f, 1.3f, 3.0f}, color, 0.5f);
+        } else if (action == 29) {
+            renderer.FillRectangle(Rect{x + 4.5f, y + 5.3f, 3.0f, 1.3f}, color, 0.5f);
+        }
+        break;
+    case 31:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 12.0f, 12.0f}, color, 1.25f, 2.0f);
+        renderer.FillRectangle(Rect{x + 7.2f, y + 4.0f, 1.6f, 8.0f}, color, 0.5f);
+        break;
+    case 30:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 4.0f, 4.0f}, color, 1.25f, 1.0f);
+        renderer.StrokeRectangle(Rect{x + 10.0f, y + 2.0f, 4.0f, 4.0f}, color, 1.25f, 1.0f);
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 10.0f, 4.0f, 4.0f}, color, 1.25f, 1.0f);
+        renderer.StrokeRectangle(Rect{x + 10.0f, y + 10.0f, 4.0f, 4.0f}, color, 1.25f, 1.0f);
+        break;
+    case 32:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 5.0f, 5.0f}, color, 1.2f, 1.0f);
+        renderer.StrokeRectangle(Rect{x + 9.0f, y + 2.0f, 5.0f, 5.0f}, color, 1.2f, 1.0f);
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 9.0f, 5.0f, 5.0f}, color, 1.2f, 1.0f);
+        renderer.StrokeRectangle(Rect{x + 9.0f, y + 9.0f, 5.0f, 5.0f}, color, 1.2f, 1.0f);
+        break;
+    case 33:
+        renderer.FillRectangle(Rect{x + 2.0f, y + 3.0f, 12.0f, 1.3f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 3.0f, y + 3.0f, 1.3f, 11.0f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 6.0f, y + 1.5f, 1.0f, 3.0f}, color, 0.4f);
+        renderer.FillRectangle(Rect{x + 10.0f, y + 1.5f, 1.0f, 3.0f}, color, 0.4f);
+        break;
+    case 34:
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 2.0f, 14.0f, 9.0f}, color, 1.25f, 1.5f);
+        renderer.FillRectangle(Rect{x + 6.0f, y + 12.0f, 4.0f, 1.3f}, color, 0.5f);
+        break;
+    case 35:
+        renderer.StrokeRectangle(Rect{x + 3.0f, y + 1.0f, 10.0f, 14.0f}, color, 1.25f, 2.0f);
+        break;
+    case 36:
+        renderer.StrokeRectangle(Rect{x + 5.0f, y + 1.0f, 6.0f, 14.0f}, color, 1.25f, 2.0f);
+        renderer.FillRectangle(Rect{x + 7.2f, y + 12.5f, 1.6f, 1.6f}, color, 0.8f);
+        break;
+    case 37:
+        DrawFolderIcon(renderer, x, y, color);
+        break;
+    case 38:
+        renderer.StrokeRectangle(Rect{x + 4.0f, y + 1.0f, 10.0f, 12.0f}, color, 1.2f, 1.0f);
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 3.0f, 10.0f, 12.0f}, color, 1.2f, 1.0f);
+        break;
+    case 39:
+        renderer.FillRectangle(Rect{x + 2.0f, y + 2.0f, 5.0f, 5.0f}, color, 1.0f);
+        renderer.FillRectangle(Rect{x + 9.0f, y + 2.0f, 5.0f, 5.0f}, color, 1.0f);
+        renderer.FillRectangle(Rect{x + 2.0f, y + 9.0f, 5.0f, 5.0f}, color, 1.0f);
+        renderer.FillRectangle(Rect{x + 9.0f, y + 9.0f, 5.0f, 5.0f}, color, 1.0f);
+        break;
+    case 40:
+    case 45:
+    case 72:
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 3.0f, 14.0f, 11.0f}, color, 1.25f, 1.5f);
+        renderer.FillRectangle(Rect{x + 4.0f, y + 6.0f, 2.5f, 2.5f}, color, 1.2f);
+        DrawStroke(renderer, x + 3.0f, y + 12.0f, x + 8.0f, y + 8.0f, color, 1.3f);
+        DrawStroke(renderer, x + 8.0f, y + 8.0f, x + 13.0f, y + 12.0f, color, 1.3f);
+        break;
+    case 41:
+        renderer.StrokeRectangle(Rect{x + 3.0f, y + 2.0f, 10.0f, 12.0f}, color, 1.25f, 2.0f);
+        renderer.FillRectangle(Rect{x + 6.0f, y + 6.0f, 4.0f, 1.3f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 6.0f, y + 9.0f, 4.0f, 1.3f}, color, 0.5f);
+        break;
+    case 42:
+        FillTriangle(renderer, x + 3.0f, y + 2.0f, x + 3.0f, y + 13.0f, x + 8.0f, y + 9.0f, color);
+        DrawStroke(renderer, x + 7.5f, y + 9.5f, x + 12.0f, y + 14.0f, color, 1.6f);
+        break;
+    case 43:
+    case 52:
+    case 70:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 12.0f, 12.0f}, color, 1.4f, 2.5f);
+        break;
+    case 44:
+    case 71:
+    case 83:
+    case 84:
+    case 85: {
+        const float weight = action == 85 ? 2.2f : action == 84 ? 1.7f : 1.25f;
+        renderer.FillRectangle(Rect{x + 3.0f, y + 2.0f, 10.0f, weight}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 8.0f - weight * 0.5f, y + 2.0f, weight, 12.0f}, color, 0.5f);
+        break;
+    }
+    case 46:
+    case 75:
+        DrawStroke(renderer, x + 3.0f, y + 13.0f, x + 13.0f, y + 3.0f, color, 1.6f);
+        break;
+    case 47:
+        renderer.StrokeRectangle(Rect{x + 4.0f, y + 6.0f, 8.0f, 7.0f}, color, 1.25f, 3.0f);
+        renderer.FillRectangle(Rect{x + 6.0f, y + 2.0f, 2.0f, 5.0f}, color, 1.0f);
+        renderer.FillRectangle(Rect{x + 9.0f, y + 3.0f, 2.0f, 4.0f}, color, 1.0f);
+        break;
+    case 73:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 12.0f, 12.0f}, color, 1.4f, 6.0f);
+        break;
+    case 74:
+        renderer.FillRectangle(Rect{x + 2.0f, y + 12.0f, 2.4f, 2.4f}, color, 1.2f);
+        renderer.FillRectangle(Rect{x + 7.0f, y + 2.0f, 2.4f, 2.4f}, color, 1.2f);
+        renderer.FillRectangle(Rect{x + 12.0f, y + 8.0f, 2.4f, 2.4f}, color, 1.2f);
+        DrawStroke(renderer, x + 3.0f, y + 12.0f, x + 8.0f, y + 3.0f, color, 1.3f);
+        DrawStroke(renderer, x + 8.0f, y + 3.0f, x + 13.0f, y + 8.0f, color, 1.3f);
+        break;
+    case 76:
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 4.0f, 9.0f, 9.0f}, color, 1.2f, 1.5f);
+        renderer.StrokeRectangle(Rect{x + 6.0f, y + 2.0f, 9.0f, 9.0f}, color, 1.2f, 1.5f);
+        break;
+    case 77:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 12.0f, 12.0f}, color, 1.25f, 2.0f);
+        renderer.FillRectangle(Rect{x + 11.0f, y + 4.0f, 1.6f, 5.0f}, color, 0.8f);
+        break;
+    case 50:
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 5.0f, 9.0f, 9.0f}, color, 1.2f, 1.5f);
+        renderer.FillRectangle(Rect{x + 6.0f, y + 2.0f, 8.0f, 8.0f}, color, 1.5f);
+        break;
+    case 51:
+        renderer.FillRectangle(Rect{x + 1.0f, y + 5.0f, 8.0f, 8.0f}, color, 1.5f);
+        renderer.StrokeRectangle(Rect{x + 6.0f, y + 2.0f, 9.0f, 9.0f}, color, 1.2f, 1.5f);
+        break;
+    case 80:
+        renderer.FillRectangle(Rect{x + 2.0f, y + 3.0f, 12.0f, 1.4f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 2.0f, y + 7.0f, 8.0f, 1.4f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 2.0f, y + 11.0f, 10.0f, 1.4f}, color, 0.5f);
+        break;
+    case 81:
+        renderer.FillRectangle(Rect{x + 2.0f, y + 3.0f, 12.0f, 1.4f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 4.0f, y + 7.0f, 8.0f, 1.4f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 3.0f, y + 11.0f, 10.0f, 1.4f}, color, 0.5f);
+        break;
+    case 82:
+        renderer.FillRectangle(Rect{x + 2.0f, y + 3.0f, 12.0f, 1.4f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 6.0f, y + 7.0f, 8.0f, 1.4f}, color, 0.5f);
+        renderer.FillRectangle(Rect{x + 4.0f, y + 11.0f, 10.0f, 1.4f}, color, 0.5f);
+        break;
+    case 90:
+        renderer.FillRectangle(Rect{x + 3.0f, y + 7.3f, 10.0f, 1.6f}, color, 0.8f);
+        break;
+    case 91:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 12.0f, 12.0f}, color, 1.25f, 2.0f);
+        DrawStroke(renderer, x + 8.0f, y + 5.0f, x + 11.0f, y + 5.0f, color, 1.3f);
+        DrawStroke(renderer, x + 11.0f, y + 5.0f, x + 11.0f, y + 8.0f, color, 1.3f);
+        break;
+    case 3:
+        DrawStroke(renderer, x + 11.0f, y + 2.0f, x + 4.0f, y + 13.0f, color, 1.5f);
+        renderer.FillRectangle(Rect{x + 2.5f, y + 12.0f, 4.0f, 2.0f}, color, 0.5f);
+        break;
+    case 6:
+    case 61:
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 5.0f, 14.0f, 8.0f}, color, 1.2f, 1.5f);
+        renderer.FillRectangle(Rect{x + 3.5f, y + 7.5f, 2.0f, 2.0f}, color, 0.6f);
+        renderer.FillRectangle(Rect{x + 7.0f, y + 7.5f, 2.0f, 2.0f}, color, 0.6f);
+        renderer.FillRectangle(Rect{x + 10.5f, y + 7.5f, 2.0f, 2.0f}, color, 0.6f);
+        break;
+    case 60:
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 12.0f, 12.0f}, color, 1.25f, 6.0f);
+        renderer.FillRectangle(Rect{x + 7.2f, y + 4.0f, 1.6f, 1.6f}, color, 0.8f);
+        renderer.FillRectangle(Rect{x + 7.2f, y + 7.0f, 1.6f, 5.0f}, color, 0.6f);
+        break;
+    default:
+        break;
     }
 }
 
@@ -599,6 +914,62 @@ ExplorerIcon DescribeExplorerIcon(const std::filesystem::path& path) {
     return ShapeIcon(1, ICON_GRAY);
 }
 
+void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& name) {
+    const float x = well.x + 8.0f;
+    const float y = well.y + 8.0f;
+    const float size = std::max(8.0f, well.width - 16.0f);
+    const Color ink = COLOR_ACCENT;
+    const Color quiet = COLOR_MUTED;
+    if (name == "frame") {
+        renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 4.0f);
+        renderer.FillRectangle(Rect{x + 4.0f, y + 4.0f, size - 8.0f, 3.0f}, quiet, 1.0f);
+    } else if (name == "text") {
+        renderer.FillRectangle(Rect{x, y + 2.0f, size, 2.0f}, ink, 1.0f);
+        renderer.FillRectangle(Rect{x, y + 7.0f, size * 0.72f, 2.0f}, quiet, 1.0f);
+        renderer.FillRectangle(Rect{x, y + 12.0f, size * 0.88f, 2.0f}, quiet, 1.0f);
+    } else if (name == "image") {
+        renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
+        renderer.FillRectangle(Rect{x + 3.0f, y + 3.0f, 4.0f, 4.0f}, ink, 2.0f);
+        renderer.FillRectangle(Rect{x + 2.0f, y + size - 6.0f, size - 4.0f, 3.0f}, quiet, 1.0f);
+    } else if (name == "vector") {
+        renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, size - 4.0f, size - 4.0f}, ink, 1.5f, (size - 4.0f) * 0.5f);
+    } else if (name == "path") {
+        renderer.FillRectangle(Rect{x, y + size - 4.0f, 3.0f, 3.0f}, ink, 1.5f);
+        renderer.FillRectangle(Rect{x + size * 0.45f, y + 2.0f, 3.0f, 3.0f}, ink, 1.5f);
+        renderer.FillRectangle(Rect{x + size - 3.0f, y + size * 0.45f, 3.0f, 3.0f}, ink, 1.5f);
+        renderer.FillRectangle(Rect{x + 2.0f, y + size * 0.42f, size * 0.42f, 1.5f}, quiet, 0.0f);
+    } else if (name == "line") {
+        for (int step = 0; step < 8; ++step) {
+            const float t = static_cast<float>(step) / 7.0f;
+            renderer.FillRectangle(Rect{x + t * (size - 2.0f), y + (1.0f - t) * (size - 2.0f), 2.0f, 2.0f}, ink, 1.0f);
+        }
+    } else if (name == "group") {
+        renderer.StrokeRectangle(Rect{x, y + 4.0f, size - 6.0f, size - 6.0f}, quiet, 1.5f, 3.0f);
+        renderer.StrokeRectangle(Rect{x + 6.0f, y, size - 6.0f, size - 6.0f}, ink, 1.5f, 3.0f);
+    } else if (name == "scroll") {
+        renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
+        renderer.FillRectangle(Rect{x + size - 5.0f, y + 3.0f, 2.0f, size * 0.45f}, quiet, 1.0f);
+    } else if (name == "component") {
+        renderer.StrokeRectangle(Rect{x + size * 0.18f, y, size * 0.64f, size * 0.64f}, ink, 1.5f, 2.0f);
+        renderer.StrokeRectangle(Rect{x, y + size * 0.36f, size * 0.64f, size * 0.64f}, quiet, 1.5f, 2.0f);
+    } else if (name == "instance") {
+        renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
+        renderer.FillRectangle(Rect{x + size * 0.28f, y + size * 0.28f, size * 0.44f, size * 0.44f}, ink, 2.0f);
+    } else if (name == "slot") {
+        renderer.FillRectangle(Rect{x, y, size * 0.28f, 1.5f}, ink, 0.0f);
+        renderer.FillRectangle(Rect{x + size * 0.72f, y, size * 0.28f, 1.5f}, ink, 0.0f);
+        renderer.FillRectangle(Rect{x, y + size - 1.5f, size * 0.28f, 1.5f}, ink, 0.0f);
+        renderer.FillRectangle(Rect{x + size * 0.72f, y + size - 1.5f, size * 0.28f, 1.5f}, ink, 0.0f);
+        renderer.FillRectangle(Rect{x, y, 1.5f, size * 0.28f}, ink, 0.0f);
+        renderer.FillRectangle(Rect{x + size - 1.5f, y, 1.5f, size * 0.28f}, ink, 0.0f);
+        renderer.FillRectangle(Rect{x, y + size * 0.72f, 1.5f, size * 0.28f}, ink, 0.0f);
+        renderer.FillRectangle(Rect{x + size - 1.5f, y + size * 0.72f, 1.5f, size * 0.28f}, ink, 0.0f);
+    } else if (name == "shadow") {
+        renderer.StrokeRectangle(Rect{x + 4.0f, y + 4.0f, size - 4.0f, size - 4.0f}, quiet, 1.5f, 3.0f);
+        renderer.StrokeRectangle(Rect{x, y, size - 4.0f, size - 4.0f}, ink, 1.5f, 3.0f);
+    }
+}
+
 void DrawExplorerIcon(Renderer& renderer, float x, float y, int kind, Color color, const char* label = nullptr, bool darkInk = false) {
     if (kind == 0 || kind == 3 || kind == 16) {
         DrawFolderGlyph(renderer, x, y, kind == 16, color);
@@ -867,6 +1238,36 @@ std::filesystem::path PickXmlFile(HWND owner, bool save, const std::wstring& sug
     return std::filesystem::path(wide);
 }
 
+void LaunchRuntime(HWND owner, const std::filesystem::path& xmlPath) {
+    wchar_t modulePath[MAX_PATH] = {};
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0) {
+        return;
+    }
+    const std::filesystem::path runner = std::filesystem::path(modulePath).parent_path() / L"myui.exe";
+    if (!std::filesystem::exists(runner)) {
+        MessageBoxW(owner, L"myui.exe was not found next to the designer. Build the myui target, then run again.", L"RoboUIDesigner",
+                    MB_OK | MB_ICONWARNING);
+        return;
+    }
+    std::wstring command = L"\"";
+    command += runner.wstring();
+    command += L"\" run \"";
+    command += xmlPath.wstring();
+    command += L"\"";
+    std::vector<wchar_t> buffer(command.begin(), command.end());
+    buffer.push_back(L'\0');
+    const std::wstring directory = xmlPath.parent_path().wstring();
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr, buffer.data(), nullptr, nullptr, FALSE, 0, nullptr, directory.empty() ? nullptr : directory.c_str(), &startup, &process)) {
+        MessageBoxW(owner, L"The app could not be started.", L"RoboUIDesigner", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+}
+
 void LaunchDesignerWindow() {
     wchar_t modulePath[MAX_PATH] = {};
     if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0) {
@@ -938,6 +1339,21 @@ int DesignerApp::Run(const DesignerOptions& options) {
     int xmlScroll = 0;
     int hierarchyScroll = 0;
     int libraryScroll = 0;
+    std::string libraryQuery;
+    Rect librarySearchRect{};
+    int libraryHover = -1;
+    IconPack iconPack;
+    bool iconPackLoaded = false;
+    std::vector<int> assetFilter;
+    std::string assetFilterQuery;
+    bool assetFilterReady = false;
+    int assetScroll = 0;
+    std::string assetQuery;
+    Rect assetSearchRect{};
+    int assetHover = -1;
+    int assetSelected = -1;
+    Rect assetPlace{};
+    std::vector<HitRow> assetRows;
     int inspectorScroll = 0;
     float zoom = 1.0f;
     float panX = 0.0f;
@@ -980,7 +1396,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
     std::unique_ptr<Element> preview;
     std::vector<Diagnostic> compileDiagnostics;
     auto rebuildPreview = [&]() {
-        const CompileResult compiled = CompileUi(SourceFile{document.FilePath(), document.Text()});
+        const CompileResult compiled = CompileUi(SourceFile{document.FilePath(), document.PreviewText()});
         compileDiagnostics = compiled.diagnostics;
         if (!compiled.Ok()) {
             return;
@@ -988,6 +1404,17 @@ int DesignerApp::Run(const DesignerOptions& options) {
         preview = Instantiate(*compiled.root, {});
     };
     rebuildPreview();
+    if (document.Root() != nullptr && document.Root()->name == "component") {
+        for (int index = 0; index < static_cast<int>(document.Root()->children.size()); ++index) {
+            const std::string& childName = document.Root()->children[static_cast<std::size_t>(index)].name;
+            if (childName == "property" || childName == "event") {
+                continue;
+            }
+            selection = {index};
+            selections = {selection};
+            break;
+        }
+    }
 
     Rect toolbar{};
     Rect library{};
@@ -1003,12 +1430,16 @@ int DesignerApp::Run(const DesignerOptions& options) {
     std::vector<HitRow> navRows;
     int leftNav = 0;
     int navHover = -1;
-    std::filesystem::path projectRoot;
+    std::filesystem::path projectRoot = options.folder;
     std::vector<std::string> openFolders;
+    if (!projectRoot.empty()) {
+        openFolders.push_back(projectRoot.generic_string());
+    }
     Rect openProjectRect{};
     bool openProjectHover = false;
-    Rect fileButtonRect{};
-    bool fileButtonHover = false;
+    std::vector<HitRow> menuTitles;
+    int openMenu = -1;
+    int menuTitleHover = -1;
     bool appMenuOpen = false;
     int appMenuHover = -1;
     std::vector<HitRow> appMenuRows;
@@ -1029,6 +1460,26 @@ int DesignerApp::Run(const DesignerOptions& options) {
     bool fileMenuDirectory = false;
     int fileMenuHover = -1;
     std::vector<HitRow> fileMenuRows;
+    std::vector<WorkTab> workTabs;
+    int activeTab = -1;
+    Rect tabBar{};
+    std::vector<HitRow> tabRows;
+    int tabHover = -1;
+    int tabCloseHover = -1;
+    bool editorFocused = false;
+    {
+        WorkTab opened;
+        opened.path = document.FilePath();
+        opened.designer = true;
+        opened.editorText = document.Text();
+        opened.selection = selection;
+        opened.selections = selections;
+        opened.deviceWidth = deviceWidth;
+        opened.deviceHeight = deviceHeight;
+        opened.deviceIndex = deviceIndex;
+        workTabs.push_back(std::move(opened));
+        activeTab = 0;
+    }
     bool fileRenaming = false;
     bool renameReplace = false;
     std::string renameDraft;
@@ -1321,17 +1772,231 @@ int DesignerApp::Run(const DesignerOptions& options) {
         selectExplorerOnly(suggested.generic_string());
         filesDirty = true;
     };
+    auto surfaceDesigner = [&]() {
+        return activeTab >= 0 && activeTab < static_cast<int>(workTabs.size()) && workTabs[static_cast<std::size_t>(activeTab)].designer;
+    };
+    auto captureTab = [&]() {
+        if (!surfaceDesigner()) {
+            return;
+        }
+        WorkTab& tab = workTabs[static_cast<std::size_t>(activeTab)];
+        tab.editorText = document.Text();
+        tab.selection = selection;
+        tab.selections = selections;
+        tab.undoStack = undoStack;
+        tab.redoStack = redoStack;
+        tab.zoom = zoom;
+        tab.panX = panX;
+        tab.panY = panY;
+        tab.fitted = fitted;
+        tab.deviceWidth = deviceWidth;
+        tab.deviceHeight = deviceHeight;
+        tab.deviceIndex = deviceIndex;
+        tab.path = document.FilePath();
+    };
+    auto showTab = [&](int index, bool capture) {
+        if (capture) {
+            captureTab();
+        }
+        if (index < 0 || index >= static_cast<int>(workTabs.size())) {
+            activeTab = -1;
+            editorFocused = false;
+            return;
+        }
+        activeTab = index;
+        WorkTab& tab = workTabs[static_cast<std::size_t>(index)];
+        editorFocused = !tab.designer;
+        editTarget = EditTarget::NONE;
+        drag = DragKind::NONE;
+        if (!tab.designer) {
+            return;
+        }
+        document.LoadText(tab.editorText, tab.path);
+        selection = tab.selection;
+        selections = tab.selections;
+        undoStack = tab.undoStack;
+        redoStack = tab.redoStack;
+        zoom = tab.zoom;
+        panX = tab.panX;
+        panY = tab.panY;
+        fitted = tab.fitted;
+        deviceWidth = tab.deviceWidth;
+        deviceHeight = tab.deviceHeight;
+        deviceIndex = tab.deviceIndex;
+        historyOpen = false;
+        rebuildPreview();
+    };
+    auto openWorkFile = [&](const std::filesystem::path& path, bool asDesigner) {
+        if (path.empty()) {
+            return;
+        }
+        const std::string key = path.generic_string();
+        for (int index = 0; index < static_cast<int>(workTabs.size()); ++index) {
+            const WorkTab& tab = workTabs[static_cast<std::size_t>(index)];
+            if (tab.path == key && tab.designer == asDesigner) {
+                showTab(index, true);
+                return;
+            }
+        }
+        if (asDesigner) {
+            captureTab();
+            if (!document.LoadFile(path)) {
+                return;
+            }
+            selection.clear();
+            selections.clear();
+            undoStack.clear();
+            redoStack.clear();
+            zoom = 1.0f;
+            panX = 0.0f;
+            panY = 0.0f;
+            fitted = false;
+            historyOpen = false;
+            if (const std::optional<Length> width = ParseLength(document.Attribute({}, "width"))) {
+                if (width->unit == LengthUnit::PIXELS && width->value >= 1.0f) {
+                    deviceWidth = width->value;
+                }
+            }
+            if (const std::optional<Length> height = ParseLength(document.Attribute({}, "height"))) {
+                if (height->unit == LengthUnit::PIXELS && height->value >= 1.0f) {
+                    deviceHeight = height->value;
+                }
+            }
+            if (document.Root() != nullptr && document.Root()->name == "component") {
+                for (int index = 0; index < static_cast<int>(document.Root()->children.size()); ++index) {
+                    const std::string& childName = document.Root()->children[static_cast<std::size_t>(index)].name;
+                    if (childName == "property" || childName == "event") {
+                        continue;
+                    }
+                    selection = {index};
+                    selections = {selection};
+                    break;
+                }
+            }
+            rebuildPreview();
+            WorkTab tab;
+            tab.path = document.FilePath();
+            tab.designer = true;
+            tab.editorText = document.Text();
+            tab.selection = selection;
+            tab.selections = selections;
+            tab.zoom = zoom;
+            tab.fitted = fitted;
+            tab.deviceWidth = deviceWidth;
+            tab.deviceHeight = deviceHeight;
+            tab.deviceIndex = deviceIndex;
+            workTabs.push_back(std::move(tab));
+            activeTab = static_cast<int>(workTabs.size()) - 1;
+            editorFocused = false;
+            return;
+        }
+        captureTab();
+        WorkTab tab;
+        tab.path = key;
+        tab.designer = false;
+        std::ifstream input(path, std::ios::binary);
+        if (input) {
+            tab.editorText.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+            tab.binary = tab.editorText.find('\0') != std::string::npos;
+            if (tab.binary) {
+                tab.editorText.clear();
+            }
+        }
+        workTabs.push_back(std::move(tab));
+        activeTab = static_cast<int>(workTabs.size()) - 1;
+        editorFocused = true;
+        editTarget = EditTarget::NONE;
+    };
+    auto closeTab = [&](int index) {
+        if (index < 0 || index >= static_cast<int>(workTabs.size())) {
+            return;
+        }
+        if (index == activeTab) {
+            workTabs.erase(workTabs.begin() + index);
+            activeTab = -1;
+            if (workTabs.empty()) {
+                editorFocused = false;
+                return;
+            }
+            const int next = std::min(index, static_cast<int>(workTabs.size()) - 1);
+            showTab(next, false);
+            return;
+        }
+        workTabs.erase(workTabs.begin() + index);
+        if (activeTab > index) {
+            --activeTab;
+        }
+    };
+    auto saveActive = [&]() {
+        if (activeTab < 0 || activeTab >= static_cast<int>(workTabs.size())) {
+            return;
+        }
+        if (surfaceDesigner()) {
+            if (document.Save()) {
+                LogInfo("Saved " + document.FilePath());
+                workTabs[static_cast<std::size_t>(activeTab)].editorText = document.Text();
+                workTabs[static_cast<std::size_t>(activeTab)].dirty = false;
+            }
+            return;
+        }
+        WorkTab& tab = workTabs[static_cast<std::size_t>(activeTab)];
+        if (tab.binary || tab.path.empty()) {
+            return;
+        }
+        std::ofstream output(std::filesystem::path(tab.path), std::ios::binary);
+        if (!output) {
+            return;
+        }
+        output << tab.editorText;
+        if (output) {
+            tab.dirty = false;
+            LogInfo("Saved " + tab.path);
+        }
+    };
+    auto placeEditorCaret = [&](Point point) {
+        if (activeTab < 0 || surfaceDesigner()) {
+            return;
+        }
+        WorkTab& tab = workTabs[static_cast<std::size_t>(activeTab)];
+        if (tab.binary) {
+            return;
+        }
+        const int line = std::max(0, static_cast<int>((point.y - canvas.y - 8.0f) / 18.0f) + tab.scroll);
+        int current = 0;
+        std::size_t start = 0;
+        for (std::size_t index = 0; index < tab.editorText.size(); ++index) {
+            if (tab.editorText[index] != '\n') {
+                continue;
+            }
+            if (current == line) {
+                break;
+            }
+            ++current;
+            start = index + 1;
+        }
+        if (current < line) {
+            tab.caret = tab.editorText.size();
+            return;
+        }
+        const int column = std::max(0, static_cast<int>((point.x - canvas.x - 56.0f) / 7.2f));
+        std::size_t caret = start;
+        int seen = 0;
+        while (caret < tab.editorText.size() && tab.editorText[caret] != '\n' && seen < column) {
+            if ((static_cast<unsigned char>(tab.editorText[caret]) & 0xC0) != 0x80) {
+                ++seen;
+            }
+            ++caret;
+        }
+        tab.caret = caret;
+    };
     auto applyFileAction = [&](int action) {
         const std::filesystem::path target = fileMenuTarget.empty() ? projectRoot : std::filesystem::path(fileMenuTarget);
         const bool targetSelected = explorerSelected(target.generic_string());
         closeFileMenu();
         if (action == 0) {
-            const std::string extension = LowerCopy(target.extension().string());
-            if (extension == ".xml" && document.LoadFile(target)) {
-                selection.clear();
-                selections.clear();
-                rebuildPreview();
-            }
+            openWorkFile(target, true);
+        } else if (action == 7) {
+            openWorkFile(target, false);
         } else if (action == 1 || action == 2) {
             selectExplorerOnly(target.generic_string());
             beginExplorerCreate(action == 2);
@@ -1372,20 +2037,160 @@ int DesignerApp::Run(const DesignerOptions& options) {
         iconSidebar = Rect{0.0f, TOOLBAR_HEIGHT, ICON_SIDEBAR, sideHeight};
         fullSidebar = Rect{ICON_SIDEBAR, TOOLBAR_HEIGHT, std::max(0.0f, LEFT_WIDTH - ICON_SIDEBAR), sideHeight};
         hierarchy = Rect{fullSidebar.x, fullSidebar.y, fullSidebar.width, 0.0f};
-        library = Rect{fullSidebar.x, fullSidebar.y, fullSidebar.width, 0.0f};
+        library = Rect{fullSidebar.x, fullSidebar.y, fullSidebar.width, leftNav == 2 ? fullSidebar.height : 0.0f};
         xmlPanel = Rect{0.0f, height - XML_HEIGHT, width, XML_HEIGHT};
         inspector = Rect{width - RIGHT_WIDTH, TOOLBAR_HEIGHT, RIGHT_WIDTH, std::max(0.0f, height - TOOLBAR_HEIGHT - XML_HEIGHT)};
-        canvas = Rect{LEFT_WIDTH, TOOLBAR_HEIGHT, std::max(0.0f, width - LEFT_WIDTH - RIGHT_WIDTH),
-                      std::max(0.0f, height - TOOLBAR_HEIGHT - XML_HEIGHT)};
+        tabBar = Rect{LEFT_WIDTH, TOOLBAR_HEIGHT, std::max(0.0f, width - LEFT_WIDTH - RIGHT_WIDTH), TAB_HEIGHT};
+        canvas = Rect{LEFT_WIDTH, TOOLBAR_HEIGHT + TAB_HEIGHT, std::max(0.0f, width - LEFT_WIDTH - RIGHT_WIDTH),
+                      std::max(0.0f, height - TOOLBAR_HEIGHT - TAB_HEIGHT - XML_HEIGHT)};
+        tabRows.clear();
+        if (!workTabs.empty() && tabBar.width > 8.0f) {
+            const float available = std::max(0.0f, tabBar.width - 8.0f);
+            const float tabWidth = std::min(188.0f, std::max(64.0f, available / static_cast<float>(workTabs.size())));
+            float tabX = tabBar.x + 4.0f;
+            for (int index = 0; index < static_cast<int>(workTabs.size()); ++index) {
+                const WorkTab& tab = workTabs[static_cast<std::size_t>(index)];
+                HitRow row;
+                row.depth = index;
+                row.branch = tab.designer;
+                row.name = std::filesystem::path(tab.path).filename().string();
+                if (row.name.empty()) {
+                    row.name = "Untitled";
+                }
+                bool paired = false;
+                for (const WorkTab& other : workTabs) {
+                    if (other.designer == tab.designer) {
+                        continue;
+                    }
+                    if (std::filesystem::path(other.path).filename() == std::filesystem::path(tab.path).filename()) {
+                        paired = true;
+                        break;
+                    }
+                }
+                if (paired) {
+                    row.name += tab.designer ? "  Design" : "  Edit";
+                }
+                row.rect = Rect{tabX, tabBar.y + 4.0f, std::max(0.0f, tabWidth - 4.0f), TAB_HEIGHT - 8.0f};
+                row.twist = Rect{row.rect.x + row.rect.width - 18.0f, row.rect.y + (row.rect.height - 12.0f) * 0.5f, 12.0f, 12.0f};
+                tabRows.push_back(std::move(row));
+                tabX += tabWidth;
+            }
+        }
         libraryRows.clear();
-        const char* libraryNames[] = {"frame", "text", "image", "vector", "path", "line", "group", "scroll", "component", "instance", "slot", "shadow"};
-        constexpr int libraryCount = static_cast<int>(sizeof(libraryNames) / sizeof(libraryNames[0]));
-        for (int index = 0; index < libraryCount; ++index) {
-            HitRow row;
-            row.rect = Rect{library.x + 8.0f, library.y + 36.0f + static_cast<float>(index - libraryScroll) * ROW_HEIGHT, library.width - 28.0f,
-                            ROW_HEIGHT - 4.0f};
-            row.name = libraryNames[index];
-            libraryRows.push_back(std::move(row));
+        librarySearchRect = {};
+        if (leftNav == 2 && fullSidebar.width > 1.0f) {
+            librarySearchRect = Rect{fullSidebar.x + 12.0f, fullSidebar.y + 36.0f, std::max(0.0f, fullSidebar.width - 24.0f), 32.0f};
+            struct LibraryItem {
+                const char* category;
+                const char* name;
+            };
+            const LibraryItem items[] = {
+                {"Core", "frame"},       {"Core", "text"},       {"Core", "image"},
+                {"Shape", "vector"},     {"Shape", "path"},      {"Shape", "line"},
+                {"Layout", "group"},     {"Layout", "scroll"},
+                {"Composition", "component"}, {"Composition", "instance"}, {"Composition", "slot"},
+                {"Effect", "shadow"},
+            };
+            const std::string query = LowerCopy(libraryQuery);
+            const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
+            const float gap = 8.0f;
+            const float cardWidth = std::max(72.0f, (contentWidth - gap) * 0.5f);
+            const float cardHeight = 92.0f;
+            const float listTop = fullSidebar.y + 80.0f;
+            const float viewHeight = std::max(0.0f, fullSidebar.height - 80.0f);
+            std::vector<HitRow> staged;
+            float cursor = 0.0f;
+            std::string category;
+            int column = 0;
+            for (const LibraryItem& item : items) {
+                if (!query.empty() && LowerCopy(item.name).find(query) == std::string::npos) {
+                    continue;
+                }
+                if (category != item.category) {
+                    if (column != 0) {
+                        cursor += cardHeight + gap;
+                        column = 0;
+                    }
+                    HitRow header;
+                    header.name = item.category;
+                    header.depth = -1;
+                    header.rect = Rect{fullSidebar.x + 12.0f, cursor, contentWidth, 22.0f};
+                    staged.push_back(std::move(header));
+                    category = item.category;
+                    cursor += 26.0f;
+                }
+                HitRow card;
+                card.name = item.name;
+                card.depth = 0;
+                card.rect = Rect{fullSidebar.x + 12.0f + static_cast<float>(column) * (cardWidth + gap), cursor, cardWidth, cardHeight};
+                staged.push_back(std::move(card));
+                column = column == 0 ? 1 : 0;
+                if (column == 0) {
+                    cursor += cardHeight + gap;
+                }
+            }
+            if (column != 0) {
+                cursor += cardHeight + gap;
+            }
+            const int maxScroll = static_cast<int>(std::max(0.0f, cursor - viewHeight));
+            libraryScroll = std::max(0, std::min(libraryScroll, maxScroll));
+            for (HitRow& row : staged) {
+                row.rect.y += listTop - static_cast<float>(libraryScroll);
+                libraryRows.push_back(std::move(row));
+            }
+        }
+        assetRows.clear();
+        assetSearchRect = {};
+        if (leftNav == 3 && fullSidebar.width > 1.0f) {
+            if (!iconPackLoaded) {
+                iconPackLoaded = true;
+                iconPack.Load(std::filesystem::path(RUNTIME_SOURCE_DIR) / "assets" / "RoboIcons.pack");
+            }
+            assetSearchRect = Rect{fullSidebar.x + 12.0f, fullSidebar.y + 36.0f, std::max(0.0f, fullSidebar.width - 24.0f), 32.0f};
+            if (!assetFilterReady || assetFilterQuery != assetQuery) {
+                assetFilter.clear();
+                const std::string query = LowerCopy(assetQuery);
+                for (int index = 0; index < iconPack.Count(); ++index) {
+                    if (query.empty() || LowerCopy(iconPack.Name(index)).find(query) != std::string::npos) {
+                        assetFilter.push_back(index);
+                    }
+                }
+                assetFilterQuery = assetQuery;
+                assetFilterReady = true;
+                assetScroll = 0;
+            }
+            const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
+            const float gap = 8.0f;
+            const float cardWidth = std::max(72.0f, (contentWidth - gap) * 0.5f);
+            const float cardHeight = 92.0f;
+            const float listTop = fullSidebar.y + 80.0f;
+            const float previewHeight = assetSelected >= 0 ? 96.0f : 0.0f;
+            assetPlace = {};
+            if (assetSelected >= 0) {
+                const Rect previewBar{fullSidebar.x + 8.0f, fullSidebar.y + fullSidebar.height - 88.0f, std::max(0.0f, fullSidebar.width - 16.0f), 80.0f};
+                assetPlace = Rect{previewBar.x + previewBar.width - 72.0f, previewBar.y + 28.0f, 56.0f, 26.0f};
+            }
+            const float viewHeight = std::max(0.0f, fullSidebar.height - 80.0f - previewHeight);
+            const int columns = 2;
+            const int rowCount = assetFilter.empty() ? 0 : (static_cast<int>(assetFilter.size()) + columns - 1) / columns;
+            const int contentHeight = rowCount * static_cast<int>(cardHeight + gap);
+            assetScroll = std::max(0, std::min(assetScroll, std::max(0, contentHeight - static_cast<int>(viewHeight))));
+            const int firstRow = static_cast<int>(static_cast<float>(assetScroll) / (cardHeight + gap));
+            const int lastRow = std::min(rowCount, firstRow + static_cast<int>(viewHeight / (cardHeight + gap)) + 2);
+            for (int rowIndex = firstRow; rowIndex < lastRow; ++rowIndex) {
+                for (int column = 0; column < columns; ++column) {
+                    const int filterIndex = rowIndex * columns + column;
+                    if (filterIndex >= static_cast<int>(assetFilter.size())) {
+                        break;
+                    }
+                    HitRow card;
+                    card.depth = assetFilter[static_cast<std::size_t>(filterIndex)];
+                    card.name = iconPack.Name(card.depth);
+                    const float y = listTop + static_cast<float>(rowIndex) * (cardHeight + gap) - static_cast<float>(assetScroll);
+                    card.rect = Rect{fullSidebar.x + 12.0f + static_cast<float>(column) * (cardWidth + gap), y, cardWidth, cardHeight};
+                    assetRows.push_back(std::move(card));
+                }
+            }
         }
         boardButton = Rect{hierarchy.x + hierarchy.width - 96.0f, hierarchy.y + 2.0f, 84.0f, 22.0f};
         pageRow = Rect{hierarchy.x + 8.0f, hierarchy.y + 28.0f, std::max(0.0f, hierarchy.width - 16.0f), 26.0f};
@@ -1536,24 +2341,17 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
         }
         toolRows.clear();
-        const EditorTool tools[] = {EditorTool::SELECT, EditorTool::FRAME, EditorTool::TEXT, EditorTool::IMAGE, EditorTool::LINE, EditorTool::HAND, EditorTool::ZOOM};
-        float toolX = 168.0f;
-        for (const EditorTool tool : tools) {
-            HitRow row;
-            row.name = EditorToolShortcut(tool);
-            row.depth = static_cast<int>(tool);
-            row.rect = Rect{toolX, 8.0f, 32.0f, 32.0f};
-            toolRows.push_back(std::move(row));
-            toolX += 36.0f;
-        }
         deviceRows.clear();
-        float deviceX = 440.0f;
-        for (const DevicePreset& preset : DEVICE_PRESETS) {
+        menuTitles.clear();
+        const char* menuNames[] = {"RoboUI", "File", "Edit", "View", "Object", "Arrange", "Text", "Window", "Help"};
+        float titleX = 4.0f;
+        for (const char* title : menuNames) {
             HitRow row;
-            row.name = preset.name;
-            row.rect = Rect{deviceX, 8.0f, 88.0f, 28.0f};
-            deviceRows.push_back(std::move(row));
-            deviceX += 96.0f;
+            row.name = title;
+            const float titleWidth = 26.0f + static_cast<float>(std::strlen(title)) * 7.2f;
+            row.rect = Rect{titleX, 0.0f, titleWidth, TOOLBAR_HEIGHT};
+            menuTitles.push_back(std::move(row));
+            titleX += titleWidth;
         }
         if (!fitted && canvas.width > 64.0f && canvas.height > 64.0f) {
             const float fitX = (canvas.width - 64.0f) / deviceWidth;
@@ -1579,7 +2377,10 @@ int DesignerApp::Run(const DesignerOptions& options) {
             if (!fileMenuTarget.empty() && !fileMenuDirectory) {
                 const std::string extension = LowerCopy(std::filesystem::path(fileMenuTarget).extension().string());
                 if (extension == ".xml") {
-                    addItem("Open", 0);
+                    addItem("Open as Designer", 0);
+                    addItem("Open as Editor", 7);
+                } else {
+                    addItem("Open", 7);
                 }
                 addItem("Rename", 3);
                 addItem("Delete", 4);
@@ -1598,7 +2399,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addItem("New folder", 2);
                 addItem("Refresh", 6);
             }
-            const float menuWidth = 176.0f;
+            const float menuWidth = 228.0f;
             const float menuHeight = 8.0f + static_cast<float>(count) * 30.0f;
             float menuX = fileMenuPoint.x;
             float menuY = fileMenuPoint.y;
@@ -1616,24 +2417,145 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 fileMenuRows.push_back(std::move(row));
             }
         }
-        fileButtonRect = Rect{10.0f, 8.0f, 52.0f, 32.0f};
         appMenuRows.clear();
-        if (appMenuOpen) {
-            const char* labels[] = {"New File\tCtrl+N", "New Folder", "", "New Window\tCtrl+Shift+N", "", "Open File...\tCtrl+O", "Open Folder...", "",
-                                    "Save\tCtrl+S", "Save As...\tCtrl+Shift+S", "", "Close Folder", "Close Window", "Exit"};
-            const int actions[] = {10, 11, -1, 12, -1, 13, 14, -1, 15, 16, -1, 17, 18, 19};
+        if (openMenu >= 0 && openMenu < static_cast<int>(menuTitles.size())) {
+            struct MenuCommand {
+                const char* label = "";
+                const char* shortcut = "";
+                int action = -1;
+                bool checked = false;
+                bool enabled = true;
+            };
+            std::vector<MenuCommand> commands;
+            const auto addCommand = [&](const char* label, const char* shortcut, int action, bool checked = false, bool enabled = true) {
+                commands.push_back(MenuCommand{label, shortcut, action, checked, enabled});
+            };
+            const auto addRule = [&]() { commands.push_back(MenuCommand{}); };
+            const XmlNode* selectedNode = document.NodeAt(selection);
+            const bool textNode = selectedNode != nullptr && selectedNode->name == "text";
+            const std::string textAlign = document.Attribute(selection, "textAlign");
+            const std::string fontWeight = document.Attribute(selection, "fontWeight");
             const bool folderOpen = !projectRoot.empty();
-            const float menuWidth = 248.0f;
-            float menuY = TOOLBAR_HEIGHT + 4.0f;
-            const float menuX = fileButtonRect.x;
-            for (int index = 0; index < static_cast<int>(sizeof(actions) / sizeof(actions[0])); ++index) {
+            switch (openMenu) {
+            case 0:
+                addCommand("About RoboUIDesigner", "", 60);
+                addRule();
+                addCommand("Quit RoboUIDesigner", "Alt+F4", 19);
+                break;
+            case 1:
+                addCommand("New File", "Ctrl+N", 10, false, folderOpen);
+                addCommand("New Folder", "", 11, false, folderOpen);
+                addRule();
+                addCommand("New Window", "Ctrl+Shift+N", 12);
+                addRule();
+                addCommand("Open File...", "Ctrl+O", 13);
+                addCommand("Open Folder...", "", 14);
+                addRule();
+                addCommand("Save", "Ctrl+S", 15);
+                addCommand("Save As...", "Ctrl+Shift+S", 16);
+                addRule();
+                addCommand("Run", "", 54);
+                addRule();
+                addCommand("Close Folder", "", 17, false, folderOpen);
+                addCommand("Close Window", "", 18);
+                break;
+            case 2:
+                addCommand("Undo", "Ctrl+Z", 20, false, !undoStack.empty());
+                addCommand("Redo", "Ctrl+Shift+Z", 21, false, !redoStack.empty());
+                addRule();
+                addCommand("Cut", "Ctrl+X", 22, false, !selection.empty());
+                addCommand("Copy", "Ctrl+C", 23, false, !selection.empty());
+                addCommand("Paste", "Ctrl+V", 24);
+                addCommand("Duplicate", "Ctrl+D", 53, false, !selection.empty());
+                addCommand("Delete", "Del", 25, false, !selection.empty());
+                addRule();
+                addCommand("Select All", "Ctrl+A", 26);
+                addCommand("Deselect", "", 27, false, !selection.empty());
+                break;
+            case 3:
+                addCommand("Zoom In", "Ctrl++", 28);
+                addCommand("Zoom Out", "Ctrl+-", 29);
+                addCommand("Actual Size", "Ctrl+0", 31, std::fabs(zoom - 1.0f) < 0.01f);
+                addCommand("Zoom to Fit", "Ctrl+1", 30);
+                addRule();
+                addCommand("Show Grid", "", 32, showGrid);
+                addCommand("Show Rulers", "", 33, showRulers);
+                addRule();
+                addCommand("Desktop", "", 34, deviceIndex == 0);
+                addCommand("Tablet", "", 35, deviceIndex == 1);
+                addCommand("Mobile", "", 36, deviceIndex == 2);
+                addRule();
+                addCommand("Explorer", "", 37, leftNav == 0);
+                addCommand("Pages", "", 38, leftNav == 1);
+                addCommand("Library", "", 39, leftNav == 2);
+                addCommand("Assets", "", 40, leftNav == 3);
+                addCommand("Variables", "", 41, leftNav == 4);
+                break;
+            case 4:
+                addCommand("Select", "V", 42, activeTool == EditorTool::SELECT);
+                addCommand("Frame", "F", 43, activeTool == EditorTool::FRAME);
+                addCommand("Text", "T", 44, activeTool == EditorTool::TEXT);
+                addCommand("Image", "I", 45, activeTool == EditorTool::IMAGE);
+                addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
+                addCommand("Hand", "H", 47, activeTool == EditorTool::HAND);
+                addCommand("Zoom", "Z", 48, activeTool == EditorTool::ZOOM);
+                addRule();
+                addCommand("Add Frame", "", 70);
+                addCommand("Add Text", "", 71);
+                addCommand("Add Image", "", 72);
+                addCommand("Add Vector", "", 73);
+                addCommand("Add Path", "", 74);
+                addCommand("Add Line", "", 75);
+                addCommand("Add Group", "", 76);
+                addCommand("Add Scroll", "", 77);
+                break;
+            case 5:
+                addCommand("Bring Forward", "", 50, false, !selection.empty());
+                addCommand("Send Backward", "", 51, false, !selection.empty());
+                addRule();
+                addCommand("Add Board", "", 52);
+                break;
+            case 6:
+                addCommand("Align Left", "", 80, textAlign.empty() || textAlign == "left", textNode);
+                addCommand("Align Center", "", 81, textAlign == "center", textNode);
+                addCommand("Align Right", "", 82, textAlign == "right", textNode);
+                addRule();
+                addCommand("Regular", "", 83, fontWeight.empty() || fontWeight == "400", textNode);
+                addCommand("Medium", "", 84, fontWeight == "500", textNode);
+                addCommand("Semibold", "", 85, fontWeight == "600", textNode);
+                break;
+            case 7:
+                addCommand("Minimize", "", 90);
+                addCommand("Zoom Window", "", 91);
+                break;
+            case 8:
+                addCommand("Keyboard Shortcuts", "", 61);
+                addCommand("About RoboUIDesigner", "", 60);
+                break;
+            default:
+                break;
+            }
+            const float menuWidth = 328.0f;
+            float menuX = menuTitles[static_cast<std::size_t>(openMenu)].rect.x;
+            if (menuX + menuWidth > width - 8.0f) {
+                menuX = std::max(8.0f, width - menuWidth - 8.0f);
+            }
+            float menuY = TOOLBAR_HEIGHT;
+            for (const MenuCommand& command : commands) {
                 HitRow row;
-                row.name = labels[index];
-                row.depth = actions[index];
-                const bool separator = actions[index] < 0;
-                row.hidden = (actions[index] == 10 || actions[index] == 11 || actions[index] == 17) && !folderOpen;
-                const float rowHeight = separator ? 9.0f : 28.0f;
-                row.rect = Rect{menuX + 4.0f, menuY, menuWidth - 8.0f, rowHeight};
+                row.depth = command.action;
+                row.branch = command.checked;
+                row.hidden = !command.enabled;
+                const bool separator = command.action < 0;
+                const float rowHeight = separator ? 9.0f : 30.0f;
+                row.rect = Rect{menuX + 6.0f, menuY + 6.0f, menuWidth - 12.0f, rowHeight};
+                if (!separator) {
+                    row.name = command.label;
+                    if (command.shortcut[0] != '\0') {
+                        row.name += '\t';
+                        row.name += command.shortcut;
+                    }
+                }
                 appMenuRows.push_back(std::move(row));
                 menuY += rowHeight;
             }
@@ -2146,8 +3068,32 @@ int DesignerApp::Run(const DesignerOptions& options) {
 
     auto closeAppMenu = [&]() {
         appMenuOpen = false;
+        openMenu = -1;
         appMenuHover = -1;
         appMenuRows.clear();
+    };
+    auto insertElement = [&](const char* name) {
+        remember();
+        std::vector<int> inserted;
+        if (document.InsertChild(parentForInsert(), name, inserted)) {
+            selectOnly(inserted);
+            rebuildPreview();
+            finishEdit();
+        }
+    };
+    auto moveSelection = [&](int direction) {
+        if (selection.empty()) {
+            return;
+        }
+        remember();
+        if (!document.MoveNode(selection, direction)) {
+            historyOpen = false;
+            return;
+        }
+        selection.back() += direction < 0 ? -1 : 1;
+        selections = {selection};
+        rebuildPreview();
+        finishEdit();
     };
     auto applyAppAction = [&](int action) {
         closeAppMenu();
@@ -2163,10 +3109,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             LaunchDesignerWindow();
         } else if (action == 13) {
             const std::filesystem::path chosen = PickXmlFile(window.Hwnd(), false, {});
-            if (!chosen.empty() && document.LoadFile(chosen)) {
-                selection.clear();
-                selections.clear();
-                rebuildPreview();
+            if (!chosen.empty()) {
+                openWorkFile(chosen, true);
             }
         } else if (action == 14) {
             const std::filesystem::path chosen = PickProjectFolder(window.Hwnd());
@@ -2183,19 +3127,32 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 leftNav = 0;
             }
         } else if (action == 15) {
-            document.Save();
+            saveActive();
         } else if (action == 16) {
-            const std::wstring suggested = ToWide(std::filesystem::path(document.FilePath()).filename().string());
-            const std::filesystem::path chosen = PickXmlFile(window.Hwnd(), true, suggested);
+            const bool designing = surfaceDesigner();
+            const std::string suggestedName = designing || activeTab < 0
+                                                   ? std::filesystem::path(document.FilePath()).filename().string()
+                                                   : std::filesystem::path(workTabs[static_cast<std::size_t>(activeTab)].path).filename().string();
+            const std::filesystem::path chosen = PickXmlFile(window.Hwnd(), true, ToWide(suggestedName));
             if (!chosen.empty()) {
                 std::ofstream output(chosen, std::ios::binary);
                 if (output) {
-                    output << document.Text();
+                    if (designing || activeTab < 0) {
+                        output << document.Text();
+                    } else {
+                        output << workTabs[static_cast<std::size_t>(activeTab)].editorText;
+                    }
                     output.close();
-                    if (document.LoadFile(chosen)) {
-                        selection.clear();
-                        selections.clear();
+                    if (designing && document.LoadFile(chosen)) {
                         rebuildPreview();
+                    }
+                    if (activeTab >= 0) {
+                        WorkTab& tab = workTabs[static_cast<std::size_t>(activeTab)];
+                        tab.path = chosen.generic_string();
+                        tab.dirty = false;
+                        if (designing) {
+                            tab.editorText = document.Text();
+                        }
                     }
                 }
             }
@@ -2210,11 +3167,154 @@ int DesignerApp::Run(const DesignerOptions& options) {
             filesDirty = true;
         } else if (action == 18 || action == 19) {
             PostMessageW(window.Hwnd(), WM_CLOSE, 0, 0);
+        } else if (action == 20) {
+            undo();
+        } else if (action == 21) {
+            redo();
+        } else if (action == 22) {
+            if (!selection.empty()) {
+                CopyText(document.NodeXml(selection));
+                remember();
+                document.DeleteNode(selection);
+                selection.clear();
+                selections.clear();
+                rebuildPreview();
+                finishEdit();
+            }
+        } else if (action == 23) {
+            if (!selection.empty()) {
+                CopyText(document.NodeXml(selection));
+            }
+        } else if (action == 24) {
+            std::vector<int> inserted;
+            if (document.PasteXml(parentForInsert(), PasteText(), inserted)) {
+                remember();
+                selectOnly(inserted);
+                rebuildPreview();
+                finishEdit();
+            }
+        } else if (action == 25) {
+            if (!selection.empty()) {
+                remember();
+                document.DeleteNode(selection);
+                selection.clear();
+                selections.clear();
+                rebuildPreview();
+                finishEdit();
+            }
+        } else if (action == 26) {
+            selections.clear();
+            if (preview != nullptr) {
+                for (int index = 0; index < static_cast<int>(preview->Children().size()); ++index) {
+                    selections.push_back({index});
+                }
+            }
+            selection = selections.empty() ? std::vector<int>{} : selections.back();
+        } else if (action == 27) {
+            selection.clear();
+            selections.clear();
+        } else if (action == 28 || action == 29) {
+            layoutChrome(clientWidth, clientHeight);
+            const Point center{canvas.x + canvas.width * 0.5f, canvas.y + canvas.height * 0.5f};
+            zoomAt(center, action == 28 ? 1.25f : 0.8f);
+            fitted = true;
+        } else if (action == 30) {
+            fitted = false;
+            layoutChrome(clientWidth, clientHeight);
+        } else if (action == 31) {
+            zoom = 1.0f;
+            panX = 0.0f;
+            panY = 0.0f;
+            fitted = true;
+        } else if (action == 32) {
+            showGrid = !showGrid;
+        } else if (action == 33) {
+            showRulers = !showRulers;
+        } else if (action >= 34 && action <= 36) {
+            deviceIndex = action - 34;
+            deviceWidth = DEVICE_PRESETS[deviceIndex].width;
+            deviceHeight = DEVICE_PRESETS[deviceIndex].height;
+            fitted = false;
+            layoutChrome(clientWidth, clientHeight);
+        } else if (action >= 37 && action <= 41) {
+            leftNav = action - 37;
+        } else if (action == 42) {
+            activeTool = EditorTool::SELECT;
+        } else if (action == 43) {
+            activeTool = EditorTool::FRAME;
+        } else if (action == 44) {
+            activeTool = EditorTool::TEXT;
+        } else if (action == 45) {
+            activeTool = EditorTool::IMAGE;
+        } else if (action == 46) {
+            activeTool = EditorTool::LINE;
+        } else if (action == 47) {
+            activeTool = EditorTool::HAND;
+        } else if (action == 48) {
+            activeTool = EditorTool::ZOOM;
+        } else if (action == 50) {
+            moveSelection(1);
+        } else if (action == 51) {
+            moveSelection(-1);
+        } else if (action == 52) {
+            addBoard();
+        } else if (action == 53) {
+            std::vector<int> duplicateParent = selection;
+            if (!duplicateParent.empty()) {
+                duplicateParent.pop_back();
+            }
+            std::vector<int> inserted;
+            if (document.PasteXml(duplicateParent, document.NodeXml(selection), inserted)) {
+                remember();
+                selectOnly(inserted);
+                rebuildPreview();
+                finishEdit();
+            }
+        } else if (action == 54) {
+            if (document.FilePath().empty() || !document.Save()) {
+                MessageBoxW(window.Hwnd(), L"Save the document before running it.", L"RoboUIDesigner", MB_OK | MB_ICONWARNING);
+            } else {
+                LaunchRuntime(window.Hwnd(), document.FilePath());
+            }
+        } else if (action == 60) {
+            MessageBoxW(window.Hwnd(), L"RoboUIDesigner\nA visual editor for Runtime XML.", L"About RoboUIDesigner", MB_OK);
+        } else if (action == 61) {
+            MessageBoxW(window.Hwnd(),
+                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   T Text\nI Image   L Line   H Hand   Z Zoom",
+                        L"Keyboard Shortcuts", MB_OK);
+        } else if (action >= 70 && action <= 77) {
+            const char* names[] = {"frame", "text", "image", "vector", "path", "line", "group", "scroll"};
+            insertElement(names[action - 70]);
+        } else if (action >= 80 && action <= 82) {
+            const char* aligns[] = {"left", "center", "right"};
+            remember();
+            document.SetAttribute(selection, "textAlign", aligns[action - 80]);
+            rebuildPreview();
+            finishEdit();
+        } else if (action >= 83 && action <= 85) {
+            const char* weights[] = {"400", "500", "600"};
+            remember();
+            document.SetAttribute(selection, "fontWeight", weights[action - 83]);
+            rebuildPreview();
+            finishEdit();
+        } else if (action == 90) {
+            ShowWindow(window.Hwnd(), SW_MINIMIZE);
+        } else if (action == 91) {
+            ShowWindow(window.Hwnd(), IsZoomed(window.Hwnd()) ? SW_RESTORE : SW_MAXIMIZE);
         }
     };
 
+    auto menuTitleAt = [&](Point point) {
+        for (int index = 0; index < static_cast<int>(menuTitles.size()); ++index) {
+            if (ContainsPoint(menuTitles[static_cast<std::size_t>(index)].rect, point)) {
+                return index;
+            }
+        }
+        return -1;
+    };
     window.SetMouseDown([&](Point point) {
         layoutChrome(clientWidth, clientHeight);
+        const int chosenMenu = menuTitleAt(point);
         if (appMenuOpen) {
             for (const HitRow& row : appMenuRows) {
                 if (!ContainsPoint(row.rect, point)) {
@@ -2226,22 +3326,33 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 }
                 return;
             }
+            if (chosenMenu >= 0) {
+                if (chosenMenu == openMenu) {
+                    closeAppMenu();
+                } else {
+                    openMenu = chosenMenu;
+                    appMenuOpen = true;
+                    appMenuHover = -1;
+                }
+                paintDirty = true;
+                return;
+            }
             if (!appMenuRows.empty()) {
-                const Rect popup{appMenuRows.front().rect.x - 4.0f, appMenuRows.front().rect.y - 4.0f, appMenuRows.front().rect.width + 8.0f,
-                                 appMenuRows.back().rect.y + appMenuRows.back().rect.height - appMenuRows.front().rect.y + 8.0f};
+                const Rect popup{appMenuRows.front().rect.x - 6.0f, TOOLBAR_HEIGHT, appMenuRows.front().rect.width + 12.0f,
+                                 appMenuRows.back().rect.y + appMenuRows.back().rect.height - TOOLBAR_HEIGHT + 8.0f};
                 if (ContainsPoint(popup, point)) {
                     return;
                 }
             }
             closeAppMenu();
-            if (!ContainsPoint(fileButtonRect, point)) {
-                paintDirty = true;
-                return;
-            }
+            paintDirty = true;
+            return;
         }
-        if (ContainsPoint(fileButtonRect, point)) {
+        if (chosenMenu >= 0) {
             closeFileMenu();
-            appMenuOpen = !appMenuOpen;
+            openMenu = chosenMenu;
+            appMenuOpen = true;
+            appMenuHover = -1;
             paintDirty = true;
             return;
         }
@@ -2256,6 +3367,18 @@ int DesignerApp::Run(const DesignerOptions& options) {
             closeFileMenu();
             paintDirty = true;
             return;
+        }
+        for (const HitRow& row : tabRows) {
+            if (ContainsPoint(row.twist, point)) {
+                closeTab(row.depth);
+                paintDirty = true;
+                return;
+            }
+            if (ContainsPoint(row.rect, point)) {
+                showTab(row.depth, true);
+                paintDirty = true;
+                return;
+            }
         }
         if (fileRenaming) {
             bool onDraft = false;
@@ -2289,6 +3412,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
         if (leftNav == 0 && ContainsPoint(fullSidebar, point)) {
             explorerActive = true;
+            editorFocused = false;
             if (projectRoot.empty()) {
                 if (ContainsPoint(openProjectRect, point)) {
                     const std::filesystem::path chosen = PickProjectFolder(window.Hwnd());
@@ -2390,14 +3514,10 @@ int DesignerApp::Run(const DesignerOptions& options) {
                         openFolders.erase(found);
                     }
                     filesDirty = true;
-                } else if (!entry.directory && again) {
+                } else if (!entry.directory && again && !entry.pending) {
                     selectExplorerOnly(key);
                     const std::string extension = LowerCopy(entry.path.extension().string());
-                    if (extension == ".xml" && document.LoadFile(entry.path)) {
-                        selection.clear();
-                        selections.clear();
-                        rebuildPreview();
-                    }
+                    openWorkFile(entry.path, extension == ".xml");
                 } else {
                     selectExplorerOnly(key);
                 }
@@ -2407,6 +3527,20 @@ int DesignerApp::Run(const DesignerOptions& options) {
             selectExplorerOnly("");
             paintDirty = true;
             return;
+        }
+        if (!surfaceDesigner()) {
+            if (ContainsPoint(canvas, point)) {
+                editorFocused = true;
+                placeEditorCaret(point);
+                paintDirty = true;
+                return;
+            }
+            if (ContainsPoint(inspector, point) || ContainsPoint(xmlPanel, point) || ContainsPoint(hierarchy, point) ||
+                (leftNav != 3 && ContainsPoint(fullSidebar, point))) {
+                editorFocused = false;
+                paintDirty = true;
+                return;
+            }
         }
         for (std::size_t index = 0; index < deviceRows.size(); ++index) {
             if (ContainsPoint(deviceRows[index].rect, point)) {
@@ -2419,8 +3553,44 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 return;
             }
         }
+        if (leftNav == 2 && ContainsPoint(librarySearchRect, point)) {
+            editTarget = EditTarget::LIBRARY;
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 3 && ContainsPoint(assetSearchRect, point)) {
+            editTarget = EditTarget::ASSET;
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 3 && assetPlace.width > 1.0f && ContainsPoint(assetPlace, point)) {
+            const std::string xml = iconPack.VectorXml(assetSelected);
+            std::vector<int> inserted;
+            if (!xml.empty()) {
+                remember();
+                if (!document.PasteXml(parentForInsert(), xml, inserted)) {
+                    historyOpen = false;
+                } else {
+                    selectOnly(inserted);
+                    rebuildPreview();
+                    finishEdit();
+                }
+            }
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 3) {
+            for (const HitRow& row : assetRows) {
+                if (ContainsPoint(row.rect, point) && row.rect.y >= fullSidebar.y + 76.0f && row.rect.y < fullSidebar.y + fullSidebar.height - (assetSelected >= 0 ? 96.0f : 0.0f)) {
+                    assetSelected = row.depth;
+                    paintDirty = true;
+                    return;
+                }
+            }
+        }
         for (const HitRow& row : libraryRows) {
-            if (ContainsPoint(row.rect, point) && ContainsPoint(library, point)) {
+            if (row.depth >= 0 && ContainsPoint(row.rect, point) && row.rect.y >= fullSidebar.y + 76.0f &&
+                row.rect.y < fullSidebar.y + fullSidebar.height) {
                 std::vector<int> inserted;
                 if (document.InsertChild(parentForInsert(), row.name, inserted)) {
                     remember();
@@ -2744,9 +3914,52 @@ int DesignerApp::Run(const DesignerOptions& options) {
             navHover = nextNav;
             paintDirty = true;
         }
-        const bool nextFileButton = drag == DragKind::NONE && ContainsPoint(fileButtonRect, point);
-        if (nextFileButton != fileButtonHover) {
-            fileButtonHover = nextFileButton;
+        int nextLibrary = -1;
+        if (drag == DragKind::NONE && leftNav == 2) {
+            for (int index = 0; index < static_cast<int>(libraryRows.size()); ++index) {
+                const HitRow& row = libraryRows[static_cast<std::size_t>(index)];
+                if (row.depth >= 0 && ContainsPoint(row.rect, point) && row.rect.y >= fullSidebar.y + 76.0f &&
+                    row.rect.y < fullSidebar.y + fullSidebar.height) {
+                    nextLibrary = index;
+                    break;
+                }
+            }
+        }
+        if (nextLibrary != libraryHover) {
+            libraryHover = nextLibrary;
+            paintDirty = true;
+        }
+        int nextAsset = -1;
+        if (drag == DragKind::NONE && leftNav == 3) {
+            for (int index = 0; index < static_cast<int>(assetRows.size()); ++index) {
+                const HitRow& row = assetRows[static_cast<std::size_t>(index)];
+                if (ContainsPoint(row.rect, point) && row.rect.y >= fullSidebar.y + 76.0f &&
+                    row.rect.y < fullSidebar.y + fullSidebar.height - (assetSelected >= 0 ? 96.0f : 0.0f)) {
+                    nextAsset = index;
+                    break;
+                }
+            }
+        }
+        if (nextAsset != assetHover) {
+            assetHover = nextAsset;
+            paintDirty = true;
+        }
+        int nextTitle = -1;
+        if (drag == DragKind::NONE) {
+            for (int index = 0; index < static_cast<int>(menuTitles.size()); ++index) {
+                if (ContainsPoint(menuTitles[static_cast<std::size_t>(index)].rect, point)) {
+                    nextTitle = index;
+                    break;
+                }
+            }
+        }
+        if (nextTitle != menuTitleHover) {
+            menuTitleHover = nextTitle;
+            paintDirty = true;
+        }
+        if (appMenuOpen && nextTitle >= 0 && nextTitle != openMenu) {
+            openMenu = nextTitle;
+            appMenuHover = -1;
             paintDirty = true;
         }
         int nextAppMenu = -1;
@@ -2802,6 +4015,27 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
         if (nextMenu != fileMenuHover) {
             fileMenuHover = nextMenu;
+            paintDirty = true;
+        }
+        int nextTab = -1;
+        int nextTabClose = -1;
+        if (drag == DragKind::NONE) {
+            for (int index = 0; index < static_cast<int>(tabRows.size()); ++index) {
+                const HitRow& row = tabRows[static_cast<std::size_t>(index)];
+                if (ContainsPoint(row.twist, point)) {
+                    nextTab = index;
+                    nextTabClose = index;
+                    break;
+                }
+                if (ContainsPoint(row.rect, point)) {
+                    nextTab = index;
+                    break;
+                }
+            }
+        }
+        if (nextTab != tabHover || nextTabClose != tabCloseHover) {
+            tabHover = nextTab;
+            tabCloseHover = nextTabClose;
             paintDirty = true;
         }
         if (drag == DragKind::NONE) {
@@ -3042,10 +4276,19 @@ int DesignerApp::Run(const DesignerOptions& options) {
             paintDirty = true;
             return;
         }
-        if (ContainsPoint(library, point)) {
-            const int libraryCount = static_cast<int>(libraryRows.size());
-            const int visibleRows = std::max(1, static_cast<int>((library.height - 36.0f) / ROW_HEIGHT));
-            libraryScroll = std::max(0, std::min(std::max(0, libraryCount - visibleRows), libraryScroll - (delta > 0 ? 1 : -1)));
+        if (!surfaceDesigner() && activeTab >= 0 && ContainsPoint(canvas, point)) {
+            WorkTab& tab = workTabs[static_cast<std::size_t>(activeTab)];
+            tab.scroll = std::max(0, tab.scroll - (delta > 0 ? 3 : -3));
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 2 && ContainsPoint(fullSidebar, point)) {
+            libraryScroll = std::max(0, libraryScroll - (delta > 0 ? 48 : -48));
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 3 && ContainsPoint(fullSidebar, point)) {
+            assetScroll = std::max(0, assetScroll - (delta > 0 ? 96 : -96));
             paintDirty = true;
             return;
         }
@@ -3118,6 +4361,105 @@ int DesignerApp::Run(const DesignerOptions& options) {
             return true;
         }
         const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool editorTab = activeTab >= 0 && activeTab < static_cast<int>(workTabs.size()) && !workTabs[static_cast<std::size_t>(activeTab)].designer;
+        if (editorFocused && editorTab && !workTabs[static_cast<std::size_t>(activeTab)].binary && !(control && key == VK_TAB)) {
+            WorkTab& tab = workTabs[static_cast<std::size_t>(activeTab)];
+            if (control && key == 'S' && (GetKeyState(VK_SHIFT) & 0x8000) == 0) {
+                saveActive();
+                paintDirty = true;
+                return true;
+            }
+            if (control && key == 'W') {
+                closeTab(activeTab);
+                paintDirty = true;
+                return true;
+            }
+            if (control && (key == 'Z' || key == 'Y')) {
+                return true;
+            }
+            if (!control) {
+                if (tab.caret > tab.editorText.size()) {
+                    tab.caret = tab.editorText.size();
+                }
+                if (key == VK_BACK && tab.caret > 0) {
+                    std::size_t index = tab.caret;
+                    do {
+                        --index;
+                    } while (index > 0 && (static_cast<unsigned char>(tab.editorText[index]) & 0xC0) == 0x80);
+                    tab.editorText.erase(index, tab.caret - index);
+                    tab.caret = index;
+                    tab.dirty = true;
+                } else if (key == VK_DELETE && tab.caret < tab.editorText.size()) {
+                    std::size_t index = tab.caret + 1;
+                    while (index < tab.editorText.size() && (static_cast<unsigned char>(tab.editorText[index]) & 0xC0) == 0x80) {
+                        ++index;
+                    }
+                    tab.editorText.erase(tab.caret, index - tab.caret);
+                    tab.dirty = true;
+                } else if (key == VK_RETURN) {
+                    tab.editorText.insert(tab.caret, "\n");
+                    ++tab.caret;
+                    tab.dirty = true;
+                } else if (key == VK_LEFT && tab.caret > 0) {
+                    --tab.caret;
+                    while (tab.caret > 0 && (static_cast<unsigned char>(tab.editorText[tab.caret]) & 0xC0) == 0x80) {
+                        --tab.caret;
+                    }
+                } else if (key == VK_RIGHT && tab.caret < tab.editorText.size()) {
+                    ++tab.caret;
+                    while (tab.caret < tab.editorText.size() && (static_cast<unsigned char>(tab.editorText[tab.caret]) & 0xC0) == 0x80) {
+                        ++tab.caret;
+                    }
+                } else if (key == VK_UP || key == VK_DOWN) {
+                    int line = 0;
+                    std::size_t lineStart = 0;
+                    for (std::size_t index = 0; index < tab.caret && index < tab.editorText.size(); ++index) {
+                        if (tab.editorText[index] == '\n') {
+                            ++line;
+                            lineStart = index + 1;
+                        }
+                    }
+                    const int column = static_cast<int>(tab.caret - lineStart);
+                    const int target = key == VK_UP ? line - 1 : line + 1;
+                    if (target >= 0) {
+                        int current = 0;
+                        std::size_t start = 0;
+                        std::size_t index = 0;
+                        for (; index < tab.editorText.size(); ++index) {
+                            if (tab.editorText[index] != '\n') {
+                                continue;
+                            }
+                            if (current == target) {
+                                break;
+                            }
+                            ++current;
+                            start = index + 1;
+                        }
+                        if (current == target) {
+                            const std::size_t lineEnd = index;
+                            tab.caret = std::min(start + static_cast<std::size_t>(std::max(0, column)), lineEnd);
+                        }
+                    }
+                } else if (key == VK_ESCAPE) {
+                    editorFocused = false;
+                }
+                paintDirty = true;
+                return true;
+            }
+        }
+        if (control && key == VK_TAB && !workTabs.empty()) {
+            const int count = static_cast<int>(workTabs.size());
+            const int step = (GetKeyState(VK_SHIFT) & 0x8000) != 0 ? -1 : 1;
+            const int next = ((activeTab < 0 ? 0 : activeTab) + step + count) % count;
+            showTab(next, true);
+            paintDirty = true;
+            return true;
+        }
+        if (control && key == 'W' && activeTab >= 0) {
+            closeTab(activeTab);
+            paintDirty = true;
+            return true;
+        }
         if (control && (key == 'Z' || key == 'Y')) {
             if (key == 'Y' || (GetKeyState(VK_SHIFT) & 0x8000) != 0) {
                 redo();
@@ -3311,9 +4653,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
         }
         if (control && key == 'S' && (GetKeyState(VK_SHIFT) & 0x8000) == 0) {
-            if (document.Save()) {
-                LogInfo("Saved " + document.FilePath());
-            }
+            saveActive();
             paintDirty = true;
             return true;
         }
@@ -3468,6 +4808,26 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
             return true;
         }
+        if (editTarget == EditTarget::LIBRARY) {
+            if (key == VK_BACK && !libraryQuery.empty()) {
+                do {
+                    libraryQuery.pop_back();
+                } while (!libraryQuery.empty() && (static_cast<unsigned char>(libraryQuery.back()) & 0xC0) == 0x80);
+                libraryScroll = 0;
+                paintDirty = true;
+            }
+            return true;
+        }
+        if (editTarget == EditTarget::ASSET) {
+            if (key == VK_BACK && !assetQuery.empty()) {
+                do {
+                    assetQuery.pop_back();
+                } while (!assetQuery.empty() && (static_cast<unsigned char>(assetQuery.back()) & 0xC0) == 0x80);
+                assetFilterReady = false;
+                paintDirty = true;
+            }
+            return true;
+        }
         if (editTarget == EditTarget::PROPERTY) {
             if (key == VK_BACK && !propertyDraft.empty()) {
                 propertyDraft.pop_back();
@@ -3568,6 +4928,18 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if (utf8.empty() || (GetKeyState(VK_CONTROL) & 0x8000) != 0) {
             return;
         }
+        if (editorFocused && activeTab >= 0 && !workTabs[static_cast<std::size_t>(activeTab)].designer &&
+            !workTabs[static_cast<std::size_t>(activeTab)].binary) {
+            WorkTab& tab = workTabs[static_cast<std::size_t>(activeTab)];
+            if (tab.caret > tab.editorText.size()) {
+                tab.caret = tab.editorText.size();
+            }
+            tab.editorText.insert(tab.caret, utf8);
+            tab.caret += utf8.size();
+            tab.dirty = true;
+            paintDirty = true;
+            return;
+        }
         if (fileRenaming) {
             if (character >= 32 && renameDraft.size() < 180) {
                 if (renameReplace) {
@@ -3582,6 +4954,22 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if (editTarget == EditTarget::FILTER) {
             layerFilter += utf8;
             paintDirty = true;
+            return;
+        }
+        if (editTarget == EditTarget::LIBRARY) {
+            if (libraryQuery.size() < 40) {
+                libraryQuery += utf8;
+                libraryScroll = 0;
+                paintDirty = true;
+            }
+            return;
+        }
+        if (editTarget == EditTarget::ASSET) {
+            if (assetQuery.size() < 40) {
+                assetQuery += utf8;
+                assetFilterReady = false;
+                paintDirty = true;
+            }
             return;
         }
         if (editTarget == EditTarget::PROPERTY) {
@@ -3618,20 +5006,16 @@ int DesignerApp::Run(const DesignerOptions& options) {
         renderer.BeginFrame(COLOR_CHROME);
         renderer.FillRectangle(toolbar, COLOR_PANEL, 0.0f);
         renderer.FillRectangle(Rect{0.0f, TOOLBAR_HEIGHT - 1.0f, clientWidth, 1.0f}, COLOR_LINE, 0.0f);
-        if (appMenuOpen || fileButtonHover) {
-            renderer.FillRectangle(fileButtonRect, appMenuOpen ? COLOR_SELECTED : COLOR_HOVER, 6.0f);
-        }
-        DrawLabel(renderer, "File", fileButtonRect, COLOR_INK, 13.0f, TextAlign::CENTER);
-        DrawLabel(renderer, "RoboUIDesigner", Rect{70.0f, 0.0f, 96.0f, TOOLBAR_HEIGHT}, COLOR_INK, 13.0f, TextAlign::START);
-        for (std::size_t index = 0; index < deviceRows.size(); ++index) {
-            const bool active = static_cast<int>(index) == deviceIndex;
-            if (active) {
-                renderer.FillRectangle(deviceRows[index].rect, COLOR_SELECTED, 8.0f);
+        for (int index = 0; index < static_cast<int>(menuTitles.size()); ++index) {
+            const HitRow& title = menuTitles[static_cast<std::size_t>(index)];
+            const bool open = openMenu == index;
+            const bool hovered = menuTitleHover == index;
+            if (open || hovered) {
+                const Rect pill{title.rect.x + 2.0f, 4.0f, title.rect.width - 4.0f, TOOLBAR_HEIGHT - 8.0f};
+                renderer.FillRectangle(pill, open ? COLOR_SELECTED : COLOR_HOVER, 6.0f);
             }
-            DrawLabel(renderer, deviceRows[index].name, deviceRows[index].rect, active ? COLOR_ACCENT : COLOR_MUTED, 12.0f, TextAlign::CENTER);
+            DrawLabel(renderer, title.name, title.rect, COLOR_INK, 13.0f, TextAlign::CENTER);
         }
-        DrawLabel(renderer, (std::to_string(static_cast<int>(zoom * 100.0f)) + "%").c_str(), Rect{clientWidth - 80.0f, 0.0f, 64.0f, TOOLBAR_HEIGHT},
-                  COLOR_ACCENT, 13.0f, TextAlign::CENTER);
 
         renderer.FillRectangle(iconSidebar, COLOR_PANEL, 0.0f);
         renderer.FillRectangle(fullSidebar, COLOR_PANEL, 0.0f);
@@ -3639,13 +5023,6 @@ int DesignerApp::Run(const DesignerOptions& options) {
         renderer.FillRectangle(Rect{ICON_SIDEBAR - 1.0f, TOOLBAR_HEIGHT, 1.0f, iconSidebar.height}, COLOR_LINE, 0.0f);
         renderer.FillRectangle(Rect{LEFT_WIDTH - 1.0f, TOOLBAR_HEIGHT, 1.0f, iconSidebar.height}, COLOR_LINE, 0.0f);
         renderer.FillRectangle(Rect{clientWidth - RIGHT_WIDTH, TOOLBAR_HEIGHT, 1.0f, iconSidebar.height}, COLOR_LINE, 0.0f);
-        for (const HitRow& row : toolRows) {
-            const bool active = static_cast<int>(activeTool) == row.depth;
-            if (active) {
-                renderer.FillRectangle(row.rect, COLOR_SELECTED, 8.0f);
-            }
-            DrawLabel(renderer, row.name, row.rect, active ? COLOR_ACCENT : COLOR_MUTED, 13.0f, TextAlign::CENTER);
-        }
         for (const HitRow& row : navRows) {
             const bool active = leftNav == row.depth;
             const bool hovered = navHover == row.depth;
@@ -3740,7 +5117,142 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 }
             }
             renderer.PopClip();
+        } else if (leftNav == 2 && fullSidebar.width > 1.0f) {
+            DrawLabel(renderer, "Library", Rect{fullSidebar.x + 14.0f, fullSidebar.y + 8.0f, fullSidebar.width - 28.0f, 22.0f}, COLOR_MUTED, 12.0f, TextAlign::START);
+            const bool searchActive = editTarget == EditTarget::LIBRARY;
+            renderer.FillRectangle(librarySearchRect, COLOR_FIELD, 8.0f);
+            renderer.StrokeRectangle(librarySearchRect, searchActive ? COLOR_SELECT : COLOR_LINE, 1.0f, 8.0f);
+            Rect searchText = librarySearchRect;
+            searchText.x += 12.0f;
+            searchText.width = std::max(0.0f, searchText.width - 20.0f);
+            if (libraryQuery.empty() && !searchActive) {
+                DrawLabel(renderer, "Search components", searchText, COLOR_MUTED, 13.0f, TextAlign::START);
+            } else {
+                DrawLabel(renderer, libraryQuery, searchText, COLOR_INK, 13.0f, TextAlign::START);
+                if (searchActive) {
+                    const Size measured = renderer.MeasureText(libraryQuery, 13.0f, 100000.0f);
+                    renderer.FillRectangle(Rect{searchText.x + measured.width + 1.0f, librarySearchRect.y + 8.0f, 1.0f, librarySearchRect.height - 16.0f}, COLOR_INK, 0.0f);
+                }
+            }
+            const Rect list{fullSidebar.x, fullSidebar.y + 76.0f, fullSidebar.width, std::max(0.0f, fullSidebar.height - 76.0f)};
+            renderer.PushClip(list);
+            bool anyCard = false;
+            for (int index = 0; index < static_cast<int>(libraryRows.size()); ++index) {
+                const HitRow& row = libraryRows[static_cast<std::size_t>(index)];
+                if (row.rect.y + row.rect.height < list.y || row.rect.y > list.y + list.height) {
+                    continue;
+                }
+                if (row.depth < 0) {
+                    DrawLabel(renderer, row.name, row.rect, COLOR_MUTED, 11.0f, TextAlign::START);
+                    continue;
+                }
+                anyCard = true;
+                const bool hovered = libraryHover == index;
+                renderer.FillRectangle(row.rect, hovered ? COLOR_HOVER : COLOR_FIELD, 10.0f);
+                renderer.StrokeRectangle(row.rect, hovered ? COLOR_SELECT : COLOR_LINE, 1.0f, 10.0f);
+                const float wellSize = std::min(44.0f, row.rect.width - 24.0f);
+                const Rect well{row.rect.x + (row.rect.width - wellSize) * 0.5f, row.rect.y + 10.0f, wellSize, wellSize};
+                renderer.FillRectangle(well, COLOR_CHROME, 8.0f);
+                renderer.StrokeRectangle(well, COLOR_LINE, 1.0f, 8.0f);
+                DrawLibraryGlyph(renderer, well, row.name);
+                DrawLabel(renderer, row.name, Rect{row.rect.x + 6.0f, row.rect.y + row.rect.height - 26.0f, row.rect.width - 12.0f, 18.0f}, COLOR_INK, 12.0f,
+                          TextAlign::CENTER);
+            }
+            if (!anyCard) {
+                DrawLabel(renderer, "No components", Rect{fullSidebar.x + 16.0f, list.y + 28.0f, fullSidebar.width - 32.0f, 20.0f}, COLOR_MUTED, 13.0f, TextAlign::CENTER);
+            }
+            renderer.PopClip();
+        } else if (leftNav == 3 && fullSidebar.width > 1.0f) {
+            DrawLabel(renderer, "Assets", Rect{fullSidebar.x + 14.0f, fullSidebar.y + 8.0f, 72.0f, 22.0f}, COLOR_MUTED, 12.0f, TextAlign::START);
+            const std::string packLabel = iconPack.Loaded() ? "RoboIcons  " + std::to_string(iconPack.Count()) : "RoboIcons";
+            DrawLabel(renderer, packLabel, Rect{fullSidebar.x + 86.0f, fullSidebar.y + 8.0f, std::max(0.0f, fullSidebar.width - 100.0f), 22.0f}, COLOR_MUTED, 11.0f, TextAlign::START);
+            const bool searchActive = editTarget == EditTarget::ASSET;
+            renderer.FillRectangle(assetSearchRect, COLOR_FIELD, 8.0f);
+            renderer.StrokeRectangle(assetSearchRect, searchActive ? COLOR_SELECT : COLOR_LINE, 1.0f, 8.0f);
+            Rect searchText = assetSearchRect;
+            searchText.x += 12.0f;
+            searchText.width = std::max(0.0f, searchText.width - 20.0f);
+            if (assetQuery.empty() && !searchActive) {
+                DrawLabel(renderer, "Search icons", searchText, COLOR_MUTED, 13.0f, TextAlign::START);
+            } else {
+                DrawLabel(renderer, assetQuery, searchText, COLOR_INK, 13.0f, TextAlign::START);
+                if (searchActive) {
+                    const Size measured = renderer.MeasureText(assetQuery, 13.0f, 100000.0f);
+                    renderer.FillRectangle(Rect{searchText.x + measured.width + 1.0f, assetSearchRect.y + 8.0f, 1.0f, assetSearchRect.height - 16.0f}, COLOR_INK, 0.0f);
+                }
+            }
+            const float previewHeight = assetSelected >= 0 ? 96.0f : 0.0f;
+            const Rect list{fullSidebar.x, fullSidebar.y + 76.0f, fullSidebar.width, std::max(0.0f, fullSidebar.height - 76.0f - previewHeight)};
+            renderer.PushClip(list);
+            if (!iconPack.Loaded()) {
+                DrawLabel(renderer, "RoboIcons.pack was not found", Rect{fullSidebar.x + 16.0f, list.y + 28.0f, fullSidebar.width - 32.0f, 20.0f}, COLOR_MUTED, 13.0f, TextAlign::CENTER);
+            } else if (assetRows.empty()) {
+                DrawLabel(renderer, "No icons", Rect{fullSidebar.x + 16.0f, list.y + 28.0f, fullSidebar.width - 32.0f, 20.0f}, COLOR_MUTED, 13.0f, TextAlign::CENTER);
+            }
+            for (int index = 0; index < static_cast<int>(assetRows.size()); ++index) {
+                const HitRow& row = assetRows[static_cast<std::size_t>(index)];
+                if (row.rect.y + row.rect.height < list.y || row.rect.y > list.y + list.height) {
+                    continue;
+                }
+                const bool selected = row.depth == assetSelected;
+                const bool hovered = assetHover == index;
+                renderer.FillRectangle(row.rect, selected ? COLOR_SELECTED : hovered ? COLOR_HOVER : COLOR_FIELD, 10.0f);
+                renderer.StrokeRectangle(row.rect, selected || hovered ? COLOR_SELECT : COLOR_LINE, 1.0f, 10.0f);
+                const float wellSize = std::min(44.0f, row.rect.width - 24.0f);
+                const Rect well{row.rect.x + (row.rect.width - wellSize) * 0.5f, row.rect.y + 10.0f, wellSize, wellSize};
+                renderer.FillRectangle(well, COLOR_CHROME, 8.0f);
+                if (const IconPreview* icon = iconPack.Preview(row.depth)) {
+                    const float inset = 6.0f;
+                    renderer.DrawCachedImage("roboicon:" + row.name, Rect{well.x + inset, well.y + inset, well.width - inset * 2.0f, well.height - inset * 2.0f}, icon->bgra.data(), icon->width, icon->height);
+                }
+                DrawLabel(renderer, row.name, Rect{row.rect.x + 6.0f, row.rect.y + row.rect.height - 26.0f, row.rect.width - 12.0f, 18.0f}, COLOR_INK, 11.0f, TextAlign::CENTER);
+            }
+            renderer.PopClip();
+            if (assetSelected >= 0 && assetSelected < iconPack.Count()) {
+                const Rect previewBar{fullSidebar.x + 8.0f, fullSidebar.y + fullSidebar.height - 88.0f, std::max(0.0f, fullSidebar.width - 16.0f), 80.0f};
+                renderer.FillRectangle(previewBar, COLOR_FIELD, 10.0f);
+                renderer.StrokeRectangle(previewBar, COLOR_LINE, 1.0f, 10.0f);
+                const Rect large{previewBar.x + 12.0f, previewBar.y + 12.0f, 56.0f, 56.0f};
+                renderer.FillRectangle(large, COLOR_CHROME, 8.0f);
+                if (const IconPreview* icon = iconPack.Preview(assetSelected)) {
+                    renderer.DrawCachedImage("roboicon:" + iconPack.Name(assetSelected), Rect{large.x + 6.0f, large.y + 6.0f, 44.0f, 44.0f}, icon->bgra.data(), icon->width, icon->height);
+                }
+                DrawLabel(renderer, iconPack.Name(assetSelected), Rect{large.x + 68.0f, previewBar.y + 14.0f, std::max(0.0f, previewBar.width - 150.0f), 20.0f}, COLOR_INK, 13.0f, TextAlign::START);
+                DrawLabel(renderer, "Vector layers", Rect{large.x + 68.0f, previewBar.y + 34.0f, std::max(0.0f, previewBar.width - 150.0f), 16.0f}, COLOR_MUTED, 11.0f, TextAlign::START);
+                renderer.FillRectangle(assetPlace, COLOR_ACCENT, 6.0f);
+                DrawLabel(renderer, "Place", assetPlace, COLOR_CHROME, 12.0f, TextAlign::CENTER);
+            }
         }
+        renderer.FillRectangle(tabBar, COLOR_PANEL, 0.0f);
+        renderer.FillRectangle(Rect{tabBar.x, tabBar.y + tabBar.height - 1.0f, tabBar.width, 1.0f}, COLOR_LINE, 0.0f);
+        for (int index = 0; index < static_cast<int>(tabRows.size()); ++index) {
+            const HitRow& row = tabRows[static_cast<std::size_t>(index)];
+            const WorkTab& tab = workTabs[static_cast<std::size_t>(index)];
+            const bool active = index == activeTab;
+            const bool hovered = index == tabHover;
+            if (active) {
+                renderer.FillRectangle(row.rect, COLOR_FIELD, 8.0f);
+            } else if (hovered) {
+                renderer.FillRectangle(row.rect, COLOR_HOVER, 8.0f);
+            }
+            if (tab.designer && active) {
+                renderer.FillRectangle(Rect{row.rect.x + 10.0f, row.rect.y + row.rect.height - 2.0f, std::max(0.0f, row.rect.width - 20.0f), 2.0f}, COLOR_ACCENT, 1.0f);
+            }
+            DrawShellIcon(renderer, row.rect.x + 8.0f, row.rect.y + (row.rect.height - 16.0f) * 0.5f, false, false, std::filesystem::path(tab.path));
+            Rect label{row.rect.x + 28.0f, row.rect.y, std::max(0.0f, row.rect.width - 50.0f), row.rect.height};
+            DrawLabel(renderer, row.name, label, active || hovered ? COLOR_INK : COLOR_MUTED, 12.0f, TextAlign::START);
+            if (tab.dirty) {
+                renderer.FillRectangle(Rect{row.twist.x - 8.0f, row.rect.y + (row.rect.height - 6.0f) * 0.5f, 6.0f, 6.0f}, COLOR_ACCENT, 3.0f);
+            }
+            if (active || hovered) {
+                const float cx = row.twist.x + 6.0f;
+                const float cy = row.twist.y + 6.0f;
+                const Color closeColor = tabCloseHover == index ? COLOR_INK : COLOR_MUTED;
+                DrawStroke(renderer, cx - 3.5f, cy - 3.5f, cx + 3.5f, cy + 3.5f, closeColor, 1.35f);
+                DrawStroke(renderer, cx + 3.5f, cy - 3.5f, cx - 3.5f, cy + 3.5f, closeColor, 1.35f);
+            }
+        }
+        if (surfaceDesigner()) {
         renderer.FillRectangle(canvas, COLOR_CANVAS, 0.0f);
         renderer.PushClip(canvas);
         const Rect board = artboardScreen();
@@ -3901,6 +5413,48 @@ int DesignerApp::Run(const DesignerOptions& options) {
         renderer.FillRectangle(Rect{canvas.x + RULER_SIZE - 1.0f, canvas.y, 1.0f, canvas.height}, COLOR_LINE, 0.0f);
         }
         renderer.PopClip();
+        } else {
+            renderer.FillRectangle(canvas, COLOR_FIELD, 0.0f);
+            renderer.PushClip(canvas);
+            if (activeTab < 0 || activeTab >= static_cast<int>(workTabs.size())) {
+                DrawLabel(renderer, "Open a file from the explorer", Rect{canvas.x, canvas.y + canvas.height * 0.5f - 12.0f, canvas.width, 24.0f}, COLOR_MUTED, 14.0f, TextAlign::CENTER);
+            } else {
+                const WorkTab& tab = workTabs[static_cast<std::size_t>(activeTab)];
+                if (tab.binary) {
+                    DrawLabel(renderer, "This file cannot be shown as text", Rect{canvas.x, canvas.y + canvas.height * 0.5f - 12.0f, canvas.width, 24.0f}, COLOR_MUTED, 14.0f, TextAlign::CENTER);
+                } else {
+                    renderer.FillRectangle(Rect{canvas.x, canvas.y, 48.0f, canvas.height}, COLOR_PANEL, 0.0f);
+                    renderer.FillRectangle(Rect{canvas.x + 47.0f, canvas.y, 1.0f, canvas.height}, COLOR_LINE, 0.0f);
+                    int lineNumber = 0;
+                    std::size_t lineStart = 0;
+                    const int visible = std::max(1, static_cast<int>((canvas.height - 16.0f) / 18.0f));
+                    for (std::size_t index = 0; index <= tab.editorText.size(); ++index) {
+                        const bool end = index == tab.editorText.size() || tab.editorText[index] == '\n';
+                        if (!end) {
+                            continue;
+                        }
+                        if (lineNumber >= tab.scroll && lineNumber < tab.scroll + visible) {
+                            const float y = canvas.y + 8.0f + static_cast<float>(lineNumber - tab.scroll) * 18.0f;
+                            DrawLabel(renderer, std::to_string(lineNumber + 1), Rect{canvas.x + 4.0f, y, 40.0f, 18.0f}, COLOR_MUTED, 12.0f, TextAlign::END);
+                            const std::size_t length = index - lineStart;
+                            if (length > 0) {
+                                DrawLabel(renderer, std::string_view(tab.editorText.data() + lineStart, length), Rect{canvas.x + 56.0f, y, std::max(0.0f, canvas.width - 64.0f), 18.0f}, COLOR_INK, 13.0f, TextAlign::START);
+                            }
+                            if (editorFocused && tab.caret >= lineStart && tab.caret <= index) {
+                                const Size measured = renderer.MeasureText(std::string_view(tab.editorText.data() + lineStart, tab.caret - lineStart), 13.0f, 100000.0f);
+                                renderer.FillRectangle(Rect{canvas.x + 56.0f + measured.width, y + 2.0f, 1.0f, 14.0f}, COLOR_ACCENT, 0.0f);
+                            }
+                        }
+                        if (index == tab.editorText.size()) {
+                            break;
+                        }
+                        ++lineNumber;
+                        lineStart = index + 1;
+                    }
+                }
+            }
+            renderer.PopClip();
+        }
 
         DrawLabel(renderer, "Design", Rect{inspector.x + 12.0f, inspector.y + 8.0f, inspector.width - 24.0f, 24.0f}, COLOR_MUTED, 12.0f, TextAlign::START);
         if (const XmlNode* selected = document.NodeAt(selection)) {
@@ -3992,28 +5546,33 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if (appMenuOpen && !appMenuRows.empty()) {
             const Rect first = appMenuRows.front().rect;
             const Rect last = appMenuRows.back().rect;
-            const Rect popup{first.x - 4.0f, first.y - 4.0f, first.width + 8.0f, last.y + last.height - first.y + 8.0f};
-            renderer.FillRectangle(popup, COLOR_FIELD, 8.0f);
-            renderer.StrokeRectangle(popup, COLOR_LINE, 1.0f, 8.0f);
+            const Rect popup{first.x - 6.0f, TOOLBAR_HEIGHT, first.width + 12.0f, last.y + last.height - TOOLBAR_HEIGHT + 8.0f};
+            renderer.FillRectangle(popup, COLOR_FIELD, 10.0f);
+            renderer.StrokeRectangle(popup, COLOR_LINE, 1.0f, 10.0f);
             for (int index = 0; index < static_cast<int>(appMenuRows.size()); ++index) {
                 const HitRow& row = appMenuRows[static_cast<std::size_t>(index)];
                 if (row.depth < 0) {
-                    renderer.FillRectangle(Rect{row.rect.x + 8.0f, row.rect.y + 4.0f, row.rect.width - 16.0f, 1.0f}, COLOR_LINE, 0.0f);
+                    renderer.FillRectangle(Rect{popup.x + 10.0f, row.rect.y + 4.0f, popup.width - 20.0f, 1.0f}, COLOR_LINE, 0.0f);
                     continue;
                 }
                 if (appMenuHover == index && !row.hidden) {
                     renderer.FillRectangle(row.rect, COLOR_HOVER, 6.0f);
                 }
+                const Color iconColor = row.hidden ? COLOR_LINE : row.branch ? COLOR_ACCENT : COLOR_INK;
+                if (row.branch) {
+                    DrawMenuCheck(renderer, row.rect.x + 6.0f, row.rect.y + (row.rect.height - 14.0f) * 0.5f, COLOR_ACCENT);
+                }
+                DrawMenuIcon(renderer, row.rect.x + 24.0f, row.rect.y + (row.rect.height - 16.0f) * 0.5f, row.depth, iconColor);
                 const std::size_t split = row.name.find('\t');
                 const std::string label = split == std::string::npos ? row.name : row.name.substr(0, split);
                 const std::string shortcut = split == std::string::npos ? std::string{} : row.name.substr(split + 1);
                 const Color labelColor = row.hidden ? COLOR_MUTED : COLOR_INK;
                 Rect text = row.rect;
-                text.x += 12.0f;
-                text.width = std::max(0.0f, text.width - 24.0f);
+                text.x += 46.0f;
+                text.width = std::max(0.0f, row.rect.width - 56.0f);
                 DrawLabel(renderer, label, text, labelColor, 13.0f, TextAlign::START);
                 if (!shortcut.empty()) {
-                    DrawLabel(renderer, shortcut, text, COLOR_MUTED, 12.0f, TextAlign::END);
+                    DrawLabel(renderer, shortcut, text, row.hidden ? COLOR_LINE : COLOR_MUTED, 12.0f, TextAlign::END);
                 }
             }
         }
@@ -4029,9 +5588,10 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     renderer.FillRectangle(row.rect, COLOR_HOVER, 6.0f);
                 }
                 const Color labelColor = row.depth == 4 ? COLOR_STATUS : COLOR_INK;
+                DrawMenuIcon(renderer, row.rect.x + 8.0f, row.rect.y + (row.rect.height - 16.0f) * 0.5f, row.depth, labelColor);
                 Rect text = row.rect;
-                text.x += 10.0f;
-                text.width = std::max(0.0f, text.width - 16.0f);
+                text.x += 30.0f;
+                text.width = std::max(0.0f, text.width - 36.0f);
                 DrawLabel(renderer, row.name, text, labelColor, 13.0f, TextAlign::START);
             }
         }

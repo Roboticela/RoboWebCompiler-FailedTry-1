@@ -215,6 +215,7 @@ std::vector<PropertySpec> ImageProperties() {
 
 std::vector<PropertySpec> VectorProperties() {
     return With(IdentityProperties(), {{"shape", TypeKind::STRING},
+                                       {"viewBox", TypeKind::STRING},
                                        {"fill", TypeKind::COLOR},
                                        {"stroke", TypeKind::COLOR},
                                        {"strokeWidth", TypeKind::FLOAT},
@@ -228,11 +229,13 @@ std::vector<PropertySpec> VectorProperties() {
 
 std::vector<PropertySpec> PathProperties() {
     return With(IdentityProperties(), {{"d", TypeKind::STRING},
+                                       {"viewBox", TypeKind::STRING},
                                        {"fill", TypeKind::COLOR},
                                        {"stroke", TypeKind::COLOR},
                                        {"strokeWidth", TypeKind::FLOAT},
                                        {"lineCap", TypeKind::STRING},
                                        {"lineJoin", TypeKind::STRING},
+                                       {"fillRule", TypeKind::STRING},
                                        {"dash", TypeKind::STRING},
                                        {"dashOffset", TypeKind::FLOAT}});
 }
@@ -281,7 +284,7 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"shadow", NodeKind::SHADOW, false, ShadowProperties()},
         {"text", NodeKind::TEXT, false, TextProperties()},
         {"image", NodeKind::IMAGE, false, ImageProperties()},
-        {"vector", NodeKind::VECTOR, false, VectorProperties()},
+        {"vector", NodeKind::VECTOR, true, VectorProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},
         {"line", NodeKind::LINE, false, LineProperties()},
         {"group", NodeKind::GROUP, true, With(IdentityProperties(), {{"transform", TypeKind::STRING}, {"rotation", TypeKind::FLOAT}, {"scale", TypeKind::FLOAT}, {"visibility", TypeKind::STRING}})},
@@ -296,6 +299,23 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
 const ComponentSpec* FindComponent(std::string_view name) {
     for (const ComponentSpec& spec : ComponentCatalog()) {
         if (name == spec.name) {
+            return &spec;
+        }
+    }
+    return nullptr;
+}
+
+const PropertySpec* FindInstanceProperty(std::string_view component, std::string_view property) {
+    if (component != "Button") {
+        return nullptr;
+    }
+    static const PropertySpec buttonProperties[] = {
+        {"variant", TypeKind::STRING}, {"size", TypeKind::STRING},     {"label", TypeKind::STRING},
+        {"disabled", TypeKind::BOOL},  {"loading", TypeKind::BOOL},    {"fullWidth", TypeKind::BOOL},
+        {"onClick", TypeKind::EVENT_HANDLER},
+    };
+    for (const PropertySpec& spec : buttonProperties) {
+        if (property == spec.name) {
             return &spec;
         }
     }

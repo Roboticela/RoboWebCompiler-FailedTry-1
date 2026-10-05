@@ -37,6 +37,7 @@ public:
     void StrokeRectangle(const Rect& rect, const Color& color, float thickness, float radius) override;
     void DrawString(std::string_view text, const Rect& rect, const TextStyle& style) override;
     void DrawCachedImage(std::string_view key, const Rect& rect, const unsigned char* bgra, int width, int height) override;
+    void DrawVector(const VectorPaint& paint) override;
     Size MeasureText(std::string_view text, float fontSize, float maxWidth) override;
     void PushClip(const Rect& rect) override;
     void PopClip() override;

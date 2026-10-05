@@ -1,0 +1,405 @@
+<window width="1536" height="1024" title="Roboticela, main" background="#1E1E20">
+    <frame id="app" layout="vertical" width="1536" height="1024" background="#1E1E20" gap="0">
+
+        <frame id="chrome" layout="horizontal" width="1536" height="44" background="#1C1C1E" align="center">
+            <frame id="traffic" position="absolute" x="12" y="16" layout="horizontal" width="52" height="12" gap="8" align="center">
+                <vector id="closeLight" shape="ellipse" width="12" height="12" fill="#FF5F57"/>
+                <vector id="minLight" shape="ellipse" width="12" height="12" fill="#FEBC2E"/>
+                <vector id="zoomLight" shape="ellipse" width="12" height="12" fill="#28C840"/>
+            </frame>
+            <frame id="titleBlock" layout="vertical" width="1536" height="44" align="center" justify="center" gap="0">
+                <text id="windowTitle" value="Roboticela, main" fontSize="13" fontWeight="600" textColor="#F5F5F7" letterSpacing="-0.01"/>
+                <text id="windowSubtitle" value="Build Succeeded" fontSize="11" fontWeight="400" textColor="#30D158"/>
+            </frame>
+        </frame>
+        <frame id="chromeLine" width="1536" height="1" background="#FFFFFF14"/>
+
+        <frame id="menuBar" layout="horizontal" width="1536" height="28" background="#1C1C1E" align="center" padding="0 8" gap="0">
+            <frame id="menuFile" width="48" height="24" radius="6" layout="horizontal" align="center" justify="center"><text value="File" fontSize="13" textColor="#F5F5F7"/></frame>
+            <frame id="menuEdit" width="48" height="24" radius="6" layout="horizontal" align="center" justify="center"><text value="Edit" fontSize="13" textColor="#F5F5F7"/></frame>
+            <frame id="menuSelection" width="80" height="24" radius="6" layout="horizontal" align="center" justify="center"><text value="Selection" fontSize="13" textColor="#F5F5F7"/></frame>
+            <frame id="menuView" width="52" height="24" radius="6" layout="horizontal" align="center" justify="center"><text value="View" fontSize="13" textColor="#F5F5F7"/></frame>
+            <frame id="menuGo" width="40" height="24" radius="6" layout="horizontal" align="center" justify="center"><text value="Go" fontSize="13" textColor="#F5F5F7"/></frame>
+            <frame id="menuRun" width="48" height="24" radius="6" layout="horizontal" align="center" justify="center"><text value="Run" fontSize="13" textColor="#F5F5F7"/></frame>
+            <frame id="menuTerminal" width="76" height="24" radius="6" layout="horizontal" align="center" justify="center"><text value="Terminal" fontSize="13" textColor="#F5F5F7"/></frame>
+            <frame id="menuWindow" width="72" height="24" radius="6" layout="horizontal" align="center" justify="center"><text value="Window" fontSize="13" textColor="#F5F5F7"/></frame>
+            <frame id="menuHelp" width="52" height="24" radius="6" layout="horizontal" align="center" justify="center"><text value="Help" fontSize="13" textColor="#F5F5F7"/></frame>
+        </frame>
+
+        <frame id="toolbar" layout="horizontal" width="1536" height="44" background="#1C1C1E" align="center" padding="0 8" gap="8">
+            <frame id="toggleSidebar" width="28" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                <path d="M3 2 L3 14 L13 14 L13 2 Z M6 2 L6 14" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5" width="16" height="16"/>
+            </frame>
+            <frame id="runButton" width="28" height="28" radius="980" background="#30D158" layout="horizontal" align="center" justify="center">
+                <path d="M4 2 L11 7 L4 12 Z" fill="#FFFFFF" width="12" height="12"/>
+            </frame>
+            <frame id="stopButton" width="28" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                <frame width="10" height="10" radius="2" background="#FF3B30"/>
+            </frame>
+            <frame id="debugButton" width="28" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                <vector shape="ellipse" width="14" height="10" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5"/>
+            </frame>
+            <frame id="scheme" layout="horizontal" width="170" height="28" radius="8" background="#FFFFFF0F" align="center" justify="spaceBetween" padding="0 8">
+                <text value="app.js  ›  Browser" fontSize="13" fontWeight="500" textColor="#F5F5F7"/>
+                <text value="▾" fontSize="11" textColor="#A1A1A6"/>
+            </frame>
+            <frame id="buildStatus" layout="horizontal" width="160" height="28" align="center" justify="center">
+                <text value="Build Succeeded" fontSize="13" textColor="#30D158"/>
+            </frame>
+            <frame id="commandField" layout="horizontal" width="320" height="28" radius="980" background="#FFFFFF0F" align="center" padding="0 12" gap="8">
+                <vector shape="ellipse" width="12" height="12" fill="transparent" stroke="#6E6E73" strokeWidth="1.5"/>
+                <text value="Search or run a command" fontSize="13" textColor="#6E6E73"/>
+                <frame width="36" height="18" radius="6" background="#FFFFFF14" layout="horizontal" align="center" justify="center">
+                    <text value="⌘P" fontSize="11" textColor="#A1A1A6"/>
+                </frame>
+            </frame>
+            <frame id="toolbarSpacer" width="248" height="28"/>
+            <frame id="togglePanel" width="28" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                <path d="M2 3 L14 3 L14 13 L2 13 Z M2 9 L14 9" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5" width="16" height="16"/>
+            </frame>
+            <frame id="toggleAgent" width="28" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                <vector shape="ellipse" width="8" height="8" fill="#F5D061"/>
+            </frame>
+            <frame id="settingsGear" width="28" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                <vector shape="ellipse" width="12" height="12" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5"/>
+            </frame>
+        </frame>
+        <frame id="toolbarLine" width="1536" height="1" background="#FFFFFF14"/>
+
+        <frame id="workspace" layout="horizontal" width="1536" height="664" gap="0">
+
+            <frame id="rail" layout="vertical" width="76" height="664" background="#1C1C1E" align="center" padding="8" gap="4">
+                <frame id="railExplorer" layout="vertical" width="60" height="52" radius="12" background="#0071E32E" align="center" justify="center" gap="4">
+                    <path d="M2 5 L6 5 L8 7 L14 7 L14 13 L2 13 Z" fill="transparent" stroke="#0071E3" strokeWidth="1.5" width="16" height="16"/>
+                    <text value="Explorer" fontSize="11" fontWeight="500" textColor="#0071E3"/>
+                </frame>
+                <frame id="railGit" layout="vertical" width="60" height="52" radius="12" align="center" justify="center" gap="4">
+                    <path d="M8 2 L8 14 M8 5 L12 5 L12 8 L8 8" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5" width="16" height="16"/>
+                    <text value="Git" fontSize="11" fontWeight="500" textColor="#A1A1A6"/>
+                </frame>
+                <frame id="railLibrary" layout="vertical" width="60" height="52" radius="12" align="center" justify="center" gap="4">
+                    <path d="M3 4 L13 4 L13 13 L3 13 Z" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5" width="16" height="16"/>
+                    <text value="Library" fontSize="11" fontWeight="500" textColor="#A1A1A6"/>
+                </frame>
+                <frame id="railVariables" layout="vertical" width="60" height="52" radius="12" align="center" justify="center" gap="4">
+                    <path d="M2 8 L14 8 M5 4 L5 12 M11 4 L11 12" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5" width="16" height="16"/>
+                    <text value="Variables" fontSize="11" fontWeight="500" textColor="#A1A1A6"/>
+                </frame>
+                <frame id="railAssets" layout="vertical" width="60" height="52" radius="12" align="center" justify="center" gap="4">
+                    <path d="M2 3 L14 3 L14 13 L2 13 Z M2 10 L6 7 L9 10 L11 8 L14 11" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5" width="16" height="16"/>
+                    <text value="Assets" fontSize="11" fontWeight="500" textColor="#A1A1A6"/>
+                </frame>
+                <frame id="railProperties" layout="vertical" width="60" height="52" radius="12" align="center" justify="center" gap="4">
+                    <path d="M3 2 L13 2 L13 14 L3 14 Z M6 5 L10 5 M6 8 L10 8 M6 11 L10 11" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5" width="16" height="16"/>
+                    <text value="Properties" fontSize="11" fontWeight="500" textColor="#A1A1A6"/>
+                </frame>
+                <frame id="railGap" width="60" height="248"/>
+                <frame id="railSettings" layout="vertical" width="60" height="52" radius="12" align="center" justify="center" gap="4">
+                    <vector shape="ellipse" width="14" height="14" fill="transparent" stroke="#A1A1A6" strokeWidth="1.5"/>
+                    <text value="Settings" fontSize="11" fontWeight="500" textColor="#A1A1A6"/>
+                </frame>
+            </frame>
+            <frame id="railLine" width="1" height="664" background="#FFFFFF14"/>
+
+            <frame id="explorer" layout="vertical" width="260" height="664" background="#1C1C1E" gap="0">
+                <frame id="explorerHeader" layout="horizontal" width="260" height="36" align="center" justify="spaceBetween" padding="0 12">
+                    <text value="EXPLORER" fontSize="11" fontWeight="600" textColor="#A1A1A6" letterSpacing="0.04" textTransform="uppercase"/>
+                    <text value="+" fontSize="15" fontWeight="500" textColor="#A1A1A6"/>
+                </frame>
+                <frame id="explorerSearch" layout="horizontal" width="244" height="28" radius="8" background="#FFFFFF0D" align="center" padding="0 8" gap="8">
+                    <vector shape="ellipse" width="12" height="12" fill="transparent" stroke="#6E6E73" strokeWidth="1.5"/>
+                    <text value="Search files" fontSize="13" textColor="#6E6E73"/>
+                </frame>
+                <frame id="tree" layout="vertical" width="260" height="560" padding="8 8" gap="0">
+                    <frame id="rowRoot" layout="horizontal" width="244" height="22" align="center" gap="4">
+                        <text value="▾" fontSize="11" textColor="#A1A1A6"/>
+                        <text value="Roboticela" fontSize="13" fontWeight="500" textColor="#F5F5F7"/>
+                    </frame>
+                    <frame id="rowVscode" layout="horizontal" width="244" height="22" align="center" gap="4" padding="0 0 0 12">
+                        <text value="▸" fontSize="11" textColor="#6E6E73"/>
+                        <text value=".vscode" fontSize="13" textColor="#A1A1A6"/>
+                    </frame>
+                    <frame id="rowPublic" layout="horizontal" width="244" height="22" align="center" gap="4" padding="0 0 0 12">
+                        <text value="▾" fontSize="11" textColor="#A1A1A6"/>
+                        <text value="public" fontSize="13" textColor="#F5F5F7"/>
+                    </frame>
+                    <frame id="rowFavicon" layout="horizontal" width="244" height="22" align="center" gap="4" padding="0 0 0 24">
+                        <text value="favicon.ico" fontSize="13" textColor="#A1A1A6"/>
+                    </frame>
+                    <frame id="rowIndex" layout="horizontal" width="244" height="22" align="center" justify="spaceBetween" padding="0 8 0 24" background="#0071E347" radius="6">
+                        <text value="index.html" fontSize="13" textColor="#F5F5F7"/>
+                        <frame layout="horizontal" width="28" height="22" align="center" justify="end" gap="4">
+                            <vector shape="ellipse" width="6" height="6" fill="#F5D061"/>
+                            <text value="M" fontSize="11" fontWeight="500" textColor="#F5D061"/>
+                        </frame>
+                    </frame>
+                    <frame id="rowLogo" layout="horizontal" width="244" height="22" align="center" gap="4" padding="0 0 0 24">
+                        <text value="logo.png" fontSize="13" textColor="#A1A1A6"/>
+                    </frame>
+                    <frame id="rowSrc" layout="horizontal" width="244" height="22" align="center" gap="4" padding="0 0 0 12">
+                        <text value="▾" fontSize="11" textColor="#A1A1A6"/>
+                        <text value="src" fontSize="13" textColor="#F5F5F7"/>
+                    </frame>
+                    <frame id="rowComponents" layout="horizontal" width="244" height="22" align="center" gap="4" padding="0 0 0 24">
+                        <text value="▾" fontSize="11" textColor="#A1A1A6"/>
+                        <text value="components" fontSize="13" textColor="#F5F5F7"/>
+                    </frame>
+                    <frame id="rowHeader" layout="horizontal" width="244" height="22" align="center" justify="spaceBetween" padding="0 8 0 36">
+                        <text value="Header.jsx" fontSize="13" textColor="#A1A1A6"/>
+                        <frame layout="horizontal" width="28" height="22" align="center" justify="end" gap="4">
+                            <vector shape="ellipse" width="6" height="6" fill="#F5D061"/>
+                            <text value="M" fontSize="11" fontWeight="500" textColor="#F5D061"/>
+                        </frame>
+                    </frame>
+                    <frame id="rowFooter" layout="horizontal" width="244" height="22" align="center" padding="0 0 0 36">
+                        <text value="Footer.jsx" fontSize="13" textColor="#A1A1A6"/>
+                    </frame>
+                    <frame id="rowPages" layout="horizontal" width="244" height="22" align="center" gap="4" padding="0 0 0 24">
+                        <text value="▸" fontSize="11" textColor="#6E6E73"/>
+                        <text value="pages" fontSize="13" textColor="#A1A1A6"/>
+                    </frame>
+                    <frame id="rowUtils" layout="horizontal" width="244" height="22" align="center" gap="4" padding="0 0 0 24">
+                        <text value="▸" fontSize="11" textColor="#6E6E73"/>
+                        <text value="utils" fontSize="13" textColor="#A1A1A6"/>
+                    </frame>
+                    <frame id="rowStyles" layout="horizontal" width="244" height="22" align="center" gap="4" padding="0 0 0 24">
+                        <text value="▾" fontSize="11" textColor="#A1A1A6"/>
+                        <text value="styles" fontSize="13" textColor="#F5F5F7"/>
+                    </frame>
+                    <frame id="rowCss" layout="horizontal" width="244" height="22" align="center" justify="spaceBetween" padding="0 8 0 36">
+                        <text value="styles.css" fontSize="13" textColor="#A1A1A6"/>
+                        <frame layout="horizontal" width="28" height="22" align="center" justify="end" gap="4">
+                            <vector shape="ellipse" width="6" height="6" fill="#F5D061"/>
+                            <text value="M" fontSize="11" fontWeight="500" textColor="#F5D061"/>
+                        </frame>
+                    </frame>
+                    <frame id="rowPackage" layout="horizontal" width="244" height="22" align="center" padding="0 0 0 12">
+                        <text value="package.json" fontSize="13" textColor="#A1A1A6"/>
+                    </frame>
+                    <frame id="rowReadme" layout="horizontal" width="244" height="22" align="center" padding="0 0 0 12">
+                        <text value="README.md" fontSize="13" textColor="#A1A1A6"/>
+                    </frame>
+                    <frame id="outlineHead" layout="horizontal" width="244" height="28" align="center" gap="4" padding="8 0 0 0">
+                        <text value="▸" fontSize="11" textColor="#6E6E73"/>
+                        <text value="OUTLINE" fontSize="11" fontWeight="600" textColor="#A1A1A6" letterSpacing="0.04"/>
+                    </frame>
+                </frame>
+            </frame>
+            <frame id="explorerLine" width="1" height="664" background="#FFFFFF14"/>
+
+            <frame id="editor" layout="vertical" width="879" height="664" background="#1D1D1F" gap="0">
+                <frame id="tabBar" layout="horizontal" width="879" height="36" background="#1D1D1F" align="end" gap="1">
+                    <frame id="tabHeader" layout="horizontal" width="140" height="36" background="#1D1D1F" align="center" justify="spaceBetween" padding="0 12">
+                        <text value="Header.jsx" fontSize="13" textColor="#A1A1A6"/>
+                        <vector shape="ellipse" width="6" height="6" fill="#F5D061"/>
+                    </frame>
+                    <frame id="tabIndex" layout="vertical" width="150" height="36" background="#2C2C2E" gap="0">
+                        <frame width="150" height="2" background="#0071E3"/>
+                        <frame layout="horizontal" width="150" height="34" align="center" justify="spaceBetween" padding="0 12">
+                            <text value="index.html" fontSize="13" textColor="#F5F5F7"/>
+                            <text value="×" fontSize="13" textColor="#A1A1A6"/>
+                        </frame>
+                    </frame>
+                    <frame id="tabCss" layout="horizontal" width="140" height="36" background="#1D1D1F" align="center" justify="spaceBetween" padding="0 12">
+                        <text value="styles.css" fontSize="13" textColor="#A1A1A6"/>
+                        <vector shape="ellipse" width="6" height="6" fill="#F5D061"/>
+                    </frame>
+                </frame>
+                <frame id="breadcrumb" layout="horizontal" width="879" height="24" align="center" padding="0 12" gap="8" background="#1D1D1F">
+                    <text value="public" fontSize="11" textColor="#6E6E73"/>
+                    <text value="›" fontSize="11" textColor="#6E6E73"/>
+                    <text value="index.html" fontSize="11" textColor="#A1A1A6"/>
+                    <text value="›" fontSize="11" textColor="#6E6E73"/>
+                    <text value="body" fontSize="11" textColor="#A1A1A6"/>
+                    <text value="›" fontSize="11" textColor="#6E6E73"/>
+                    <text value="header" fontSize="11" textColor="#A1A1A6"/>
+                </frame>
+                <frame id="codeRow" layout="horizontal" width="879" height="604" gap="0">
+                    <frame id="code" layout="vertical" width="791" height="604" padding="8 0" gap="0">
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="1" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="&lt;!DOCTYPE html&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="2" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="&lt;html" fontFamily="Menlo" fontSize="12.5" textColor="#C9A7FF"/>
+                            <text value=" lang=" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5"/>
+                            <text value="&quot;en&quot;" fontFamily="Menlo" fontSize="12.5" textColor="#9FD7A7"/>
+                            <text value="&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#C9A7FF"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="3" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="&lt;head&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#C9A7FF"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="4" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="  &lt;meta charset=&quot;UTF-8&quot; /&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center" background="#FFFFFF06">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="5" fontSize="11" textColor="#A1A1A6"/></frame>
+                            <text value="  &lt;title&gt;Roboticela&lt;/title&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="6" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="  &lt;link rel=&quot;stylesheet&quot; href=&quot;styles.css&quot; /&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#82CFFF"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="7" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="&lt;/head&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#C9A7FF"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20"><frame width="48" height="20"/></frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="9" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="&lt;body&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#C9A7FF"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="10" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="  &lt;header class=&quot;header&quot;&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="11" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="    &lt;h1&gt;Roboticela&lt;/h1&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="12" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="    &lt;nav class=&quot;nav&quot;&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#D7B2FF"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="13" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="      &lt;a href=&quot;/&quot;&gt;Home&lt;/a&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#9FD7A7"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="14" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="      &lt;a href=&quot;/about&quot;&gt;About&lt;/a&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#9FD7A7"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="15" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="    &lt;/nav&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#D7B2FF"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="16" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="  &lt;/header&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="18" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="  &lt;h2&gt;Build something useful.&lt;/h2&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="19" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="  &lt;p&gt;Modern tools for developers.&lt;/p&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#85858B"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="21" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="  &lt;script src=&quot;app.js&quot;&gt;&lt;/script&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#82CFFF"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="22" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="&lt;/body&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#C9A7FF"/>
+                        </frame>
+                        <frame layout="horizontal" width="791" height="20" align="center">
+                            <frame width="48" height="20" layout="horizontal" align="center" justify="end" padding="0 8"><text value="23" fontSize="11" textColor="#6E6E73"/></frame>
+                            <text value="&lt;/html&gt;" fontFamily="Menlo" fontSize="12.5" textColor="#C9A7FF"/>
+                        </frame>
+                    </frame>
+                    <frame id="minimap" layout="vertical" width="80" height="604" padding="8" gap="4" opacity="0.65">
+                        <frame width="64" height="4" radius="2" background="#C9A7FF"/>
+                        <frame width="48" height="4" radius="2" background="#DFE1E5"/>
+                        <frame width="56" height="4" radius="2" background="#9FD7A7"/>
+                        <frame width="40" height="4" radius="2" background="#82CFFF"/>
+                        <frame width="60" height="4" radius="2" background="#DFE1E5"/>
+                        <frame width="36" height="4" radius="2" background="#85858B"/>
+                        <frame width="52" height="4" radius="2" background="#D7B2FF"/>
+                        <frame width="44" height="4" radius="2" background="#DFE1E5"/>
+                    </frame>
+                </frame>
+            </frame>
+            <frame id="agentLine" width="1" height="664" background="#FFFFFF14"/>
+
+            <frame id="agent" layout="vertical" width="319" height="664" background="#1C1C1E" gap="0">
+                <frame id="agentHeader" layout="horizontal" width="319" height="44" align="center" justify="spaceBetween" padding="0 12">
+                    <frame layout="horizontal" width="120" height="28" align="center" gap="8">
+                        <vector shape="ellipse" width="8" height="8" fill="#F5D061"/>
+                        <text value="Agent" fontSize="15" fontWeight="600" textColor="#F5F5F7"/>
+                    </frame>
+                    <frame layout="horizontal" width="148" height="28" align="center" justify="end" gap="4">
+                        <frame width="96" height="28" radius="8" background="#FFFFFF0F" layout="horizontal" align="center" justify="center">
+                            <text value="Model" fontSize="12" textColor="#A1A1A6"/>
+                        </frame>
+                        <frame width="28" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                            <text value="+" fontSize="15" textColor="#A1A1A6"/>
+                        </frame>
+                    </frame>
+                </frame>
+                <frame id="agentThread" layout="vertical" width="319" height="400" padding="12" gap="12">
+                    <text value="Ask about the open file." fontSize="13" textColor="#A1A1A6" width="280" height="18"/>
+                    <frame layout="horizontal" width="295" height="28" gap="8">
+                        <frame height="28" radius="980" background="#FFFFFF0F" padding="0 12" layout="horizontal" align="center"><text value="Explain this file" fontSize="12" textColor="#F5F5F7"/></frame>
+                        <frame height="28" radius="980" background="#FFFFFF0F" padding="0 12" layout="horizontal" align="center"><text value="Fix errors" fontSize="12" textColor="#F5F5F7"/></frame>
+                    </frame>
+                    <frame layout="horizontal" width="295" height="28" gap="8">
+                        <frame height="28" radius="980" background="#FFFFFF0F" padding="0 12" layout="horizontal" align="center"><text value="Write tests" fontSize="12" textColor="#F5F5F7"/></frame>
+                        <frame height="28" radius="980" background="#FFFFFF0F" padding="0 12" layout="horizontal" align="center"><text value="Refactor selection" fontSize="12" textColor="#F5F5F7"/></frame>
+                    </frame>
+                </frame>
+                <frame id="composer" layout="vertical" width="319" height="220" padding="12" gap="8">
+                    <frame layout="horizontal" width="80" height="24" radius="980" background="#FFFFFF0F" align="center" justify="center" gap="4">
+                        <text value="index.html" fontSize="11" textColor="#A1A1A6"/>
+                    </frame>
+                    <frame layout="vertical" width="295" height="120" radius="18" background="#FFFFFF0D" padding="12" gap="8">
+                        <text value="Ask a question or describe a change" fontSize="13" textColor="#6E6E73" width="270" height="36"/>
+                        <frame layout="horizontal" width="271" height="36" align="center" justify="end">
+                            <frame width="36" height="36" radius="980" background="#0071E3" layout="horizontal" align="center" justify="center">
+                                <path d="M6 16 L12 4 L18 16 L12 13 Z" fill="#FFFFFF" width="16" height="16"/>
+                            </frame>
+                        </frame>
+                    </frame>
+                </frame>
+            </frame>
+        </frame>
+
+        <frame id="bottomLine" width="1536" height="1" background="#FFFFFF14"/>
+        <frame id="bottom" layout="vertical" width="1536" height="219" background="#1D1D1F" gap="0">
+            <frame id="bottomTabs" layout="horizontal" width="1536" height="36" align="center" padding="0 8" gap="4">
+                <frame width="84" height="28" radius="6" background="#FFFFFF0F" layout="horizontal" align="center" justify="center">
+                    <text value="Terminal" fontSize="13" fontWeight="500" textColor="#F5F5F7"/>
+                </frame>
+                <frame width="72" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                    <text value="Output" fontSize="13" textColor="#A1A1A6"/>
+                </frame>
+                <frame width="88" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                    <text value="Problems" fontSize="13" textColor="#A1A1A6"/>
+                </frame>
+                <frame width="120" height="28" radius="6" layout="horizontal" align="center" justify="center">
+                    <text value="Debug Console" fontSize="13" textColor="#A1A1A6"/>
+                </frame>
+                <frame width="1000" height="28"/>
+                <frame width="28" height="28" radius="6" layout="horizontal" align="center" justify="center"><text value="⌫" fontSize="12" textColor="#A1A1A6"/></frame>
+                <frame width="28" height="28" radius="6" layout="horizontal" align="center" justify="center"><text value="▢" fontSize="12" textColor="#A1A1A6"/></frame>
+            </frame>
+            <frame id="terminal" layout="vertical" width="1536" height="183" padding="12" gap="0">
+                <text value="robota@macbook Roboticela % ls" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5" width="800" height="20"/>
+                <text value="public    src    package.json    README.md" fontFamily="Menlo" fontSize="12.5" textColor="#A1A1A6" width="800" height="20"/>
+                <text value="robota@macbook Roboticela % node app.js" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5" width="800" height="20"/>
+                <text value="Server running at http://localhost:5173" fontFamily="Menlo" fontSize="12.5" textColor="#30D158" width="800" height="20"/>
+                <text value="Compiled successfully in 342ms" fontFamily="Menlo" fontSize="12.5" textColor="#30D158" width="800" height="20"/>
+                <text value="robota@macbook Roboticela %" fontFamily="Menlo" fontSize="12.5" textColor="#DFE1E5" width="800" height="20"/>
+            </frame>
+        </frame>
+
+        <frame id="status" layout="horizontal" width="1536" height="24" background="#1C1C1E" align="center" padding="0 8" gap="8">
+            <text value="main" fontSize="11" textColor="#A1A1A6"/>
+            <text value="↻" fontSize="11" textColor="#A1A1A6"/>
+            <text value="|" fontSize="11" textColor="#6E6E73"/>
+            <text value="0" fontSize="11" textColor="#FF3B30"/>
+            <text value="0" fontSize="11" textColor="#F5D061"/>
+            <text value="Running" fontSize="11" textColor="#30D158"/>
+            <frame width="980" height="20"/>
+            <text value="Ln 12, Col 21" fontSize="11" textColor="#A1A1A6"/>
+            <text value="Spaces: 2" fontSize="11" textColor="#A1A1A6"/>
+            <text value="UTF-8" fontSize="11" textColor="#A1A1A6"/>
+            <text value="LF" fontSize="11" textColor="#A1A1A6"/>
+            <text value="HTML" fontSize="11" textColor="#A1A1A6"/>
+            <vector shape="ellipse" width="6" height="6" fill="#F5D061"/>
+        </frame>
+    </frame>
+</window>

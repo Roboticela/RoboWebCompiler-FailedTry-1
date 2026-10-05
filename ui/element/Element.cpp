@@ -72,6 +72,11 @@ bool Element::SetPointerHover(bool value) {
         return false;
     }
     pointerHover = value;
+    if (value) {
+        OnPointerEnter();
+    } else {
+        OnPointerLeave();
+    }
     return true;
 }
 
@@ -80,10 +85,26 @@ bool Element::SetPointerPressed(bool value) {
         return false;
     }
     pointerPressed = value;
+    if (!value) {
+        OnPointerUp();
+    }
     return true;
 }
 
+void Element::OnPointerEnter() {}
+
+void Element::OnPointerLeave() {}
+
+void Element::OnPointerDown() {}
+
+void Element::OnPointerUp() {}
+
+void Element::OnFocus() {}
+
+void Element::OnBlur() {}
+
 bool Element::OnPointerDown(Point) {
+    OnPointerDown();
     return SetPointerPressed(true);
 }
 
@@ -115,9 +136,16 @@ bool Element::TakesTextFocus() const {
 }
 
 void Element::SetFocused(bool value) {
+    const bool changed = pointerFocused != value;
     pointerFocused = value;
     if (!value) {
+        if (changed) {
+            OnBlur();
+        }
         return;
+    }
+    if (changed) {
+        OnFocus();
     }
     Element* root = RootOf(this);
     if (root != nullptr) {
@@ -355,8 +383,13 @@ float Element::ViewportHeight() const {
     return viewportHeight;
 }
 
-void Element::AddBinding(std::string property, std::string key, BindMode mode) {
-    bindings.push_back(BoundLink{std::move(property), std::move(key), mode, false});
+void Element::AddBinding(std::string property, std::string key, BindMode mode, bool invert) {
+    BoundLink link;
+    link.property = std::move(property);
+    link.key = std::move(key);
+    link.mode = mode;
+    link.invert = invert;
+    bindings.push_back(std::move(link));
 }
 
 void Element::SetEdgePin(BoxEdge edge, float offset) {
@@ -565,7 +598,7 @@ bool Element::Tick(float seconds) {
         }
     }
     for (const std::unique_ptr<Element>& child : children) {
-        changed = child->Tick(0.0f) || changed;
+        changed = child->Tick(seconds) || changed;
     }
     return changed;
 }
@@ -629,6 +662,10 @@ void Element::UpdateKey(const std::string& key) {
             }
         } else {
             resolved = ReadState(link.key);
+        }
+        if (link.invert) {
+            const bool enabled = resolved == "true" || resolved == "1";
+            resolved = enabled ? "false" : "true";
         }
         ApplyBound(link.property, resolved);
         link.applied = true;

@@ -1,4 +1,5 @@
 #include "compiler/semantic/UiCompiler.h"
+#include "compiler/types/ValueParser.h"
 #include "components/frame/Frame.h"
 #include "components/primitive/PrimitiveElement.h"
 #include "designer/model/DesignDocument.h"
@@ -8,8 +9,10 @@
 #include "rendering/text/TextLayout.h"
 #include "rendering/text/TextMeasurer.h"
 #include "tests/TestHarness.h"
+#include "t/button/Button.h"
 #include "ui/element/Element.h"
 #include "ui/factory/UiFactory.h"
+#include "ui/input/PointerInput.h"
 #include "xml/parser/XmlParser.h"
 #include "xml/serializer/XmlSerializer.h"
 
@@ -25,6 +28,7 @@
 
 #include <cstring>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -413,6 +417,10 @@ void TestRemainingSurface(TestContext& test) {
         }
     }
     CHECK(test, bowed);
+    const std::vector<PathSample> packed = SamplePath("M0 0c1.5.5 2 3 4 5");
+    CHECK(test, !packed.empty() && std::fabs(packed.back().x - 4.0f) < 0.01f && std::fabs(packed.back().y - 5.0f) < 0.01f);
+    const std::vector<PathSample> exponent = SamplePath("M0 0L1.5e-1 2e1");
+    CHECK(test, !exponent.empty() && std::fabs(exponent.back().x - 0.15f) < 0.001f && std::fabs(exponent.back().y - 20.0f) < 0.01f);
     const std::vector<PathSample> closed = SamplePath("M0 0 L10 0 L10 10 Z");
     CHECK(test, !closed.empty() && closed.back().x == 0.0f && closed.back().y == 0.0f);
 
@@ -472,9 +480,33 @@ void TestRemainingSurface(TestContext& test) {
         CHECK(test, decoded.frames[0].width == 8 && decoded.frames[0].bgra.size() >= 4 && decoded.frames[0].bgra[2] > 200 &&
                         decoded.frames[0].bgra[0] < 40);
     }
+    const char* arrow = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M3.5 13h6\"/><path d=\"M18 7v9\"/></svg>";
+    const std::string vectorXml = VectorXmlFromSvg(arrow, "Arrow", 24, 24, 26);
+    CHECK(test, vectorXml.find("<vector") != std::string::npos && vectorXml.find("name=\"Arrow\"") != std::string::npos && vectorXml.find("<path") != std::string::npos &&
+                    vectorXml.find("strokeWidth=\"2\"") != std::string::npos);
+    const CompileResult vectorDocument = CompileUi(Source("<window width=\"200\" height=\"200\">" + vectorXml + "</window>"));
+    CHECK(test, vectorDocument.Ok() && vectorDocument.root.has_value() && vectorDocument.root->children.size() == 1 &&
+                    vectorDocument.root->children[0].kind == NodeKind::VECTOR && vectorDocument.root->children[0].children.size() == 2);
     const char* svg = "<svg width=\"2\" height=\"2\"><rect width=\"2\" height=\"2\" fill=\"#ff0000\"/></svg>";
     CHECK(test, DecodeImageBytes(reinterpret_cast<const unsigned char*>(svg), static_cast<int>(std::strlen(svg)), decoded) && decoded.format == "svg");
     CHECK(test, !decoded.frames.empty() && decoded.frames[0].bgra.size() >= 3 && decoded.frames[0].bgra[2] == 255);
+    const char* hole = "<svg width=\"8\" height=\"8\" viewBox=\"0 0 8 8\"><path fill=\"#00ff00\" fill-rule=\"evenodd\" d=\"M0 0 H8 V8 H0 Z M3 3 H5 V5 H3 Z\"/></svg>";
+    CHECK(test, DecodeImageBytes(reinterpret_cast<const unsigned char*>(hole), static_cast<int>(std::strlen(hole)), decoded) && decoded.frames.size() == 1 &&
+                    decoded.frames[0].width == 8);
+    if (!decoded.frames.empty() && decoded.frames[0].bgra.size() >= 8 * 8 * 4) {
+        const unsigned char* corner = decoded.frames[0].bgra.data();
+        const unsigned char* center = decoded.frames[0].bgra.data() + (4 * 8 + 4) * 4;
+        CHECK(test, corner[1] == 255 && corner[3] == 255);
+        CHECK(test, center[3] == 0);
+    }
+    const char* ring = "<svg width=\"8\" height=\"8\" viewBox=\"0 0 8 8\"><circle cx=\"4\" cy=\"4\" r=\"3\" fill=\"none\" stroke=\"#ff0000\" stroke-width=\"2\"/></svg>";
+    CHECK(test, DecodeImageBytes(reinterpret_cast<const unsigned char*>(ring), static_cast<int>(std::strlen(ring)), decoded) && !decoded.frames.empty());
+    if (!decoded.frames.empty() && decoded.frames[0].bgra.size() >= 8 * 8 * 4) {
+        const unsigned char* middle = decoded.frames[0].bgra.data() + (4 * 8 + 4) * 4;
+        const unsigned char* top = decoded.frames[0].bgra.data() + (1 * 8 + 4) * 4;
+        CHECK(test, middle[3] == 0);
+        CHECK(test, top[2] > 200 && top[3] > 200);
+    }
     const unsigned char gif[] = {0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00,
                                  0x00, 0x21, 0xF9, 0x04, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
                                  0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x21, 0xF9, 0x04, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00,
@@ -650,6 +682,124 @@ void TestRemainingSurface(TestContext& test) {
     Finish(test, "remaining surface", before);
 }
 
+bool NearColor(Color color, Color expected) {
+    return std::fabs(color.r - expected.r) < 0.02f && std::fabs(color.g - expected.g) < 0.02f && std::fabs(color.b - expected.b) < 0.02f &&
+           std::fabs(color.a - expected.a) < 0.02f;
+}
+
+void TestButton(TestContext& test) {
+    const int before = test.failed;
+    const std::filesystem::path path = std::filesystem::path(RUNTIME_SOURCE_DIR) / "tests" / "Button.test.xml";
+    const CompileResult compiled = CompileUiFile(path);
+    CHECK(test, compiled.Ok());
+    if (!compiled.root.has_value()) {
+        Finish(test, "button", before);
+        return;
+    }
+    int clicks = 0;
+    std::unique_ptr<Element> root = Instantiate(*compiled.root, {{"handleClick", [&] { ++clicks; }}});
+    CHECK(test, root != nullptr);
+    if (root == nullptr) {
+        Finish(test, "button", before);
+        return;
+    }
+    FakeMeasurer measurer;
+    root->SetViewport(400.0f, 1400.0f);
+    root->Measure(measurer, 400.0f, 1400.0f, true);
+    root->Arrange(Rect{0.0f, 0.0f, 400.0f, 1400.0f});
+
+    const char* largeIds[] = {"primaryLarge", "secondaryLarge", "tertiaryLarge", "destructiveLarge", "destructiveSecondaryLarge", "linkLarge"};
+    const char* mediumIds[] = {"primaryMedium", "secondaryMedium", "tertiaryMedium", "destructiveMedium", "destructiveSecondaryMedium", "linkMedium"};
+    const char* smallIds[] = {"primarySmall", "secondarySmall", "tertiarySmall", "destructiveSmall", "destructiveSecondarySmall", "linkSmall"};
+    for (const char* id : largeIds) {
+        Element* button = root->FindById(id);
+        CHECK(test, button != nullptr && std::fabs(button->Measured().height - 50.0f) < 0.5f);
+    }
+    for (const char* id : mediumIds) {
+        Element* button = root->FindById(id);
+        CHECK(test, button != nullptr && std::fabs(button->Measured().height - 44.0f) < 0.5f);
+    }
+    for (const char* id : smallIds) {
+        Element* button = root->FindById(id);
+        CHECK(test, button != nullptr && std::fabs(button->Measured().height - 32.0f) < 0.5f);
+    }
+
+    auto* primary = dynamic_cast<Button*>(root->FindById("primaryMedium"));
+    CHECK(test, primary != nullptr && primary->Variant() == ButtonVariant::PRIMARY && primary->Label() == "Primary");
+    if (primary != nullptr) {
+        auto* face = dynamic_cast<Frame*>(primary->FindById("root"));
+        CHECK(test, face != nullptr && NearColor(face->BackgroundColor(), *ParseColor("$color.primary")));
+        const Rect box = primary->Bounds();
+        PointerInput input;
+        input.OnMove(*root, Point{box.x + 4.0f, box.y + 4.0f});
+        CHECK(test, face != nullptr && NearColor(face->BackgroundColor(), *ParseColor("$color.primaryHover")));
+        input.OnDown(*root, Point{box.x + 4.0f, box.y + 4.0f});
+        CHECK(test, face != nullptr && NearColor(face->BackgroundColor(), *ParseColor("$color.primaryActive")));
+        input.OnUp(*root, Point{box.x + 4.0f, box.y + 4.0f});
+    }
+
+    auto* secondary = dynamic_cast<Button*>(root->FindById("secondaryMedium"));
+    if (secondary != nullptr) {
+        auto* face = dynamic_cast<Frame*>(secondary->FindById("root"));
+        CHECK(test, face != nullptr && face->BackgroundColor().a < 0.05f);
+    }
+
+    Element* live = root->FindById("live");
+    CHECK(test, live != nullptr);
+    if (live != nullptr) {
+        const Rect box = live->Bounds();
+        PointerInput input;
+        input.OnDown(*root, Point{box.x + 4.0f, box.y + 4.0f});
+        input.OnUp(*root, Point{box.x + 4.0f, box.y + 4.0f});
+        CHECK(test, clicks == 1);
+    }
+    Element* disabled = root->FindById("disabled");
+    Element* busy = root->FindById("busy");
+    if (disabled != nullptr) {
+        const Rect box = disabled->Bounds();
+        PointerInput input;
+        input.OnDown(*root, Point{box.x + 4.0f, box.y + 4.0f});
+        input.OnUp(*root, Point{box.x + 4.0f, box.y + 4.0f});
+    }
+    if (busy != nullptr) {
+        const Rect box = busy->Bounds();
+        PointerInput input;
+        input.OnDown(*root, Point{box.x + 4.0f, box.y + 4.0f});
+        input.OnUp(*root, Point{box.x + 4.0f, box.y + 4.0f});
+    }
+    CHECK(test, clicks == 1);
+
+    Element* wide = root->FindById("wide");
+    CHECK(test, wide != nullptr && std::fabs(wide->Measured().width - 400.0f) < 1.0f);
+    Element* icon = root->FindById("iconOnly");
+    CHECK(test, icon != nullptr && std::fabs(icon->Measured().width - 32.0f) < 0.5f && std::fabs(icon->Measured().height - 32.0f) < 0.5f);
+    DesignDocument componentFile;
+    const std::filesystem::path componentPath = std::filesystem::path(RUNTIME_SOURCE_DIR) / "t" / "button" / "Button.xml";
+    CHECK(test, componentFile.LoadFile(componentPath));
+    CHECK(test, componentFile.Text().find("<component") != std::string::npos);
+    const CompileResult previewCompiled = CompileUi(SourceFile{componentPath.string(), componentFile.PreviewText()});
+    CHECK(test, previewCompiled.Ok());
+    if (previewCompiled.root.has_value()) {
+        std::unique_ptr<Element> preview = Instantiate(*previewCompiled.root, {});
+        CHECK(test, preview != nullptr);
+        if (preview != nullptr) {
+            FakeMeasurer previewMeasurer;
+            preview->SetViewport(800.0f, 600.0f);
+            preview->Measure(previewMeasurer, 800.0f, 600.0f, true);
+            preview->Arrange(Rect{0.0f, 0.0f, 800.0f, 600.0f});
+            Element* face = preview->FindById("root");
+            CHECK(test, face != nullptr && std::fabs(face->Measured().height - 44.0f) < 0.5f);
+            auto* frame = dynamic_cast<Frame*>(face);
+            CHECK(test, frame != nullptr && NearColor(frame->BackgroundColor(), *ParseColor("$color.primary")));
+        }
+    }
+    Element* spinner = busy == nullptr ? nullptr : busy->FindById("spinner");
+    CHECK(test, spinner != nullptr && spinner->Visible());
+    Element* busyLabel = busy == nullptr ? nullptr : busy->FindById("label");
+    CHECK(test, busyLabel != nullptr && !busyLabel->Visible());
+    Finish(test, "button", before);
+}
+
 void TestIrDump(TestContext& test) {
     const int before = test.failed;
     const CompileResult compiled = CompileUi(Source("<window><frame id=\"box\" name=\"Box\"/></window>"));
@@ -674,6 +824,7 @@ int RunUnitTests() {
     TestDesignDocumentEditsXml(test);
     TestCompilerSurface(test);
     TestRemainingSurface(test);
+    TestButton(test);
     TestIrDump(test);
     if (test.failed == 0) {
         std::cout << "✓ All tests passed\n";

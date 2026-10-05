@@ -3,6 +3,7 @@
 #include "components/frame/Frame.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
+#include "t/button/Button.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -327,7 +328,7 @@ void ApplyCommon(Element& element, const IrNode& node) {
     }
     for (const auto& property : node.properties) {
         if (!property.second.binding.empty()) {
-            element.AddBinding(property.first, property.second.binding, property.second.bindMode);
+            element.AddBinding(property.first, property.second.binding, property.second.bindMode, property.second.invert);
         }
     }
     if (node.visual.used || !node.visual.motions.empty()) {
@@ -361,6 +362,41 @@ void ApplyShape(ShapeElement& shape, const IrNode& node) {
     if (const UiValue* value = FindProperty(node, "d")) {
         shape.SetPathData(value->text);
     }
+    if (const UiValue* value = FindProperty(node, "viewBox")) {
+        const char* text = value->text.c_str();
+        char* end = nullptr;
+        const float boxX = std::strtof(text, &end);
+        if (end != text) {
+            const char* next = end;
+            const float boxY = std::strtof(next, &end);
+            if (end != next) {
+                next = end;
+                const float boxWidth = std::strtof(next, &end);
+                if (end != next) {
+                    next = end;
+                    const float boxHeight = std::strtof(next, &end);
+                    if (end != next && boxWidth > 0.0f && boxHeight > 0.0f) {
+                        shape.SetViewBox(boxX, boxY, boxWidth, boxHeight);
+                    }
+                }
+            }
+        }
+    }
+    std::string cap;
+    std::string join;
+    bool evenOdd = false;
+    if (const UiValue* value = FindProperty(node, "lineCap")) {
+        cap = value->text;
+    }
+    if (const UiValue* value = FindProperty(node, "lineJoin")) {
+        join = value->text;
+    }
+    if (const UiValue* value = FindProperty(node, "fillRule")) {
+        evenOdd = value->text == "evenodd";
+    }
+    if (!cap.empty() || !join.empty() || evenOdd) {
+        shape.SetLineStyle(cap, join, evenOdd);
+    }
     if (const UiValue* value = FindProperty(node, "shape")) {
         shape.SetShapeName(value->text);
     }
@@ -368,7 +404,7 @@ void ApplyShape(ShapeElement& shape, const IrNode& node) {
         shape.SetFill(value->color);
     }
     Color stroke{0.114f, 0.114f, 0.122f, 1.0f};
-    float strokeWidth = shape.Kind() == NodeKind::LINE || shape.Kind() == NodeKind::PATH ? 2.0f : 0.0f;
+    float strokeWidth = 0.0f;
     if (const UiValue* value = FindProperty(node, "stroke")) {
         stroke = value->color;
         if (strokeWidth <= 0.0f) {
@@ -427,7 +463,80 @@ const IrNode* FindNamedComponent(const IrNode& node, std::string_view name) {
     return nullptr;
 }
 
+bool FlagValue(const UiValue* value) {
+    if (value == nullptr) {
+        return false;
+    }
+    if (value->kind == TypeKind::BOOL) {
+        return value->boolean;
+    }
+    return value->text == "true";
+}
+
+ButtonVariant ParseButtonVariant(const std::string& text) {
+    if (text == "secondary") {
+        return ButtonVariant::SECONDARY;
+    }
+    if (text == "tertiary") {
+        return ButtonVariant::TERTIARY;
+    }
+    if (text == "destructive") {
+        return ButtonVariant::DESTRUCTIVE;
+    }
+    if (text == "destructiveSecondary") {
+        return ButtonVariant::DESTRUCTIVE_SECONDARY;
+    }
+    if (text == "link") {
+        return ButtonVariant::LINK;
+    }
+    return ButtonVariant::PRIMARY;
+}
+
+ButtonSize ParseButtonSize(const std::string& text) {
+    if (text == "controlLarge") {
+        return ButtonSize::CONTROL_LARGE;
+    }
+    if (text == "controlSmall") {
+        return ButtonSize::CONTROL_SMALL;
+    }
+    return ButtonSize::CONTROL_MEDIUM;
+}
+
+void ApplyButton(Button& button, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks) {
+    if (const UiValue* value = FindProperty(node, "variant")) {
+        button.SetVariant(ParseButtonVariant(value->text));
+    }
+    if (const UiValue* value = FindProperty(node, "size")) {
+        button.SetSize(ParseButtonSize(value->text));
+    }
+    if (const UiValue* value = FindProperty(node, "label")) {
+        button.SetLabel(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "disabled")) {
+        button.SetDisabled(FlagValue(value));
+    }
+    if (const UiValue* value = FindProperty(node, "loading")) {
+        button.SetLoading(FlagValue(value));
+    }
+    if (const UiValue* value = FindProperty(node, "fullWidth")) {
+        button.SetFullWidth(FlagValue(value));
+    }
+    if (const UiValue* value = FindProperty(node, "onClick")) {
+        const auto found = clicks.find(value->text);
+        if (found != clicks.end()) {
+            button.SetOnClick(found->second);
+        }
+    }
+}
+
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
+    if (node.kind == NodeKind::INSTANCE) {
+        if (const UiValue* value = FindProperty(node, "component")) {
+            if (value->text == "Button") {
+                return std::make_unique<Button>();
+            }
+        }
+    }
     switch (node.kind) {
     case NodeKind::WINDOW:
         return std::make_unique<WindowElement>();
@@ -452,7 +561,26 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
 }
 
 void Populate(Element& element, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks, const IrNode& root) {
-    (void)clicks;
+    if (Button* button = dynamic_cast<Button*>(&element)) {
+        ApplyCommon(*button, node);
+        ApplyButton(*button, node, clicks);
+        for (const IrNode& child : node.children) {
+            if (child.kind != NodeKind::SLOT) {
+                continue;
+            }
+            const UiValue* slotName = FindProperty(child, "name");
+            const std::string name = slotName == nullptr ? std::string{} : slotName->text;
+            for (const IrNode& nested : child.children) {
+                std::unique_ptr<Element> created = CreateElement(nested);
+                if (created == nullptr) {
+                    continue;
+                }
+                Populate(*created, nested, clicks, root);
+                button->AddSlotContent(name, std::move(created));
+            }
+        }
+        return;
+    }
     if (Frame* frame = dynamic_cast<Frame*>(&element)) {
         ApplyFrame(*frame, node);
         ApplyCommon(*frame, node);

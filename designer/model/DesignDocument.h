@@ -18,6 +18,7 @@ public:
     bool Save() const;
 
     const std::string& Text() const;
+    std::string PreviewText() const;
     const std::string& FilePath() const;
     bool TextSynced() const;
     const XmlNode* Root() const;

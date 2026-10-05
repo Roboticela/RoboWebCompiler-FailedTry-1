@@ -1,5 +1,6 @@
 #include "components/primitive/PrimitiveElement.h"
 
+#include "compiler/types/ValueParser.h"
 #include "rendering/image/ImageDecoder.h"
 #include "rendering/path/PathCurve.h"
 #include "rendering/renderer/Renderer.h"
@@ -81,11 +82,25 @@ void ShapeElement::SetShapeName(std::string value) {
 
 void ShapeElement::SetFill(Color value) {
     fill = value;
+    fillSpecified = true;
 }
 
-void ShapeElement::SetStroke(Color value, float width) {
+void ShapeElement::SetViewBox(float x, float y, float boxWidth, float boxHeight) {
+    viewX = x;
+    viewY = y;
+    viewWidth = boxWidth;
+    viewHeight = boxHeight;
+}
+
+void ShapeElement::SetLineStyle(const std::string& cap, const std::string& join, bool odd) {
+    lineCap = cap == "round" ? 'r' : cap == "square" ? 's' : 'b';
+    lineJoin = join == "round" ? 'r' : join == "bevel" ? 'b' : 'm';
+    evenOdd = odd;
+}
+
+void ShapeElement::SetStroke(Color value, float thickness) {
     stroke = value;
-    strokeWidth = width < 0.0f ? 0.0f : width;
+    strokeWidth = thickness < 0.0f ? 0.0f : thickness;
 }
 
 void ShapeElement::SetFont(float size, int weight, Color color, TextAlign align) {
@@ -93,6 +108,18 @@ void ShapeElement::SetFont(float size, int weight, Color color, TextAlign align)
     fontWeight = weight;
     textColor = color;
     textAlign = align;
+}
+
+void ShapeElement::SetTextColor(Color value) {
+    textColor = value;
+}
+
+void ShapeElement::SetUnderline(bool value) {
+    underline = value;
+}
+
+void ShapeElement::SetSpin(float degrees) {
+    spin = degrees;
 }
 
 void ShapeElement::SetTextStyle(std::string family, bool italicValue, bool rtlValue, std::string localeValue) {
@@ -116,7 +143,7 @@ void ShapeElement::SetCornerRadius(float value) {
 }
 
 bool ShapeElement::PlacesChildren() const {
-    return nodeKind == NodeKind::GROUP || nodeKind == NodeKind::COMPONENT || nodeKind == NodeKind::INSTANCE || nodeKind == NodeKind::SLOT;
+    return nodeKind == NodeKind::GROUP || nodeKind == NodeKind::VECTOR || nodeKind == NodeKind::COMPONENT || nodeKind == NodeKind::INSTANCE || nodeKind == NodeKind::SLOT;
 }
 
 Size ShapeElement::Measure(TextMeasurer& measurer, float availableWidth, float availableHeight, bool) {
@@ -175,6 +202,18 @@ void ShapeElement::ApplyBound(const std::string& property, const std::string& va
     Element::ApplyBound(property, value);
     if (property == "text" || property == "value") {
         text = value;
+    } else if (property == "textColor" || property == "stroke" || property == "fill") {
+        if (const std::optional<Color> color = ParseColor(value)) {
+            if (property == "textColor") {
+                textColor = *color;
+            } else if (property == "stroke") {
+                stroke = *color;
+            } else {
+                fill = *color;
+            }
+        }
+    } else if (property == "underline") {
+        underline = value != "false" && value != "0" && value != "hidden";
     }
 }
 
@@ -205,6 +244,10 @@ void ShapeElement::OnPaint(Renderer& renderer) {
         style.italic = italic;
         style.rtl = rtl;
         renderer.DrawString(text, area, style);
+        if (underline && area.width > 0.0f) {
+            const float baseline = area.y + area.height - 2.0f;
+            renderer.FillRectangle(Rect{area.x, baseline, area.width, 1.0f}, textColor, 0.0f);
+        }
         return;
     }
     if (nodeKind == NodeKind::IMAGE) {
@@ -266,6 +309,25 @@ void ShapeElement::OnPaint(Renderer& renderer) {
         renderer.DrawString(source.empty() ? "Image" : source, area, style);
         return;
     }
+    if (nodeKind == NodeKind::VECTOR && !Children().empty()) {
+        if (fillSpecified && fill.a > 0.0f && area.width > 0.0f && area.height > 0.0f) {
+            renderer.FillRectangle(area, fill, cornerRadius);
+        }
+        PaintChildren(renderer);
+        return;
+    }
+    if (nodeKind == NodeKind::VECTOR && shapeName == "spinnerArc") {
+        const float radius = std::max(2.0f, std::min(area.width, area.height) * 0.5f - strokeWidth);
+        const float centerX = area.x + area.width * 0.5f;
+        const float centerY = area.y + area.height * 0.5f;
+        renderer.StrokeRectangle(Rect{centerX - radius, centerY - radius, radius * 2.0f, radius * 2.0f}, stroke, strokeWidth, radius);
+        const float angle = spin * 0.017453292f;
+        const float mark = std::max(3.0f, strokeWidth + 2.0f);
+        const float markX = centerX + std::cos(angle) * radius - mark * 0.5f;
+        const float markY = centerY + std::sin(angle) * radius - mark * 0.5f;
+        renderer.FillRectangle(Rect{markX, markY, mark, mark}, stroke, mark * 0.5f);
+        return;
+    }
     if (nodeKind == NodeKind::VECTOR) {
         const float radius = shapeName == "ellipse" ? std::min(area.width, area.height) * 0.5f : cornerRadius;
         renderer.FillRectangle(area, fill, radius);
@@ -275,7 +337,21 @@ void ShapeElement::OnPaint(Renderer& renderer) {
         return;
     }
     if (nodeKind == NodeKind::PATH) {
-        StrokePath(renderer, pathData, area, stroke, strokeWidth);
+        VectorPaint paint;
+        paint.bounds = area;
+        paint.data = pathData;
+        paint.viewX = viewX;
+        paint.viewY = viewY;
+        paint.viewWidth = viewWidth;
+        paint.viewHeight = viewHeight;
+        paint.fill = fill;
+        paint.stroke = stroke;
+        paint.strokeWidth = strokeWidth;
+        paint.evenOdd = evenOdd;
+        paint.fillEnabled = fillSpecified && fill.a > 0.0f;
+        paint.lineCap = lineCap;
+        paint.lineJoin = lineJoin;
+        renderer.DrawVector(paint);
         return;
     }
     if (nodeKind == NodeKind::LINE) {

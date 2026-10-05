@@ -1,0 +1,29 @@
+<window width="400" height="1400">
+    <instance id="primaryLarge" component="Button" variant="primary" size="controlLarge" label="Primary"/>
+    <instance id="primaryMedium" component="Button" variant="primary" size="controlMedium" label="Primary"/>
+    <instance id="primarySmall" component="Button" variant="primary" size="controlSmall" label="Primary"/>
+    <instance id="secondaryLarge" component="Button" variant="secondary" size="controlLarge" label="Secondary"/>
+    <instance id="secondaryMedium" component="Button" variant="secondary" size="controlMedium" label="Secondary"/>
+    <instance id="secondarySmall" component="Button" variant="secondary" size="controlSmall" label="Secondary"/>
+    <instance id="tertiaryLarge" component="Button" variant="tertiary" size="controlLarge" label="Tertiary"/>
+    <instance id="tertiaryMedium" component="Button" variant="tertiary" size="controlMedium" label="Tertiary"/>
+    <instance id="tertiarySmall" component="Button" variant="tertiary" size="controlSmall" label="Tertiary"/>
+    <instance id="destructiveLarge" component="Button" variant="destructive" size="controlLarge" label="Destructive"/>
+    <instance id="destructiveMedium" component="Button" variant="destructive" size="controlMedium" label="Destructive"/>
+    <instance id="destructiveSmall" component="Button" variant="destructive" size="controlSmall" label="Destructive"/>
+    <instance id="destructiveSecondaryLarge" component="Button" variant="destructiveSecondary" size="controlLarge" label="Destructive"/>
+    <instance id="destructiveSecondaryMedium" component="Button" variant="destructiveSecondary" size="controlMedium" label="Destructive"/>
+    <instance id="destructiveSecondarySmall" component="Button" variant="destructiveSecondary" size="controlSmall" label="Destructive"/>
+    <instance id="linkLarge" component="Button" variant="link" size="controlLarge" label="Link"/>
+    <instance id="linkMedium" component="Button" variant="link" size="controlMedium" label="Link"/>
+    <instance id="linkSmall" component="Button" variant="link" size="controlSmall" label="Link"/>
+    <instance id="live" component="Button" variant="primary" label="Save" onClick="handleClick"/>
+    <instance id="disabled" component="Button" variant="primary" label="Disabled" disabled="true" onClick="handleClick"/>
+    <instance id="busy" component="Button" variant="primary" label="Busy" loading="true" onClick="handleClick"/>
+    <instance id="wide" component="Button" label="Wide" fullWidth="true"/>
+    <instance id="iconOnly" component="Button" size="controlSmall">
+        <slot name="leadingIcon">
+            <vector shape="plus" width="12" height="12" stroke="$color.onPrimary" strokeWidth="2"/>
+        </slot>
+    </instance>
+</window>

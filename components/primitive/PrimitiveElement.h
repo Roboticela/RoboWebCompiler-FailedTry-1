@@ -25,8 +25,13 @@ public:
     void SetPathData(std::string value);
     void SetShapeName(std::string value);
     void SetFill(Color value);
-    void SetStroke(Color value, float width);
+    void SetStroke(Color value, float thickness);
+    void SetViewBox(float x, float y, float boxWidth, float boxHeight);
+    void SetLineStyle(const std::string& cap, const std::string& join, bool evenOdd);
     void SetFont(float size, int weight, Color color, TextAlign align);
+    void SetTextColor(Color value);
+    void SetUnderline(bool value);
+    void SetSpin(float degrees);
     void SetTextStyle(std::string family, bool italic, bool rtl, std::string locale);
     void SetLine(float startX, float startY, float endX, float endY);
     void SetCornerRadius(float value);
@@ -49,6 +54,14 @@ private:
     std::string shapeName = "rect";
     Color fill{0.055f, 0.478f, 1.0f, 1.0f};
     Color stroke{0.114f, 0.114f, 0.122f, 1.0f};
+    bool fillSpecified = false;
+    float viewX = 0.0f;
+    float viewY = 0.0f;
+    float viewWidth = 0.0f;
+    float viewHeight = 0.0f;
+    char lineCap = 'b';
+    char lineJoin = 'm';
+    bool evenOdd = false;
     Color textColor{0.094f, 0.094f, 0.102f, 1.0f};
     float strokeWidth = 1.0f;
     float fontSize = 16.0f;
@@ -58,6 +71,8 @@ private:
     std::string locale = "en-us";
     bool italic = false;
     bool rtl = false;
+    bool underline = false;
+    float spin = 0.0f;
     float lineX1 = 0.0f;
     float lineY1 = 0.0f;
     float lineX2 = 80.0f;

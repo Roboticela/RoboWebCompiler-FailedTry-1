@@ -130,6 +130,58 @@ const std::string& DesignDocument::Text() const {
     return text;
 }
 
+std::string DesignDocument::PreviewText() const {
+    if (!root.has_value() || root->name != "component") {
+        return text;
+    }
+    XmlNode window;
+    window.name = "window";
+    AddAttribute(window, "width", "800");
+    AddAttribute(window, "height", "600");
+    std::string componentName = "Component";
+    if (const XmlAttribute* name = FindAttribute(*root, "name")) {
+        if (!name->value.empty()) {
+            componentName = name->value;
+        }
+    }
+    std::string label = componentName;
+    for (const XmlNode& child : root->children) {
+        if (child.name != "property") {
+            continue;
+        }
+        const XmlAttribute* propertyName = FindAttribute(child, "name");
+        const XmlAttribute* propertyDefault = FindAttribute(child, "default");
+        if (propertyName != nullptr && propertyName->value == "label" && propertyDefault != nullptr && !propertyDefault->value.empty()) {
+            label = propertyDefault->value;
+        }
+    }
+    const auto addState = [&](const char* name, const std::string& value) {
+        XmlNode state;
+        state.name = "state";
+        AddAttribute(state, "name", name);
+        AddAttribute(state, "value", value);
+        window.children.push_back(std::move(state));
+    };
+    addState("label", label);
+    addState("loading", "false");
+    addState("isHovered", "false");
+    addState("visualBackground", "$color.primary");
+    addState("visualTextColor", "$color.onPrimary");
+    for (const XmlNode& child : root->children) {
+        if (child.name == "property" || child.name == "event") {
+            XmlNode hidden;
+            hidden.name = "frame";
+            AddAttribute(hidden, "width", "0");
+            AddAttribute(hidden, "height", "0");
+            AddAttribute(hidden, "display", "none");
+            window.children.push_back(std::move(hidden));
+            continue;
+        }
+        window.children.push_back(child);
+    }
+    return SerializeXml(window);
+}
+
 const std::string& DesignDocument::FilePath() const {
     return filePath;
 }

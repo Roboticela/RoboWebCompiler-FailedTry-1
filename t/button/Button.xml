@@ -1,0 +1,25 @@
+<component name="Button">
+    <property name="variant" type="string" default="primary"/>
+    <property name="size" type="string" default="controlMedium"/>
+    <property name="label" type="string"/>
+    <property name="disabled" type="bool" default="false"/>
+    <property name="loading" type="bool" default="false"/>
+    <property name="fullWidth" type="bool" default="false"/>
+
+    <frame id="root" layout="horizontal" align="center" justify="center"
+        gap="$space.sm" radius="$radius.pill" cursor="pointer"
+        width="fit" height="$size.controlMedium"
+        background="{reactive visualBackground}"
+        onPointerEnter="handleHoverEnter" onPointerLeave="handleHoverLeave"
+        onPointerDown="handlePress" onPointerUp="handleRelease"
+        onFocus="handleFocus" onBlur="handleBlur"
+        onClick="handleClick">
+        <slot name="leadingIcon" visible="{!loading}"/>
+        <text id="label" value="{label}" fontSize="$type.body"
+            fontWeight="$weight.medium" textColor="{reactive visualTextColor}"
+            visible="{!loading}" underline="{reactive isHovered}"/>
+        <slot name="trailingIcon" visible="{!loading}"/>
+        <vector id="spinner" shape="spinnerArc" visible="{loading}"
+            stroke="{reactive visualTextColor}" strokeWidth="2"/>
+    </frame>
+</component>

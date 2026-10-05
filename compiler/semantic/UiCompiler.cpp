@@ -37,14 +37,18 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
                    std::vector<Diagnostic>& diagnostics) {
     const std::string_view raw = attribute.value;
     if (IsBindingExpression(raw)) {
-        if (spec.type != TypeKind::STRING && spec.type != TypeKind::BOOL) {
-            AddDiagnostic(diagnostics, DIAGNOSTIC_BINDING, "Bindings are supported for String and Bool properties.",
+        if (spec.type != TypeKind::STRING && spec.type != TypeKind::BOOL && spec.type != TypeKind::COLOR) {
+            AddDiagnostic(diagnostics, DIAGNOSTIC_BINDING, "Bindings are supported for String, Bool, and Color properties.",
                           attribute.valueLocation, attribute.valueSpan);
             return false;
         }
         value.kind = spec.type;
         value.binding = BindingKey(raw);
         value.bindMode = BindingModeOf(raw);
+        value.invert = spec.type == TypeKind::BOOL && value.bindMode == BindMode::ONE_TIME;
+        if (value.invert) {
+            value.bindMode = BindMode::REACTIVE;
+        }
         value.text.clear();
         value.boolean = false;
         return true;
@@ -353,11 +357,21 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
             }
         }
         if (property == nullptr && spec->kind == NodeKind::INSTANCE) {
-            UiValue extra;
-            extra.kind = TypeKind::STRING;
-            extra.text = std::string(TrimCopyView(attribute.value));
-            lowered.properties.emplace_back(attribute.name, std::move(extra));
-            continue;
+            std::string componentName;
+            for (const XmlAttribute& candidate : node.attributes) {
+                if (candidate.name == "component") {
+                    componentName = std::string(TrimCopyView(candidate.value));
+                    break;
+                }
+            }
+            property = FindInstanceProperty(componentName, attribute.name);
+            if (property == nullptr) {
+                UiValue extra;
+                extra.kind = TypeKind::STRING;
+                extra.text = std::string(TrimCopyView(attribute.value));
+                lowered.properties.emplace_back(attribute.name, std::move(extra));
+                continue;
+            }
         }
         if (property == nullptr) {
             std::vector<std::string> names;

@@ -274,7 +274,22 @@ bool InflateBlocks(BitIn& input, std::vector<unsigned char>& output) {
     return true;
 }
 
+bool InflateRawBytes(const unsigned char* data, int size, std::vector<unsigned char>& output) {
+    output.clear();
+    if (data == nullptr || size < 1) {
+        return false;
+    }
+    BitIn input;
+    input.data = data;
+    input.size = size;
+    return InflateBlocks(input, output) && !output.empty();
+}
+
 }  // namespace
+
+bool InflateRaw(const unsigned char* data, int size, std::vector<unsigned char>& output) {
+    return InflateRawBytes(data, size, output);
+}
 
 bool InflateZlib(const unsigned char* data, int size, std::vector<unsigned char>& output) {
     output.clear();

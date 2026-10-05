@@ -3,10 +3,12 @@
 #include "engine/core/Log.h"
 #include "engine/theme/DevKitTheme.h"
 #include "platform/windows/Win32Window.h"
+#include "rendering/path/PathCurve.h"
 
 #include <d2d1_1helper.h>
 
 #include <algorithm>
+#include <cmath>
 #include <sstream>
 
 namespace Runtime {
@@ -319,6 +321,85 @@ void Dx11Renderer::DrawCachedImage(std::string_view key, const Rect& rect, const
     }
     const D2D1_RECT_F destination = D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
     d2dContext->DrawBitmap(found->second.Get(), destination, opacityStack.back(), D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+}
+
+void Dx11Renderer::DrawVector(const VectorPaint& paint) {
+    if (!d2dContext || !d2dFactory || !brush || paint.data.empty() || paint.bounds.width <= 0.0f || paint.bounds.height <= 0.0f) {
+        return;
+    }
+    const std::vector<PathContour> contours = SampleContours(paint.data);
+    if (contours.empty()) {
+        return;
+    }
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
+    if (FAILED(d2dFactory->CreatePathGeometry(geometry.GetAddressOf()))) {
+        return;
+    }
+    Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(geometry->Open(sink.GetAddressOf()))) {
+        return;
+    }
+    sink->SetFillMode(paint.evenOdd ? D2D1_FILL_MODE_ALTERNATE : D2D1_FILL_MODE_WINDING);
+    bool drew = false;
+    for (const PathContour& contour : contours) {
+        if (contour.points.size() < 2) {
+            continue;
+        }
+        const bool sameEnd = std::fabs(contour.points.front().x - contour.points.back().x) < 0.01f && std::fabs(contour.points.front().y - contour.points.back().y) < 0.01f;
+        const bool closed = contour.closed || sameEnd;
+        const std::size_t count = closed && sameEnd ? contour.points.size() - 1 : contour.points.size();
+        if (count < 2) {
+            continue;
+        }
+        sink->BeginFigure(D2D1::Point2F(contour.points.front().x, contour.points.front().y), D2D1_FIGURE_BEGIN_FILLED);
+        std::vector<D2D1_POINT_2F> points;
+        points.reserve(count - 1);
+        for (std::size_t index = 1; index < count; ++index) {
+            points.push_back(D2D1::Point2F(contour.points[index].x, contour.points[index].y));
+        }
+        if (!points.empty()) {
+            sink->AddLines(points.data(), static_cast<UINT32>(points.size()));
+        }
+        sink->EndFigure(closed ? D2D1_FIGURE_END_CLOSED : D2D1_FIGURE_END_OPEN);
+        drew = true;
+    }
+    if (FAILED(sink->Close()) || !drew) {
+        return;
+    }
+    float viewX = paint.viewX;
+    float viewY = paint.viewY;
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
+    if (paint.viewWidth > 0.0f && paint.viewHeight > 0.0f) {
+        scaleX = paint.bounds.width / paint.viewWidth;
+        scaleY = paint.bounds.height / paint.viewHeight;
+    } else {
+        viewX = 0.0f;
+        viewY = 0.0f;
+    }
+    D2D1_MATRIX_3X2_F previous = D2D1::Matrix3x2F::Identity();
+    d2dContext->GetTransform(&previous);
+    const D2D1_MATRIX_3X2_F local = D2D1::Matrix3x2F::Translation(-viewX, -viewY) * D2D1::Matrix3x2F::Scale(scaleX, scaleY) *
+                                    D2D1::Matrix3x2F::Translation(paint.bounds.x, paint.bounds.y);
+    d2dContext->SetTransform(local * previous);
+    if (paint.fillEnabled && paint.fill.a > 0.0f) {
+        brush->SetColor(ToD2d(paint.fill, opacityStack.back()));
+        d2dContext->FillGeometry(geometry.Get(), brush.Get());
+    }
+    if (paint.stroke.a > 0.0f && paint.strokeWidth > 0.0f) {
+        D2D1_STROKE_STYLE_PROPERTIES style = D2D1::StrokeStyleProperties();
+        const D2D1_CAP_STYLE cap = paint.lineCap == 'r' ? D2D1_CAP_STYLE_ROUND : paint.lineCap == 's' ? D2D1_CAP_STYLE_SQUARE : D2D1_CAP_STYLE_FLAT;
+        style.startCap = cap;
+        style.endCap = cap;
+        style.dashCap = cap;
+        style.lineJoin = paint.lineJoin == 'r' ? D2D1_LINE_JOIN_ROUND : paint.lineJoin == 'b' ? D2D1_LINE_JOIN_BEVEL : D2D1_LINE_JOIN_MITER;
+        style.miterLimit = 4.0f;
+        Microsoft::WRL::ComPtr<ID2D1StrokeStyle> strokeStyle;
+        d2dFactory->CreateStrokeStyle(style, nullptr, 0, strokeStyle.GetAddressOf());
+        brush->SetColor(ToD2d(paint.stroke, opacityStack.back()));
+        d2dContext->DrawGeometry(geometry.Get(), brush.Get(), paint.strokeWidth, strokeStyle.Get());
+    }
+    d2dContext->SetTransform(previous);
 }
 
 void Dx11Renderer::DrawString(std::string_view text, const Rect& rect, const TextStyle& style) {

@@ -21,5 +21,6 @@ struct ComponentSpec {
 
 const std::vector<ComponentSpec>& ComponentCatalog();
 const ComponentSpec* FindComponent(std::string_view name);
+const PropertySpec* FindInstanceProperty(std::string_view component, std::string_view property);
 
 }  // namespace Runtime

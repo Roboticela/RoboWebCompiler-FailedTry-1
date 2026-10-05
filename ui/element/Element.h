@@ -29,6 +29,7 @@ struct BoundLink {
     std::string key;
     BindMode mode = BindMode::ONE_WAY;
     bool applied = false;
+    bool invert = false;
 };
 
 struct KeyEvent {
@@ -52,6 +53,12 @@ public:
     virtual bool SetPointerHover(bool hovered);
     virtual bool SetPointerPressed(bool pressed);
     virtual bool OnPointerDown(Point point);
+    virtual void OnPointerEnter();
+    virtual void OnPointerLeave();
+    virtual void OnPointerDown();
+    virtual void OnPointerUp();
+    virtual void OnFocus();
+    virtual void OnBlur();
     virtual bool OnDrag(Point point);
     virtual bool OnWheel(int delta);
     virtual void Activate();
@@ -109,7 +116,7 @@ public:
     void SetViewport(float width, float height);
     float ViewportWidth() const;
     float ViewportHeight() const;
-    void AddBinding(std::string property, std::string key, BindMode mode = BindMode::ONE_WAY);
+    void AddBinding(std::string property, std::string key, BindMode mode = BindMode::ONE_WAY, bool invert = false);
     void SetStateValue(const std::string& key, const std::string& value);
     int ApplyCount() const;
     void WriteBinding(const std::string& property, const std::string& value);
@@ -128,7 +135,7 @@ public:
     void SetAccessibilityFlag(std::string_view name, bool value);
     const std::string& Announcement() const;
     void SetMotions(std::vector<MotionDecl> value);
-    bool Tick(float seconds);
+    virtual bool Tick(float seconds);
     void SetAction(std::string value);
     const std::string& Action() const;
     void RunAction(const std::string& command);

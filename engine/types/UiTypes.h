@@ -79,20 +79,6 @@ enum class FrameAnchor : std::uint8_t {
     CENTER,
 };
 
-enum class ButtonVariant : std::uint8_t {
-    PRIMARY,
-    SECONDARY,
-    ACTION,
-    GHOST,
-    DANGER,
-};
-
-enum class ButtonSize : std::uint8_t {
-    SM,
-    MD,
-    LG,
-};
-
 enum class TextRole : std::uint8_t {
     BODY,
     DISPLAY,

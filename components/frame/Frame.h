@@ -23,6 +23,7 @@ public:
     void Arrange(const Rect& rect) override;
     void OnPaint(Renderer& renderer) override;
     Element* HitTest(Point point) override;
+    void ApplyBound(const std::string& property, const std::string& value) override;
     bool OnWheel(int delta) override;
     bool WantsHandCursor() const override;
 

@@ -1,5 +1,6 @@
 #include "components/frame/Frame.h"
 
+#include "compiler/types/ValueParser.h"
 #include "rendering/renderer/Renderer.h"
 
 #include <algorithm>
@@ -193,7 +194,7 @@ Size Frame::Measure(TextMeasurer& measurer, float availableWidth, float availabl
                                 : innerWidth;
 
     for (const std::unique_ptr<Element>& child : children) {
-        if (LeavesFlow(*child) || (AsFrame(*child) != nullptr && AsFrame(*child)->Display() == FrameDisplay::NONE)) {
+        if (!child->Visible() || LeavesFlow(*child) || (AsFrame(*child) != nullptr && AsFrame(*child)->Display() == FrameDisplay::NONE)) {
             child->Measure(measurer, innerWidth, innerLimit, false);
             continue;
         }
@@ -287,7 +288,7 @@ void Frame::Arrange(const Rect& rect) {
 
     std::vector<Element*> flow;
     for (const std::unique_ptr<Element>& child : children) {
-        if (LeavesFlow(*child)) {
+        if (!child->Visible() || LeavesFlow(*child)) {
             continue;
         }
         flow.push_back(child.get());
@@ -441,6 +442,17 @@ void Frame::Arrange(const Rect& rect) {
         if (pinned.x != natural.x || pinned.y != natural.y || pinned.width != natural.width || pinned.height != natural.height) {
             child->Arrange(pinned);
         }
+    }
+}
+
+void Frame::ApplyBound(const std::string& property, const std::string& value) {
+    Element::ApplyBound(property, value);
+    if (property == "background" || property == "backgroundColor") {
+        if (const std::optional<Color> color = ParseColor(value)) {
+            SetBackgroundColor(*color);
+        }
+    } else if (property == "cursor") {
+        SetCursor(value);
     }
 }
 

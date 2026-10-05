@@ -1,5 +1,4 @@
 <window width="800" height="600" title="Runtime">
-    <frame id="root" layout="vertical" width="fill" height="fill" padding="32" gap="16" align="center">
-        <frame id="mark" name="Mark" width="120" height="40" background="#0E7AFF" radius="8" cursor="pointer"/>
-    </frame>
+    <line x2="80" stroke="#18181A" strokeWidth="2" width="80" height="8"/>
+    <scroll width="160" height="80" position="absolute" x="-380" y="-112"/>
 </window>

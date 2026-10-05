@@ -24,6 +24,7 @@ struct UiValue {
     Alignment alignment = Alignment::START;
     std::string binding;
     BindMode bindMode = BindMode::ONE_WAY;
+    bool invert = false;
 };
 
 struct IrNode {
