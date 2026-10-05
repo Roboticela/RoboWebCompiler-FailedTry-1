@@ -22,6 +22,7 @@ public:
 
     const IconPreview* Preview(int index);
     std::string VectorXml(int index) const;
+    bool WriteFile(int index, const std::filesystem::path& destination) const;
 
 private:
     struct Entry {

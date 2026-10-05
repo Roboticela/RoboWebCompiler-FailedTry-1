@@ -810,6 +810,56 @@ void TestIrDump(TestContext& test) {
     Finish(test, "ir", before);
 }
 
+const UiValue* PropertyOf(const IrNode& node, const char* name) {
+    for (const auto& property : node.properties) {
+        if (property.first == name) {
+            return &property.second;
+        }
+    }
+    return nullptr;
+}
+
+void TestFoundations(TestContext& test) {
+    const int before = test.failed;
+    CHECK(test, ParseColor("$brand-primary").has_value() && NearColor(*ParseColor("$brand-primary"), *ParseColor("#0E7AFF")));
+    CHECK(test, ParseColor("$color.primary").has_value() && NearColor(*ParseColor("$color.primary"), *ParseColor("$brand-primary")));
+    const CompileResult compiled = CompileUi(Source(
+        "<window><frame id=\"card\" background=\"$bg-secondary\" padding=\"$space-4\" radius=\"$radius-lg\" width=\"$width-docs\">"
+        "<text text=\"Title\" fontSize=\"$type-h1\" fontWeight=\"$weight-semibold\" letterSpacing=\"$tracking-h1\" textColor=\"$text-primary\"/>"
+        "</frame></window>"));
+    CHECK(test, compiled.Ok() && compiled.root.has_value() && !compiled.root->children.empty());
+    if (compiled.root.has_value() && !compiled.root->children.empty()) {
+        const IrNode& card = compiled.root->children[0];
+        const UiValue* background = PropertyOf(card, "background");
+        const UiValue* padding = PropertyOf(card, "padding");
+        const UiValue* radius = PropertyOf(card, "radius");
+        const UiValue* width = PropertyOf(card, "width");
+        CHECK(test, background != nullptr && NearColor(background->color, *ParseColor("#F5F5F7")));
+        CHECK(test, padding != nullptr && std::fabs(padding->edges.left.value - 16.0f) < 0.01f);
+        CHECK(test, radius != nullptr && std::fabs(radius->length.value - 12.0f) < 0.01f);
+        CHECK(test, width != nullptr && std::fabs(width->length.value - 760.0f) < 0.01f);
+    }
+    const CompileResult replaced = CompileUi(Source(
+        "<window><tokens><color name=\"brand-primary\" value=\"#112233\"/></tokens>"
+        "<frame background=\"$brand-primary\"/></window>"));
+    CHECK(test, replaced.Ok() && replaced.root.has_value() && !replaced.root->children.empty());
+    if (replaced.root.has_value() && !replaced.root->children.empty()) {
+        const UiValue* background = PropertyOf(replaced.root->children[0], "background");
+        CHECK(test, background != nullptr && NearColor(background->color, *ParseColor("#112233")));
+    }
+    const CompileResult removed = CompileUi(Source(
+        "<window><tokens><color name=\"brand-primary\" removed=\"true\"/></tokens>"
+        "<frame background=\"$brand-primary\"/></window>"));
+    CHECK(test, !removed.Ok());
+    DesignDocument document;
+    CHECK(test, document.LoadText("<window width=\"800\" height=\"600\"><frame/></window>", "memory.xml"));
+    CHECK(test, document.SetToken("color", "ink", "#ABCDEF"));
+    CHECK(test, document.Text().find("ink") != std::string::npos);
+    CHECK(test, document.RemoveToken("color", "brand-primary", true));
+    CHECK(test, document.Text().find("removed=\"true\"") != std::string::npos);
+    Finish(test, "foundations", before);
+}
+
 }  // namespace
 
 int RunUnitTests() {
@@ -823,6 +873,7 @@ int RunUnitTests() {
     TestBoards(test);
     TestDesignDocumentEditsXml(test);
     TestCompilerSurface(test);
+    TestFoundations(test);
     TestRemainingSurface(test);
     TestButton(test);
     TestIrDump(test);

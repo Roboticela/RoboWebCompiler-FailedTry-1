@@ -379,4 +379,87 @@ bool DesignDocument::PasteXml(const std::vector<int>& parentPath, const std::str
     return true;
 }
 
+XmlNode* EnsureTokens(XmlNode& root) {
+    for (XmlNode& child : root.children) {
+        if (child.name == "tokens") {
+            return &child;
+        }
+    }
+    root.children.insert(root.children.begin(), XmlNode{});
+    XmlNode* tokens = &root.children.front();
+    tokens->name = "tokens";
+    return tokens;
+}
+
+XmlNode* FindToken(XmlNode& tokens, std::string_view group, std::string_view name) {
+    for (XmlNode& child : tokens.children) {
+        if (child.name != group) {
+            continue;
+        }
+        const XmlAttribute* attribute = FindAttribute(child, "name");
+        if (attribute != nullptr && attribute->value == name) {
+            return &child;
+        }
+    }
+    return nullptr;
+}
+
+void EraseAttribute(XmlNode& node, std::string_view name) {
+    for (std::size_t index = 0; index < node.attributes.size(); ++index) {
+        if (node.attributes[index].name == name) {
+            node.attributes.erase(node.attributes.begin() + static_cast<std::ptrdiff_t>(index));
+            return;
+        }
+    }
+}
+
+bool DesignDocument::SetToken(std::string_view group, std::string_view name, std::string value) {
+    if (!textSynced || !root.has_value() || group.empty() || name.empty() || value.empty()) {
+        return false;
+    }
+    XmlNode* tokens = EnsureTokens(*root);
+    XmlNode* token = FindToken(*tokens, group, name);
+    if (token == nullptr) {
+        XmlNode child;
+        child.name = std::string(group);
+        AddAttribute(child, "name", std::string(name));
+        AddAttribute(child, "value", std::move(value));
+        tokens->children.push_back(std::move(child));
+    } else {
+        EraseAttribute(*token, "removed");
+        AddAttribute(*token, "value", std::move(value));
+    }
+    SyncTextFromRoot();
+    return true;
+}
+
+bool DesignDocument::RemoveToken(std::string_view group, std::string_view name, bool builtin) {
+    if (!textSynced || !root.has_value() || group.empty() || name.empty()) {
+        return false;
+    }
+    XmlNode* tokens = EnsureTokens(*root);
+    XmlNode* token = FindToken(*tokens, group, name);
+    if (!builtin) {
+        if (token == nullptr) {
+            return false;
+        }
+        const std::size_t index = static_cast<std::size_t>(token - tokens->children.data());
+        tokens->children.erase(tokens->children.begin() + static_cast<std::ptrdiff_t>(index));
+        SyncTextFromRoot();
+        return true;
+    }
+    if (token == nullptr) {
+        XmlNode child;
+        child.name = std::string(group);
+        AddAttribute(child, "name", std::string(name));
+        AddAttribute(child, "removed", "true");
+        tokens->children.push_back(std::move(child));
+    } else {
+        EraseAttribute(*token, "value");
+        AddAttribute(*token, "removed", "true");
+    }
+    SyncTextFromRoot();
+    return true;
+}
+
 }  // namespace Runtime

@@ -6,6 +6,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Runtime {
@@ -33,6 +34,7 @@ struct DocumentModel {
     std::unordered_map<std::string, VisualStyle> styles;
     std::unordered_map<std::string, XmlNode> components;
     std::unordered_map<std::string, std::string> tokens;
+    std::unordered_set<std::string> removedTokens;
     std::vector<AnimationSpec> animations;
     std::vector<std::pair<std::string, std::string>> states;
 };

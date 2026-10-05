@@ -1,6 +1,7 @@
 #include "compiler/semantic/DocumentPass.h"
 
 #include "compiler/semantic/ComponentCatalog.h"
+#include "compiler/semantic/Foundations.h"
 #include "compiler/types/ValueParser.h"
 #include "xml/diagnostics/Diagnostic.h"
 
@@ -427,17 +428,29 @@ bool ReadAnimation(const XmlNode& node, DocumentModel& model, std::vector<Diagno
     return true;
 }
 
-void ReadTokens(const XmlNode& node, std::unordered_map<std::string, std::string>& tokens, std::vector<Diagnostic>& diagnostics) {
+void ReadTokens(const XmlNode& node, std::unordered_map<std::string, std::string>& tokens, std::unordered_set<std::string>& removed,
+                std::vector<Diagnostic>& diagnostics) {
     for (const XmlNode& child : node.children) {
         const std::string name = AttributeText(child, "name");
         const std::string value = AttributeText(child, "value");
-        if (name.empty() || value.empty()) {
+        const bool drop = AttributeText(child, "removed") == "true";
+        if (name.empty() || (!drop && value.empty())) {
             AddDiagnostic(diagnostics, DIAGNOSTIC_TYPE_MISMATCH, "A token needs a name and a value.", child.location,
                           static_cast<int>(child.name.size()));
             continue;
         }
+        const std::string grouped = child.name + "." + name;
+        if (drop) {
+            removed.insert(name);
+            removed.insert(grouped);
+            tokens.erase(name);
+            tokens.erase(grouped);
+            continue;
+        }
+        removed.erase(name);
+        removed.erase(grouped);
         tokens[name] = value;
-        tokens[child.name + "." + name] = value;
+        tokens[grouped] = value;
     }
 }
 
@@ -457,6 +470,12 @@ void ApplyTokens(XmlNode& node, const std::unordered_map<std::string, std::strin
 }
 
 bool Harvest(XmlNode& node, DocumentModel& model, std::vector<Diagnostic>& diagnostics) {
+    for (const XmlNode& child : node.children) {
+        if (child.name == "tokens") {
+            ReadTokens(child, model.tokens, model.removedTokens, diagnostics);
+        }
+    }
+    MergeFoundationTokens(model.tokens, model.removedTokens);
     std::vector<XmlNode> kept;
     bool ok = true;
     for (XmlNode& child : node.children) {
@@ -465,7 +484,6 @@ bool Harvest(XmlNode& node, DocumentModel& model, std::vector<Diagnostic>& diagn
             continue;
         }
         if (child.name == "tokens") {
-            ReadTokens(child, model.tokens, diagnostics);
             continue;
         }
         if (child.name == "animate" || child.name == "animation") {

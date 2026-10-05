@@ -1,5 +1,6 @@
 #include "compiler/types/ValueParser.h"
 
+#include "compiler/semantic/Foundations.h"
 #include "engine/theme/DevKitTheme.h"
 
 namespace Runtime {
@@ -43,44 +44,14 @@ bool ParseFloatPrefix(std::string_view text, float& number, std::size_t& consume
 }
 
 std::string ResolveToken(std::string_view text) {
-    if (text == "$color.primary" || text == "$color.brand") {
-        return "#0E7AFF";
-    }
-    if (text == "$color.primaryHover" || text == "$color.brandHover") {
-        return "#0A6AE8";
-    }
-    if (text == "$color.primaryActive" || text == "$color.brandActive") {
-        return "#0757C7";
-    }
-    if (text == "$color.onPrimary" || text == "$color.onBrand") {
-        return "#FFFFFF";
-    }
-    if (text == "$color.secondary" || text == "$color.muted" || text == "$color.textSecondary") {
-        return "#6E6E73";
-    }
-    if (text == "$color.foreground" || text == "$color.text") {
-        return "#1D1D1F";
-    }
-    if (text == "$color.textTertiary") {
-        return "#86868B";
-    }
-    if (text == "$color.background") {
-        return "#FFFFFF";
-    }
-    if (text == "$color.surface") {
-        return "#F5F5F7";
-    }
-    if (text == "$color.surfaceVariant") {
-        return "#EDEDEF";
-    }
-    if (text == "$color.border") {
-        return "#D2D2D7";
-    }
-    if (text == "$color.borderStrong") {
-        return "#B8B8BD";
-    }
-    if (text == "$color.focus" || text == "$color.info") {
-        return "#0E7AFF";
+    if (text.size() > 1 && text.front() == '$') {
+        const std::string key(text.substr(1));
+        if (FoundationSuppressed(key)) {
+            return std::string(text);
+        }
+        if (const char* value = FoundationValue(key)) {
+            return value;
+        }
     }
     if (text == "$color.success") {
         return "#1D7A34";
@@ -97,77 +68,14 @@ std::string ResolveToken(std::string_view text) {
     if (text == "$space.0") {
         return "0";
     }
-    if (text == "$space.xs" || text == "$space.1") {
-        return "4";
-    }
-    if (text == "$space.sm" || text == "$space.2") {
-        return "8";
-    }
-    if (text == "$space.md" || text == "$space.3") {
-        return "12";
-    }
-    if (text == "$space.lg" || text == "$space.4") {
-        return "16";
-    }
-    if (text == "$space.xl" || text == "$space.5") {
-        return "24";
-    }
-    if (text == "$space.2xl" || text == "$space.6") {
-        return "32";
-    }
-    if (text == "$space.3xl" || text == "$space.7") {
-        return "48";
-    }
     if (text == "$radius.none") {
         return "0";
-    }
-    if (text == "$radius.sm") {
-        return "6";
-    }
-    if (text == "$radius.md") {
-        return "8";
-    }
-    if (text == "$radius.lg") {
-        return "12";
-    }
-    if (text == "$radius.xl") {
-        return "16";
-    }
-    if (text == "$radius.pill" || text == "$radius.circle") {
-        return "980";
-    }
-    if (text == "$type.display") {
-        return "80";
-    }
-    if (text == "$type.h1" || text == "$type.heading1") {
-        return "56";
-    }
-    if (text == "$type.h2" || text == "$type.heading2") {
-        return "40";
-    }
-    if (text == "$type.h3" || text == "$type.heading3") {
-        return "28";
-    }
-    if (text == "$type.title" || text == "$type.subhead") {
-        return "24";
     }
     if (text == "$type.body") {
         return "17";
     }
     if (text == "$type.bodySmall" || text == "$type.label") {
         return "13";
-    }
-    if (text == "$type.caption" || text == "$type.code") {
-        return "12";
-    }
-    if (text == "$weight.regular") {
-        return "400";
-    }
-    if (text == "$weight.medium") {
-        return "500";
-    }
-    if (text == "$weight.semibold") {
-        return "600";
     }
     if (text == "$size.controlSmall") {
         return "32";

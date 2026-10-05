@@ -2,6 +2,7 @@
 
 #include "compiler/semantic/ComponentCatalog.h"
 #include "compiler/semantic/DocumentPass.h"
+#include "compiler/semantic/Foundations.h"
 #include "compiler/semantic/Suggestions.h"
 #include "compiler/types/ValueParser.h"
 #include "xml/parser/XmlParser.h"
@@ -469,7 +470,10 @@ CompileResult CompileUi(const SourceFile& source) {
         return result;
     }
     DocumentModel model;
-    if (!PrepareDocument(*parsed.root, model, result.diagnostics)) {
+    SetSuppressedFoundations(&model.removedTokens);
+    const bool prepared = PrepareDocument(*parsed.root, model, result.diagnostics);
+    if (!prepared) {
+        SetSuppressedFoundations(nullptr);
         return result;
     }
     std::unordered_set<std::string> ids;
@@ -481,6 +485,7 @@ CompileResult CompileUi(const SourceFile& source) {
         }
         result.root = std::move(*lowered);
     }
+    SetSuppressedFoundations(nullptr);
     return result;
 }
 

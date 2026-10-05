@@ -1,7 +1,9 @@
+#include "designer/assets/CountryNames.h"
 #include "designer/assets/IconPack.h"
 #include "designer/shell/DesignerApp.h"
 
 #include "compiler/semantic/ComponentCatalog.h"
+#include "compiler/semantic/Foundations.h"
 #include "compiler/semantic/UiCompiler.h"
 #include "compiler/types/ValueParser.h"
 #include "designer/model/DesignDocument.h"
@@ -69,6 +71,8 @@ enum class EditTarget {
     FILTER,
     LIBRARY,
     ASSET,
+    VARIABLE,
+    VARIABLE_VALUE,
 };
 
 enum class DragKind {
@@ -1353,7 +1357,30 @@ int DesignerApp::Run(const DesignerOptions& options) {
     int assetHover = -1;
     int assetSelected = -1;
     Rect assetPlace{};
+    Rect assetPackIcons{};
+    Rect assetPackFlags{};
     std::vector<HitRow> assetRows;
+    IconPack countryPack;
+    bool countryPackLoaded = false;
+    int assetPack = 0;
+    struct VariableHit {
+        Rect rect{};
+        std::string group;
+        std::string name;
+        std::string value;
+        std::string note;
+        bool header = false;
+        bool builtin = false;
+    };
+    std::vector<VariableHit> variableRows;
+    std::string variableQuery;
+    std::string variableDraft;
+    std::string variableSelected;
+    int variableScroll = 0;
+    Rect variableSearchRect{};
+    Rect variableAddRect{};
+    Rect variableValueRect{};
+    Rect variableRemoveRect{};
     int inspectorScroll = 0;
     float zoom = 1.0f;
     float panX = 0.0f;
@@ -2141,21 +2168,35 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
         assetRows.clear();
         assetSearchRect = {};
+        assetPackIcons = {};
+        assetPackFlags = {};
         if (leftNav == 3 && fullSidebar.width > 1.0f) {
             if (!iconPackLoaded) {
                 iconPackLoaded = true;
                 iconPack.Load(std::filesystem::path(RUNTIME_SOURCE_DIR) / "assets" / "RoboIcons.pack");
             }
-            assetSearchRect = Rect{fullSidebar.x + 12.0f, fullSidebar.y + 36.0f, std::max(0.0f, fullSidebar.width - 24.0f), 32.0f};
-            if (!assetFilterReady || assetFilterQuery != assetQuery) {
+            if (!countryPackLoaded) {
+                countryPackLoaded = true;
+                countryPack.Load(std::filesystem::path(RUNTIME_SOURCE_DIR) / "assets" / "RoboCountry.pack");
+            }
+            const float packWidth = std::max(0.0f, (fullSidebar.width - 32.0f) * 0.5f);
+            assetPackIcons = Rect{fullSidebar.x + 12.0f, fullSidebar.y + 34.0f, packWidth, 26.0f};
+            assetPackFlags = Rect{assetPackIcons.x + packWidth + 8.0f, assetPackIcons.y, packWidth, 26.0f};
+            assetSearchRect = Rect{fullSidebar.x + 12.0f, fullSidebar.y + 68.0f, std::max(0.0f, fullSidebar.width - 24.0f), 32.0f};
+            IconPack& activePack = assetPack == 1 ? countryPack : iconPack;
+            const std::string filterKey = (assetPack == 1 ? "flags:" : "icons:") + assetQuery;
+            if (!assetFilterReady || assetFilterQuery != filterKey) {
                 assetFilter.clear();
                 const std::string query = LowerCopy(assetQuery);
-                for (int index = 0; index < iconPack.Count(); ++index) {
-                    if (query.empty() || LowerCopy(iconPack.Name(index)).find(query) != std::string::npos) {
+                for (int index = 0; index < activePack.Count(); ++index) {
+                    const std::string& name = activePack.Name(index);
+                    const char* title = assetPack == 1 ? CountryTitle(name) : nullptr;
+                    const bool named = title != nullptr && LowerCopy(title).find(query) != std::string::npos;
+                    if (query.empty() || LowerCopy(name).find(query) != std::string::npos || named) {
                         assetFilter.push_back(index);
                     }
                 }
-                assetFilterQuery = assetQuery;
+                assetFilterQuery = filterKey;
                 assetFilterReady = true;
                 assetScroll = 0;
             }
@@ -2163,14 +2204,14 @@ int DesignerApp::Run(const DesignerOptions& options) {
             const float gap = 8.0f;
             const float cardWidth = std::max(72.0f, (contentWidth - gap) * 0.5f);
             const float cardHeight = 92.0f;
-            const float listTop = fullSidebar.y + 80.0f;
+            const float listTop = fullSidebar.y + 112.0f;
             const float previewHeight = assetSelected >= 0 ? 96.0f : 0.0f;
             assetPlace = {};
             if (assetSelected >= 0) {
                 const Rect previewBar{fullSidebar.x + 8.0f, fullSidebar.y + fullSidebar.height - 88.0f, std::max(0.0f, fullSidebar.width - 16.0f), 80.0f};
                 assetPlace = Rect{previewBar.x + previewBar.width - 72.0f, previewBar.y + 28.0f, 56.0f, 26.0f};
             }
-            const float viewHeight = std::max(0.0f, fullSidebar.height - 80.0f - previewHeight);
+            const float viewHeight = std::max(0.0f, fullSidebar.height - 112.0f - previewHeight);
             const int columns = 2;
             const int rowCount = assetFilter.empty() ? 0 : (static_cast<int>(assetFilter.size()) + columns - 1) / columns;
             const int contentHeight = rowCount * static_cast<int>(cardHeight + gap);
@@ -2185,11 +2226,142 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     }
                     HitRow card;
                     card.depth = assetFilter[static_cast<std::size_t>(filterIndex)];
-                    card.name = iconPack.Name(card.depth);
+                    card.name = activePack.Name(card.depth);
                     const float y = listTop + static_cast<float>(rowIndex) * (cardHeight + gap) - static_cast<float>(assetScroll);
                     card.rect = Rect{fullSidebar.x + 12.0f + static_cast<float>(column) * (cardWidth + gap), y, cardWidth, cardHeight};
                     assetRows.push_back(std::move(card));
                 }
+            }
+        }
+        variableRows.clear();
+        variableSearchRect = {};
+        variableAddRect = {};
+        variableValueRect = {};
+        variableRemoveRect = {};
+        if (leftNav == 4 && fullSidebar.width > 1.0f) {
+            struct StoredToken {
+                std::string group;
+                std::string name;
+                std::string value;
+                bool removed = false;
+            };
+            std::vector<StoredToken> stored;
+            if (const XmlNode* root = document.Root()) {
+                for (const XmlNode& child : root->children) {
+                    if (child.name != "tokens") {
+                        continue;
+                    }
+                    for (const XmlNode& token : child.children) {
+                        StoredToken item;
+                        item.group = token.name;
+                        for (const XmlAttribute& attribute : token.attributes) {
+                            if (attribute.name == "name") {
+                                item.name = attribute.value;
+                            } else if (attribute.name == "value") {
+                                item.value = attribute.value;
+                            } else if (attribute.name == "removed" && attribute.value == "true") {
+                                item.removed = true;
+                            }
+                        }
+                        if (!item.name.empty()) {
+                            stored.push_back(std::move(item));
+                        }
+                    }
+                }
+            }
+            auto storedFor = [&](const std::string& group, const std::string& name) -> const StoredToken* {
+                const StoredToken* found = nullptr;
+                for (const StoredToken& item : stored) {
+                    if (item.group == group && item.name == name) {
+                        found = &item;
+                    }
+                }
+                return found;
+            };
+            variableSearchRect = Rect{fullSidebar.x + 12.0f, fullSidebar.y + 36.0f, std::max(0.0f, fullSidebar.width - 24.0f), 32.0f};
+            variableAddRect = Rect{fullSidebar.x + fullSidebar.width - 64.0f, fullSidebar.y + 8.0f, 52.0f, 22.0f};
+            const std::string query = LowerCopy(variableQuery);
+            int tokenCount = 0;
+            const FoundationToken* tokens = FoundationTokens(tokenCount);
+            std::vector<VariableHit> staged;
+            FoundationGroup current = FoundationGroup::COLOR;
+            bool opened = false;
+            for (int index = 0; index < tokenCount; ++index) {
+                const FoundationToken& token = tokens[index];
+                const std::string group = FoundationGroupElement(token.group);
+                const StoredToken* documentToken = storedFor(group, token.name);
+                if (documentToken != nullptr && documentToken->removed) {
+                    continue;
+                }
+                const std::string value = documentToken != nullptr && !documentToken->value.empty() ? documentToken->value : token.value;
+                if (!query.empty() && LowerCopy(token.name).find(query) == std::string::npos && LowerCopy(value).find(query) == std::string::npos) {
+                    continue;
+                }
+                if (!opened || current != token.group) {
+                    VariableHit header;
+                    header.header = true;
+                    header.name = FoundationGroupLabel(token.group);
+                    staged.push_back(std::move(header));
+                    current = token.group;
+                    opened = true;
+                }
+                VariableHit row;
+                row.group = group;
+                row.name = token.name;
+                row.value = value;
+                row.note = token.note;
+                row.builtin = true;
+                staged.push_back(std::move(row));
+            }
+            bool customHeader = false;
+            for (const StoredToken& item : stored) {
+                if (item.removed || item.value.empty()) {
+                    continue;
+                }
+                bool known = false;
+                for (int index = 0; index < tokenCount; ++index) {
+                    if (item.name == tokens[index].name && item.group == FoundationGroupElement(tokens[index].group)) {
+                        known = true;
+                        break;
+                    }
+                }
+                if (known) {
+                    continue;
+                }
+                if (!query.empty() && LowerCopy(item.name).find(query) == std::string::npos && LowerCopy(item.value).find(query) == std::string::npos) {
+                    continue;
+                }
+                if (!customHeader) {
+                    VariableHit header;
+                    header.header = true;
+                    header.name = "Custom";
+                    staged.push_back(std::move(header));
+                    customHeader = true;
+                }
+                VariableHit row;
+                row.group = item.group;
+                row.name = item.name;
+                row.value = item.value;
+                row.builtin = false;
+                staged.push_back(std::move(row));
+            }
+            const bool editingValue = !variableSelected.empty();
+            const float footer = editingValue ? 86.0f : 0.0f;
+            const float listTop = fullSidebar.y + 80.0f;
+            const float viewHeight = std::max(0.0f, fullSidebar.height - 80.0f - footer);
+            const float rowHeight = 32.0f;
+            const int contentHeight = static_cast<int>(staged.size()) * static_cast<int>(rowHeight);
+            variableScroll = std::max(0, std::min(variableScroll, std::max(0, contentHeight - static_cast<int>(viewHeight))));
+            for (std::size_t index = 0; index < staged.size(); ++index) {
+                VariableHit row = std::move(staged[index]);
+                const float y = listTop + static_cast<float>(index) * rowHeight - static_cast<float>(variableScroll);
+                row.rect = Rect{fullSidebar.x + 8.0f, y, std::max(0.0f, fullSidebar.width - 16.0f), rowHeight - 2.0f};
+                if (editingValue && !row.header && row.name == variableSelected) {
+                    const Rect bar{fullSidebar.x + 8.0f, fullSidebar.y + fullSidebar.height - 78.0f, std::max(0.0f, fullSidebar.width - 16.0f), 70.0f};
+                    variableValueRect = Rect{bar.x + 8.0f, bar.y + 28.0f, std::max(0.0f, bar.width - 84.0f), 28.0f};
+                    variableRemoveRect = Rect{bar.x + bar.width - 68.0f, bar.y + 28.0f, 60.0f, 28.0f};
+                }
+                variableRows.push_back(std::move(row));
             }
         }
         boardButton = Rect{hierarchy.x + hierarchy.width - 96.0f, hierarchy.y + 2.0f, 84.0f, 22.0f};
@@ -3558,13 +3730,57 @@ int DesignerApp::Run(const DesignerOptions& options) {
             paintDirty = true;
             return;
         }
+        if (leftNav == 3 && ContainsPoint(assetPackIcons, point)) {
+            assetPack = 0;
+            assetFilterReady = false;
+            assetSelected = -1;
+            assetScroll = 0;
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 3 && ContainsPoint(assetPackFlags, point)) {
+            assetPack = 1;
+            assetFilterReady = false;
+            assetSelected = -1;
+            assetScroll = 0;
+            paintDirty = true;
+            return;
+        }
         if (leftNav == 3 && ContainsPoint(assetSearchRect, point)) {
             editTarget = EditTarget::ASSET;
             paintDirty = true;
             return;
         }
         if (leftNav == 3 && assetPlace.width > 1.0f && ContainsPoint(assetPlace, point)) {
-            const std::string xml = iconPack.VectorXml(assetSelected);
+            IconPack& activePack = assetPack == 1 ? countryPack : iconPack;
+            std::string xml = activePack.VectorXml(assetSelected);
+            if (xml.empty() && assetPack == 1 && assetSelected >= 0) {
+                const std::string iso = activePack.Name(assetSelected);
+                const std::filesystem::path dest = std::filesystem::path(RUNTIME_SOURCE_DIR) / "assets" / "flags" / (iso + ".png");
+                if (activePack.WriteFile(assetSelected, dest)) {
+                    const char* title = CountryTitle(iso);
+                    std::string label = title != nullptr ? title : iso;
+                    std::string escaped;
+                    for (char character : label) {
+                        if (character == '&') {
+                            escaped += "&amp;";
+                        } else if (character == '<') {
+                            escaped += "&lt;";
+                        } else if (character == '"') {
+                            escaped += "&quot;";
+                        } else {
+                            escaped += character;
+                        }
+                    }
+                    std::string source = dest.string();
+                    for (char& character : source) {
+                        if (character == '\\') {
+                            character = '/';
+                        }
+                    }
+                    xml = "<image name=\"" + escaped + "\" source=\"" + source + "\" width=\"80\" height=\"60\" fit=\"contain\"/>";
+                }
+            }
             std::vector<int> inserted;
             if (!xml.empty()) {
                 remember();
@@ -3581,8 +3797,86 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
         if (leftNav == 3) {
             for (const HitRow& row : assetRows) {
-                if (ContainsPoint(row.rect, point) && row.rect.y >= fullSidebar.y + 76.0f && row.rect.y < fullSidebar.y + fullSidebar.height - (assetSelected >= 0 ? 96.0f : 0.0f)) {
+                if (ContainsPoint(row.rect, point) && row.rect.y >= fullSidebar.y + 112.0f && row.rect.y < fullSidebar.y + fullSidebar.height - (assetSelected >= 0 ? 96.0f : 0.0f)) {
                     assetSelected = row.depth;
+                    paintDirty = true;
+                    return;
+                }
+            }
+        }
+        if (leftNav == 4 && ContainsPoint(variableSearchRect, point)) {
+            editTarget = EditTarget::VARIABLE;
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 4 && variableAddRect.width > 1.0f && ContainsPoint(variableAddRect, point)) {
+            std::string name = "custom";
+            int suffix = 2;
+            auto taken = [&](const std::string& candidate) {
+                for (const VariableHit& row : variableRows) {
+                    if (!row.header && row.name == candidate) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            while (taken(name)) {
+                name = "custom-" + std::to_string(suffix);
+                ++suffix;
+            }
+            remember();
+            if (document.SetToken("color", name, "#0E7AFF")) {
+                variableSelected = name;
+                variableDraft = "#0E7AFF";
+                editTarget = EditTarget::VARIABLE_VALUE;
+                rebuildPreview();
+                finishEdit();
+            } else {
+                historyOpen = false;
+            }
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 4 && variableValueRect.width > 1.0f && ContainsPoint(variableValueRect, point)) {
+            editTarget = EditTarget::VARIABLE_VALUE;
+            for (const VariableHit& row : variableRows) {
+                if (!row.header && row.name == variableSelected) {
+                    variableDraft = row.value;
+                }
+            }
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 4 && variableRemoveRect.width > 1.0f && ContainsPoint(variableRemoveRect, point)) {
+            for (const VariableHit& row : variableRows) {
+                if (row.header || row.name != variableSelected) {
+                    continue;
+                }
+                remember();
+                if (!document.RemoveToken(row.group, row.name, row.builtin)) {
+                    historyOpen = false;
+                } else {
+                    variableSelected.clear();
+                    variableDraft.clear();
+                    editTarget = EditTarget::NONE;
+                    rebuildPreview();
+                    finishEdit();
+                }
+                break;
+            }
+            paintDirty = true;
+            return;
+        }
+        if (leftNav == 4) {
+            const float listBottom = fullSidebar.y + fullSidebar.height - (variableSelected.empty() ? 0.0f : 86.0f);
+            for (const VariableHit& row : variableRows) {
+                if (row.header || row.rect.y < fullSidebar.y + 76.0f || row.rect.y > listBottom) {
+                    continue;
+                }
+                if (ContainsPoint(row.rect, point)) {
+                    variableSelected = row.name;
+                    variableDraft = row.value;
+                    editTarget = EditTarget::VARIABLE_VALUE;
                     paintDirty = true;
                     return;
                 }
@@ -4292,6 +4586,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
             paintDirty = true;
             return;
         }
+        if (leftNav == 4 && ContainsPoint(fullSidebar, point)) {
+            variableScroll = std::max(0, variableScroll - (delta > 0 ? 32 : -32));
+            paintDirty = true;
+            return;
+        }
         if (ContainsPoint(inspector, point)) {
             const int visibleRows = std::max(1, static_cast<int>((inspector.height - 72.0f) / 40.0f));
             inspectorScroll = std::max(0, std::min(std::max(0, static_cast<int>(propertyRows.size()) - visibleRows), inspectorScroll - (delta > 0 ? 1 : -1)));
@@ -4828,6 +5127,39 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
             return true;
         }
+        if (editTarget == EditTarget::VARIABLE) {
+            if (key == VK_BACK && !variableQuery.empty()) {
+                do {
+                    variableQuery.pop_back();
+                } while (!variableQuery.empty() && (static_cast<unsigned char>(variableQuery.back()) & 0xC0) == 0x80);
+                variableScroll = 0;
+                paintDirty = true;
+            }
+            return true;
+        }
+        if (editTarget == EditTarget::VARIABLE_VALUE) {
+            if (key == VK_BACK && !variableDraft.empty()) {
+                do {
+                    variableDraft.pop_back();
+                } while (!variableDraft.empty() && (static_cast<unsigned char>(variableDraft.back()) & 0xC0) == 0x80);
+            } else if (key == VK_RETURN) {
+                finishEdit();
+                editTarget = EditTarget::NONE;
+                paintDirty = true;
+                return true;
+            } else {
+                return true;
+            }
+            for (const VariableHit& row : variableRows) {
+                if (!row.header && row.name == variableSelected && !variableDraft.empty()) {
+                    remember();
+                    document.SetToken(row.group, row.name, variableDraft);
+                    rebuildPreview();
+                }
+            }
+            paintDirty = true;
+            return true;
+        }
         if (editTarget == EditTarget::PROPERTY) {
             if (key == VK_BACK && !propertyDraft.empty()) {
                 propertyDraft.pop_back();
@@ -4968,6 +5300,28 @@ int DesignerApp::Run(const DesignerOptions& options) {
             if (assetQuery.size() < 40) {
                 assetQuery += utf8;
                 assetFilterReady = false;
+                paintDirty = true;
+            }
+            return;
+        }
+        if (editTarget == EditTarget::VARIABLE) {
+            if (variableQuery.size() < 40) {
+                variableQuery += utf8;
+                variableScroll = 0;
+                paintDirty = true;
+            }
+            return;
+        }
+        if (editTarget == EditTarget::VARIABLE_VALUE) {
+            if (variableDraft.size() < 64) {
+                variableDraft += utf8;
+                for (const VariableHit& row : variableRows) {
+                    if (!row.header && row.name == variableSelected) {
+                        remember();
+                        document.SetToken(row.group, row.name, variableDraft);
+                        rebuildPreview();
+                    }
+                }
                 paintDirty = true;
             }
             return;
@@ -5164,8 +5518,14 @@ int DesignerApp::Run(const DesignerOptions& options) {
             renderer.PopClip();
         } else if (leftNav == 3 && fullSidebar.width > 1.0f) {
             DrawLabel(renderer, "Assets", Rect{fullSidebar.x + 14.0f, fullSidebar.y + 8.0f, 72.0f, 22.0f}, COLOR_MUTED, 12.0f, TextAlign::START);
-            const std::string packLabel = iconPack.Loaded() ? "RoboIcons  " + std::to_string(iconPack.Count()) : "RoboIcons";
-            DrawLabel(renderer, packLabel, Rect{fullSidebar.x + 86.0f, fullSidebar.y + 8.0f, std::max(0.0f, fullSidebar.width - 100.0f), 22.0f}, COLOR_MUTED, 11.0f, TextAlign::START);
+            IconPack& activePack = assetPack == 1 ? countryPack : iconPack;
+            auto drawPack = [&](const Rect& rect, const char* label, bool active) {
+                renderer.FillRectangle(rect, active ? COLOR_SELECTED : COLOR_FIELD, 8.0f);
+                renderer.StrokeRectangle(rect, active ? COLOR_SELECT : COLOR_LINE, 1.0f, 8.0f);
+                DrawLabel(renderer, label, rect, active ? COLOR_INK : COLOR_MUTED, 12.0f, TextAlign::CENTER);
+            };
+            drawPack(assetPackIcons, "Icons", assetPack == 0);
+            drawPack(assetPackFlags, "Flags", assetPack == 1);
             const bool searchActive = editTarget == EditTarget::ASSET;
             renderer.FillRectangle(assetSearchRect, COLOR_FIELD, 8.0f);
             renderer.StrokeRectangle(assetSearchRect, searchActive ? COLOR_SELECT : COLOR_LINE, 1.0f, 8.0f);
@@ -5173,7 +5533,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             searchText.x += 12.0f;
             searchText.width = std::max(0.0f, searchText.width - 20.0f);
             if (assetQuery.empty() && !searchActive) {
-                DrawLabel(renderer, "Search icons", searchText, COLOR_MUTED, 13.0f, TextAlign::START);
+                DrawLabel(renderer, assetPack == 1 ? "Search flags" : "Search icons", searchText, COLOR_MUTED, 13.0f, TextAlign::START);
             } else {
                 DrawLabel(renderer, assetQuery, searchText, COLOR_INK, 13.0f, TextAlign::START);
                 if (searchActive) {
@@ -5182,12 +5542,12 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 }
             }
             const float previewHeight = assetSelected >= 0 ? 96.0f : 0.0f;
-            const Rect list{fullSidebar.x, fullSidebar.y + 76.0f, fullSidebar.width, std::max(0.0f, fullSidebar.height - 76.0f - previewHeight)};
+            const Rect list{fullSidebar.x, fullSidebar.y + 108.0f, fullSidebar.width, std::max(0.0f, fullSidebar.height - 108.0f - previewHeight)};
             renderer.PushClip(list);
-            if (!iconPack.Loaded()) {
-                DrawLabel(renderer, "RoboIcons.pack was not found", Rect{fullSidebar.x + 16.0f, list.y + 28.0f, fullSidebar.width - 32.0f, 20.0f}, COLOR_MUTED, 13.0f, TextAlign::CENTER);
+            if (!activePack.Loaded()) {
+                DrawLabel(renderer, assetPack == 1 ? "RoboCountry.pack was not found" : "RoboIcons.pack was not found", Rect{fullSidebar.x + 16.0f, list.y + 28.0f, fullSidebar.width - 32.0f, 20.0f}, COLOR_MUTED, 13.0f, TextAlign::CENTER);
             } else if (assetRows.empty()) {
-                DrawLabel(renderer, "No icons", Rect{fullSidebar.x + 16.0f, list.y + 28.0f, fullSidebar.width - 32.0f, 20.0f}, COLOR_MUTED, 13.0f, TextAlign::CENTER);
+                DrawLabel(renderer, assetPack == 1 ? "No flags" : "No icons", Rect{fullSidebar.x + 16.0f, list.y + 28.0f, fullSidebar.width - 32.0f, 20.0f}, COLOR_MUTED, 13.0f, TextAlign::CENTER);
             }
             for (int index = 0; index < static_cast<int>(assetRows.size()); ++index) {
                 const HitRow& row = assetRows[static_cast<std::size_t>(index)];
@@ -5198,29 +5558,133 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 const bool hovered = assetHover == index;
                 renderer.FillRectangle(row.rect, selected ? COLOR_SELECTED : hovered ? COLOR_HOVER : COLOR_FIELD, 10.0f);
                 renderer.StrokeRectangle(row.rect, selected || hovered ? COLOR_SELECT : COLOR_LINE, 1.0f, 10.0f);
-                const float wellSize = std::min(44.0f, row.rect.width - 24.0f);
-                const Rect well{row.rect.x + (row.rect.width - wellSize) * 0.5f, row.rect.y + 10.0f, wellSize, wellSize};
-                renderer.FillRectangle(well, COLOR_CHROME, 8.0f);
-                if (const IconPreview* icon = iconPack.Preview(row.depth)) {
-                    const float inset = 6.0f;
-                    renderer.DrawCachedImage("roboicon:" + row.name, Rect{well.x + inset, well.y + inset, well.width - inset * 2.0f, well.height - inset * 2.0f}, icon->bgra.data(), icon->width, icon->height);
+                const float wellWidth = std::min(assetPack == 1 ? 56.0f : 44.0f, row.rect.width - 24.0f);
+                const float wellHeight = assetPack == 1 ? wellWidth * 0.75f : wellWidth;
+                const Rect well{row.rect.x + (row.rect.width - wellWidth) * 0.5f, row.rect.y + 10.0f, wellWidth, wellHeight};
+                renderer.FillRectangle(well, COLOR_CHROME, 4.0f);
+                if (const IconPreview* icon = activePack.Preview(row.depth)) {
+                    const float inset = 2.0f;
+                    const char* prefix = assetPack == 1 ? "roboflag:" : "roboicon:";
+                    renderer.DrawCachedImage(std::string(prefix) + row.name, Rect{well.x + inset, well.y + inset, well.width - inset * 2.0f, well.height - inset * 2.0f}, icon->bgra.data(), icon->width, icon->height);
                 }
-                DrawLabel(renderer, row.name, Rect{row.rect.x + 6.0f, row.rect.y + row.rect.height - 26.0f, row.rect.width - 12.0f, 18.0f}, COLOR_INK, 11.0f, TextAlign::CENTER);
+                const char* title = assetPack == 1 ? CountryTitle(row.name) : nullptr;
+                DrawLabel(renderer, title != nullptr ? title : row.name.c_str(), Rect{row.rect.x + 6.0f, row.rect.y + row.rect.height - 26.0f, row.rect.width - 12.0f, 18.0f}, COLOR_INK, 11.0f, TextAlign::CENTER);
             }
             renderer.PopClip();
-            if (assetSelected >= 0 && assetSelected < iconPack.Count()) {
+            if (assetSelected >= 0 && assetSelected < activePack.Count()) {
                 const Rect previewBar{fullSidebar.x + 8.0f, fullSidebar.y + fullSidebar.height - 88.0f, std::max(0.0f, fullSidebar.width - 16.0f), 80.0f};
                 renderer.FillRectangle(previewBar, COLOR_FIELD, 10.0f);
                 renderer.StrokeRectangle(previewBar, COLOR_LINE, 1.0f, 10.0f);
-                const Rect large{previewBar.x + 12.0f, previewBar.y + 12.0f, 56.0f, 56.0f};
+                const Rect large{previewBar.x + 12.0f, previewBar.y + 12.0f, assetPack == 1 ? 72.0f : 56.0f, 56.0f};
                 renderer.FillRectangle(large, COLOR_CHROME, 8.0f);
-                if (const IconPreview* icon = iconPack.Preview(assetSelected)) {
-                    renderer.DrawCachedImage("roboicon:" + iconPack.Name(assetSelected), Rect{large.x + 6.0f, large.y + 6.0f, 44.0f, 44.0f}, icon->bgra.data(), icon->width, icon->height);
+                if (const IconPreview* icon = activePack.Preview(assetSelected)) {
+                    const char* prefix = assetPack == 1 ? "roboflag:" : "roboicon:";
+                    renderer.DrawCachedImage(std::string(prefix) + activePack.Name(assetSelected), Rect{large.x + 6.0f, large.y + 6.0f, large.width - 12.0f, large.height - 12.0f}, icon->bgra.data(), icon->width, icon->height);
                 }
-                DrawLabel(renderer, iconPack.Name(assetSelected), Rect{large.x + 68.0f, previewBar.y + 14.0f, std::max(0.0f, previewBar.width - 150.0f), 20.0f}, COLOR_INK, 13.0f, TextAlign::START);
-                DrawLabel(renderer, "Vector layers", Rect{large.x + 68.0f, previewBar.y + 34.0f, std::max(0.0f, previewBar.width - 150.0f), 16.0f}, COLOR_MUTED, 11.0f, TextAlign::START);
+                const char* title = assetPack == 1 ? CountryTitle(activePack.Name(assetSelected)) : nullptr;
+                const float labelX = large.x + large.width + 12.0f;
+                DrawLabel(renderer, title != nullptr ? title : activePack.Name(assetSelected).c_str(), Rect{labelX, previewBar.y + 14.0f, std::max(0.0f, previewBar.width - (labelX - previewBar.x) - 80.0f), 20.0f}, COLOR_INK, 13.0f, TextAlign::START);
+                DrawLabel(renderer, assetPack == 1 ? activePack.Name(assetSelected).c_str() : "Vector layers", Rect{labelX, previewBar.y + 34.0f, std::max(0.0f, previewBar.width - (labelX - previewBar.x) - 80.0f), 16.0f}, COLOR_MUTED, 11.0f, TextAlign::START);
                 renderer.FillRectangle(assetPlace, COLOR_ACCENT, 6.0f);
                 DrawLabel(renderer, "Place", assetPlace, COLOR_CHROME, 12.0f, TextAlign::CENTER);
+            }
+        } else if (leftNav == 4 && fullSidebar.width > 1.0f) {
+            DrawLabel(renderer, "Variables", Rect{fullSidebar.x + 14.0f, fullSidebar.y + 8.0f, 90.0f, 22.0f}, COLOR_MUTED, 12.0f, TextAlign::START);
+            renderer.FillRectangle(variableAddRect, COLOR_FIELD, 6.0f);
+            renderer.StrokeRectangle(variableAddRect, COLOR_LINE, 1.0f, 6.0f);
+            DrawLabel(renderer, "Add", variableAddRect, COLOR_INK, 12.0f, TextAlign::CENTER);
+            const bool searchActive = editTarget == EditTarget::VARIABLE;
+            renderer.FillRectangle(variableSearchRect, COLOR_FIELD, 8.0f);
+            renderer.StrokeRectangle(variableSearchRect, searchActive ? COLOR_SELECT : COLOR_LINE, 1.0f, 8.0f);
+            Rect searchText = variableSearchRect;
+            searchText.x += 12.0f;
+            searchText.width = std::max(0.0f, searchText.width - 20.0f);
+            if (variableQuery.empty() && !searchActive) {
+                DrawLabel(renderer, "Search variables", searchText, COLOR_MUTED, 13.0f, TextAlign::START);
+            } else {
+                DrawLabel(renderer, variableQuery, searchText, COLOR_INK, 13.0f, TextAlign::START);
+                if (searchActive) {
+                    const Size measured = renderer.MeasureText(variableQuery, 13.0f, 100000.0f);
+                    renderer.FillRectangle(Rect{searchText.x + measured.width + 1.0f, variableSearchRect.y + 8.0f, 1.0f, variableSearchRect.height - 16.0f}, COLOR_INK, 0.0f);
+                }
+            }
+            const float footer = variableSelected.empty() ? 0.0f : 86.0f;
+            const Rect list{fullSidebar.x, fullSidebar.y + 76.0f, fullSidebar.width, std::max(0.0f, fullSidebar.height - 76.0f - footer)};
+            renderer.PushClip(list);
+            auto swatchOf = [](const std::string& text) -> Color {
+                auto nibble = [](char character) -> int {
+                    if (character >= '0' && character <= '9') {
+                        return character - '0';
+                    }
+                    if (character >= 'a' && character <= 'f') {
+                        return character - 'a' + 10;
+                    }
+                    if (character >= 'A' && character <= 'F') {
+                        return character - 'A' + 10;
+                    }
+                    return -1;
+                };
+                if (text.size() != 7 && text.size() != 9) {
+                    return COLOR_LINE;
+                }
+                if (text.front() != '#') {
+                    return COLOR_LINE;
+                }
+                int channels[4] = {0, 0, 0, 255};
+                const int digits = text.size() == 7 ? 3 : 4;
+                for (int index = 0; index < digits; ++index) {
+                    const int high = nibble(text[static_cast<std::size_t>(1 + index * 2)]);
+                    const int low = nibble(text[static_cast<std::size_t>(2 + index * 2)]);
+                    if (high < 0 || low < 0) {
+                        return COLOR_LINE;
+                    }
+                    channels[index] = high * 16 + low;
+                }
+                return Color{channels[0] / 255.0f, channels[1] / 255.0f, channels[2] / 255.0f, channels[3] / 255.0f};
+            };
+            for (const VariableHit& row : variableRows) {
+                if (row.rect.y + row.rect.height < list.y || row.rect.y > list.y + list.height) {
+                    continue;
+                }
+                if (row.header) {
+                    DrawLabel(renderer, row.name, Rect{row.rect.x + 4.0f, row.rect.y, row.rect.width - 8.0f, row.rect.height}, COLOR_MUTED, 11.0f, TextAlign::START);
+                    continue;
+                }
+                const bool selected = row.name == variableSelected;
+                if (selected) {
+                    renderer.FillRectangle(row.rect, COLOR_SELECTED, 6.0f);
+                }
+                if (row.group == "color") {
+                    const Rect chip{row.rect.x + 8.0f, row.rect.y + 7.0f, 16.0f, 16.0f};
+                    renderer.FillRectangle(chip, swatchOf(row.value), 4.0f);
+                    renderer.StrokeRectangle(chip, COLOR_LINE, 1.0f, 4.0f);
+                }
+                const float textX = row.group == "color" ? 32.0f : 8.0f;
+                DrawLabel(renderer, row.name, Rect{row.rect.x + textX, row.rect.y, std::max(0.0f, row.rect.width - textX - 72.0f), row.rect.height}, selected ? COLOR_INK : COLOR_MUTED, 12.0f, TextAlign::START);
+                DrawLabel(renderer, row.value, Rect{row.rect.x + row.rect.width - 68.0f, row.rect.y, 60.0f, row.rect.height}, COLOR_MUTED, 11.0f, TextAlign::END);
+            }
+            renderer.PopClip();
+            if (!variableSelected.empty()) {
+                const Rect bar{fullSidebar.x + 8.0f, fullSidebar.y + fullSidebar.height - 78.0f, std::max(0.0f, fullSidebar.width - 16.0f), 70.0f};
+                renderer.FillRectangle(bar, COLOR_FIELD, 10.0f);
+                renderer.StrokeRectangle(bar, COLOR_LINE, 1.0f, 10.0f);
+                std::string note;
+                for (const VariableHit& row : variableRows) {
+                    if (!row.header && row.name == variableSelected) {
+                        note = row.note.empty() ? row.group : row.note;
+                    }
+                }
+                DrawLabel(renderer, note, Rect{bar.x + 8.0f, bar.y + 6.0f, std::max(0.0f, bar.width - 16.0f), 18.0f}, COLOR_MUTED, 11.0f, TextAlign::START);
+                const bool valueActive = editTarget == EditTarget::VARIABLE_VALUE;
+                renderer.FillRectangle(variableValueRect, COLOR_CHROME, 6.0f);
+                renderer.StrokeRectangle(variableValueRect, valueActive ? COLOR_SELECT : COLOR_LINE, 1.0f, 6.0f);
+                Rect valueText = variableValueRect;
+                valueText.x += 8.0f;
+                valueText.width = std::max(0.0f, valueText.width - 12.0f);
+                DrawLabel(renderer, variableDraft, valueText, COLOR_INK, 12.0f, TextAlign::START);
+                renderer.FillRectangle(variableRemoveRect, COLOR_FIELD, 6.0f);
+                renderer.StrokeRectangle(variableRemoveRect, COLOR_LINE, 1.0f, 6.0f);
+                DrawLabel(renderer, "Remove", variableRemoveRect, COLOR_INK, 11.0f, TextAlign::CENTER);
             }
         }
         renderer.FillRectangle(tabBar, COLOR_PANEL, 0.0f);

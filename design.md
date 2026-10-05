@@ -78,6 +78,34 @@ There is no conversion from an arbitrary word into a length, color, bool, or num
 
 A token is a `$` name. It is replaced before the value is parsed, so it can be used anywhere the replacement type is legal.
 
+Foundations are built in. Colors, typography, spacing, radius, and layout are available in every document without declaring them. A document can replace a foundation, add its own token, or remove a foundation. The designer lists the same set in Variables.
+
+```xml
+<frame background="$bg-primary" padding="$space-4" radius="$radius-lg" width="$width-docs" gap="$space-3">
+    <text text="Title" fontSize="$type-h1" fontWeight="$weight-semibold" letterSpacing="$tracking-h1" lineHeight="$leading-h1" textColor="$text-primary"/>
+</frame>
+```
+
+```xml
+<tokens>
+    <color name="brand-primary" value="#112233"/>
+    <color name="ink" value="#111111"/>
+    <spacing name="space-4" removed="true"/>
+</tokens>
+```
+
+The element name is the group: `color`, `type`, `spacing`, `radius`, or `layout`. The short name is what you write after `$`. `$color.brand-primary` is the same value as `$brand-primary`. A later token with the same name wins. `removed="true"` drops a built-in default.
+
+| Group | Names |
+| --- | --- |
+| Colors | `brand-primary` `brand-primary-hover` `brand-primary-active` `brand-primary-disabled` `brand-primary-subtle` `accent-teal` `accent-teal-subtle` `success` `success-subtle` `warning` `warning-subtle` `danger` `danger-hover` `danger-subtle` `text-primary` `text-secondary` `text-tertiary` `text-disabled` `text-on-brand` `text-link` `bg-primary` `bg-secondary` `bg-tertiary` `bg-elevated` `bg-hover` `bg-active` `border-default` `border-subtle` `border-strong` `border-focus` `border-danger` |
+| Typography | `type-display` `type-h1` `type-h2` `type-h3` `type-subhead` `type-content` `type-content-sm` `type-caption` `type-eyebrow` `type-label`, each with a `-mobile` size where the phone size differs, plus `weight-regular` `weight-medium` `weight-semibold`, `tracking-display` `tracking-h1` `tracking-h2` `tracking-h3` `tracking-eyebrow`, and `leading-display` `leading-h1` `leading-h2` `leading-h3` `leading-subhead` `leading-content` `leading-content-sm` `leading-caption` `leading-eyebrow` `leading-label` |
+| Spacing | `space-1` 4 through `space-10` 128: 4, 8, 12, 16, 24, 32, 48, 64, 96, 128 |
+| Radius | `radius-sm` 6, `radius-md` 8, `radius-lg` 12, `radius-xl` 16, `radius-2xl` 20, `radius-panel` 18, `radius-pill` 980 |
+| Layout | `breakpoint-mobile` 734, `breakpoint-tablet` 1068, `breakpoint-desktop` 1069, `pad-mobile` 22, `pad-tablet` 40, `pad-desktop` 80, `gutter-mobile` 16, `gutter` 24, `columns-mobile` 1, `columns` 12, `width-copy` 692, `width-docs` 760, `width-wide` 900, `width-marketing` 980, `width-section` 1024 |
+
+These older names still resolve: `$color.primary`, `$space.md`, `$radius.md`, `$type.h1`, `$weight.semibold`, `$color.success`, `$color.danger`, `$space.0`, `$radius.none`, `$type.body`, `$size.controlMedium`. A document token with the same key replaces the built-in value.
+
 | Token | Value |
 | --- | --- |
 | `$color.primary` `$color.brand` `$color.focus` `$color.info` | `#0E7AFF` |

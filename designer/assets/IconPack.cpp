@@ -83,7 +83,9 @@ bool IconPack::Load(const std::filesystem::path& path) {
         }
         const std::string name(reinterpret_cast<const char*>(header + 46), nameLength);
         cursor += static_cast<std::size_t>(46 + nameLength + extraLength + commentLength);
-        if (name.size() > 4 && name.rfind("svg/", 0) == 0 && name.size() >= 8 && name.compare(name.size() - 4, 4, ".svg") == 0) {
+        const bool svg = name.size() > 8 && name.rfind("svg/", 0) == 0 && name.compare(name.size() - 4, 4, ".svg") == 0;
+        const bool png = name.size() > 8 && name.rfind("png/", 0) == 0 && name.compare(name.size() - 4, 4, ".png") == 0;
+        if (svg || png) {
             Entry entry;
             entry.name = name.substr(4, name.size() - 8);
             entry.localOffset = localOffset;
@@ -150,13 +152,21 @@ bool IconPack::ReadSvg(int index, std::string& svg) const {
 }
 
 bool IconPack::Rasterize(const std::string& svg, IconPreview& preview) const {
-    SvgDecodeOptions options;
-    options.maxEdge = 192;
-    options.currentRed = 245;
-    options.currentGreen = 245;
-    options.currentBlue = 247;
     DecodedImage image;
-    if (!DecodeSvgBytes(reinterpret_cast<const unsigned char*>(svg.data()), static_cast<int>(svg.size()), image, options) || image.frames.empty()) {
+    const auto* data = reinterpret_cast<const unsigned char*>(svg.data());
+    const int size = static_cast<int>(svg.size());
+    bool decoded = false;
+    if (size >= 8 && std::memcmp(data, "\x89PNG\r\n\x1a\n", 8) == 0) {
+        decoded = DecodeImageBytes(data, size, image);
+    } else {
+        SvgDecodeOptions options;
+        options.maxEdge = 192;
+        options.currentRed = 245;
+        options.currentGreen = 245;
+        options.currentBlue = 247;
+        decoded = DecodeSvgBytes(data, size, image, options);
+    }
+    if (!decoded || image.frames.empty()) {
         return false;
     }
     preview.width = image.frames[0].width;
@@ -195,7 +205,25 @@ std::string IconPack::VectorXml(int index) const {
     if (!ReadSvg(index, svg)) {
         return {};
     }
+    if (svg.size() >= 8 && std::memcmp(svg.data(), "\x89PNG\r\n\x1a\n", 8) == 0) {
+        return {};
+    }
     return VectorXmlFromSvg(svg, Name(index), 245, 245, 247);
+}
+
+bool IconPack::WriteFile(int index, const std::filesystem::path& destination) const {
+    std::string payload;
+    if (!ReadSvg(index, payload)) {
+        return false;
+    }
+    std::error_code error;
+    std::filesystem::create_directories(destination.parent_path(), error);
+    std::ofstream file(destination, std::ios::binary);
+    if (!file) {
+        return false;
+    }
+    file.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    return static_cast<bool>(file);
 }
 
 }  // namespace Runtime

@@ -38,6 +38,8 @@ add_library(RuntimeCompiler STATIC
     compiler/semantic/ComponentCatalog.h
     compiler/semantic/DocumentPass.cpp
     compiler/semantic/DocumentPass.h
+    compiler/semantic/Foundations.cpp
+    compiler/semantic/Foundations.h
     compiler/semantic/UiCompiler.cpp
     compiler/semantic/UiCompiler.h
     compiler/ir/FormatIr.cpp
