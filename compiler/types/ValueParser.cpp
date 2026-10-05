@@ -295,11 +295,14 @@ std::optional<Alignment> ParseAlignment(std::string_view text) {
 std::optional<Length> ParseLength(std::string_view text) {
     std::string tokenStorage;
     text = ExpandToken(text, tokenStorage);
-    if (text == "fill") {
+    if (text == "fill" || text == "parent") {
         return Length::Fill();
     }
     if (text == "fit") {
         return Length::Fit();
+    }
+    if (text == "screen") {
+        return Length::Screen();
     }
     float number = 0.0f;
     std::size_t consumed = 0;

@@ -2,6 +2,7 @@
 #include "compiler/types/ValueParser.h"
 #include "components/frame/Frame.h"
 #include "components/primitive/PrimitiveElement.h"
+#include "components/text/TextElement.h"
 #include "designer/model/DesignDocument.h"
 #include "engine/motion/Motion.h"
 #include "rendering/image/ImageDecoder.h"
@@ -569,13 +570,13 @@ void TestRemainingSurface(TestContext& test) {
     CHECK(test, bound.Ok());
     if (bound.root.has_value()) {
         std::unique_ptr<Element> root = Instantiate(*bound.root, {});
-        auto* name = dynamic_cast<ShapeElement*>(root->FindById("name"));
-        auto* once = dynamic_cast<ShapeElement*>(root->FindById("once"));
-        auto* age = dynamic_cast<ShapeElement*>(root->FindById("age"));
-        auto* full = dynamic_cast<ShapeElement*>(root->FindById("full"));
-        auto* edit = dynamic_cast<ShapeElement*>(root->FindById("edit"));
-        auto* live = dynamic_cast<ShapeElement*>(root->FindById("live"));
-        auto* later = dynamic_cast<ShapeElement*>(root->FindById("later"));
+        auto* name = dynamic_cast<TextElement*>(root->FindById("name"));
+        auto* once = dynamic_cast<TextElement*>(root->FindById("once"));
+        auto* age = dynamic_cast<TextElement*>(root->FindById("age"));
+        auto* full = dynamic_cast<TextElement*>(root->FindById("full"));
+        auto* edit = dynamic_cast<TextElement*>(root->FindById("edit"));
+        auto* live = dynamic_cast<TextElement*>(root->FindById("live"));
+        auto* later = dynamic_cast<TextElement*>(root->FindById("later"));
         CHECK(test, name != nullptr && name->Text() == "Ada");
         CHECK(test, full != nullptr && full->Text() == "Ada Lovelace");
         CHECK(test, later != nullptr && later->Text().empty());
@@ -860,6 +861,49 @@ void TestFoundations(TestContext& test) {
     Finish(test, "foundations", before);
 }
 
+void TestTypography(TestContext& test) {
+    const int before = test.failed;
+    const CompileResult compiled = CompileUi(Source(
+        "<window>"
+        "<heading id=\"title\" level=\"1\" text=\"Hello\"/>"
+        "<body id=\"copy\" text=\"Body\"/>"
+        "<eyebrow id=\"kicker\" text=\"Product\"/>"
+        "<text id=\"wide\" text=\"Fill\" width=\"fill\"/>"
+        "<text id=\"screen\" text=\"Screen\" width=\"screen\"/>"
+        "<caption id=\"note\" text=\"Meta\" fontFamily=\"Segoe UI\" fontSize=\"14\"/>"
+        "</window>"));
+    CHECK(test, compiled.Ok());
+    if (compiled.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*compiled.root, {});
+        root->SetViewport(1200.0f, 800.0f);
+        FakeMeasurer measurer;
+        root->Measure(measurer, 400.0f, 800.0f, true);
+        auto* title = dynamic_cast<TextElement*>(root->FindById("title"));
+        auto* copy = dynamic_cast<TextElement*>(root->FindById("copy"));
+        auto* kicker = dynamic_cast<TextElement*>(root->FindById("kicker"));
+        auto* wide = dynamic_cast<TextElement*>(root->FindById("wide"));
+        auto* screen = dynamic_cast<TextElement*>(root->FindById("screen"));
+        auto* note = dynamic_cast<TextElement*>(root->FindById("note"));
+        CHECK(test, title != nullptr && std::fabs(title->FontSize() - 56.0f) < 0.1f && title->FontWeight() == 600 && title->FontFamily() == "Inter");
+        CHECK(test, copy != nullptr && std::fabs(copy->FontSize() - 19.0f) < 0.1f && copy->FontWeight() == 400);
+        CHECK(test, kicker != nullptr && kicker->DisplayText() == "PRODUCT" && std::fabs(kicker->FontSize() - 12.0f) < 0.1f);
+        CHECK(test, wide != nullptr && std::fabs(wide->Measured().width - 400.0f) < 1.0f);
+        CHECK(test, screen != nullptr && std::fabs(screen->Measured().width - 1200.0f) < 1.0f);
+        CHECK(test, note != nullptr && note->FontFamily() == "Segoe UI" && std::fabs(note->FontSize() - 14.0f) < 0.1f);
+        root->SetViewport(390.0f, 700.0f);
+        root->Measure(measurer, 390.0f, 700.0f, true);
+        CHECK(test, title != nullptr && std::fabs(title->FontSize() - 32.0f) < 0.1f);
+    }
+    const CompileResult mobile = CompileUi(Source("<window><body id=\"dense\" size=\"sm\" text=\"Dense\"/></window>"));
+    CHECK(test, mobile.Ok() && mobile.root.has_value());
+    if (mobile.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*mobile.root, {});
+        auto* dense = dynamic_cast<TextElement*>(root->FindById("dense"));
+        CHECK(test, dense != nullptr && std::fabs(dense->FontSize() - 17.0f) < 0.1f);
+    }
+    Finish(test, "typography", before);
+}
+
 }  // namespace
 
 int RunUnitTests() {
@@ -874,6 +918,7 @@ int RunUnitTests() {
     TestDesignDocumentEditsXml(test);
     TestCompilerSurface(test);
     TestFoundations(test);
+    TestTypography(test);
     TestRemainingSurface(test);
     TestButton(test);
     TestIrDump(test);

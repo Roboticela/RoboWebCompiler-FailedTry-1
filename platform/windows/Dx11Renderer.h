@@ -12,7 +12,7 @@
 
 #include <d2d1_1.h>
 #include <d3d11.h>
-#include <dwrite_2.h>
+#include <dwrite_3.h>
 #include <dxgi1_2.h>
 #include <wrl/client.h>
 
@@ -49,6 +49,9 @@ private:
     bool CreateSwapChain(HWND window, int width, int height);
     bool CreateTarget();
     IDWriteTextFormat* FormatFor(const TextStyle& style);
+    IDWriteFontCollection* InterCollection();
+    IDWriteFontCollection* CollectionForFile(const std::string& path, std::wstring& familyName);
+    void ApplyTextLayout(IDWriteTextLayout* layout, IDWriteTextFormat* format, const TextStyle& style, unsigned length);
 
     Microsoft::WRL::ComPtr<ID3D11Device> device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> deviceContext;
@@ -59,6 +62,9 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
     Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory;
+    Microsoft::WRL::ComPtr<IDWriteFontCollection> interCollection;
+    std::unordered_map<std::string, Microsoft::WRL::ComPtr<IDWriteFontCollection>> fileCollections;
+    std::unordered_map<std::string, std::wstring> fileFamilies;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<IDWriteTextFormat>> formats;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> imageCache;
     std::vector<float> opacityStack{1.0f};

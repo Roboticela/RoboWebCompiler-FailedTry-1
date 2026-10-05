@@ -3,6 +3,7 @@
 #include "components/frame/Frame.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
+#include "components/text/TextElement.h"
 #include "t/button/Button.h"
 
 #include <algorithm>
@@ -529,6 +530,201 @@ void ApplyButton(Button& button, const IrNode& node, const std::unordered_map<st
     }
 }
 
+Color ToneColor(const std::string& tone, Color fallback) {
+    if (tone == "primary") {
+        return Color{0x1D / 255.0f, 0x1D / 255.0f, 0x1F / 255.0f, 1.0f};
+    }
+    if (tone == "secondary") {
+        return Color{0x6E / 255.0f, 0x6E / 255.0f, 0x73 / 255.0f, 1.0f};
+    }
+    if (tone == "tertiary") {
+        return Color{0x86 / 255.0f, 0x86 / 255.0f, 0x8B / 255.0f, 1.0f};
+    }
+    if (tone == "disabled") {
+        return Color{0xC7 / 255.0f, 0xC7 / 255.0f, 0xCC / 255.0f, 1.0f};
+    }
+    if (tone == "link") {
+        return Color{0x0E / 255.0f, 0x7A / 255.0f, 0xFF / 255.0f, 1.0f};
+    }
+    if (tone == "danger") {
+        return Color{0xFF / 255.0f, 0x3B / 255.0f, 0x30 / 255.0f, 1.0f};
+    }
+    if (tone == "success") {
+        return Color{0x30 / 255.0f, 0xD1 / 255.0f, 0x58 / 255.0f, 1.0f};
+    }
+    if (tone == "warning") {
+        return Color{0xFF / 255.0f, 0x9F / 255.0f, 0x0A / 255.0f, 1.0f};
+    }
+    if (tone == "on-brand") {
+        return Color{1.0f, 1.0f, 1.0f, 1.0f};
+    }
+    return fallback;
+}
+
+std::string RoleFor(const IrNode& node) {
+    std::string role = "content";
+    if (node.name == "heading") {
+        role = "h1";
+    } else if (node.name == "display") {
+        role = "display";
+    } else if (node.name == "subhead") {
+        role = "subhead";
+    } else if (node.name == "caption") {
+        role = "caption";
+    } else if (node.name == "eyebrow") {
+        role = "eyebrow";
+    } else if (node.name == "label") {
+        role = "label";
+    } else if (node.name == "body" || node.name == "content" || node.name == "text") {
+        role = "content";
+    }
+    if (const UiValue* value = FindProperty(node, "variant")) {
+        role = value->text;
+    }
+    if (const UiValue* value = FindProperty(node, "level")) {
+        if (value->text == "display") {
+            role = "display";
+        } else if (value->text == "2") {
+            role = "h2";
+        } else if (value->text == "3") {
+            role = "h3";
+        } else if (value->text == "1") {
+            role = "h1";
+        }
+    }
+    if (const UiValue* value = FindProperty(node, "size")) {
+        if (value->text == "sm" && (role == "content" || node.name == "body" || node.name == "content")) {
+            role = "content-sm";
+        }
+    }
+    return role;
+}
+
+void ApplyTypography(TextElement& text, const IrNode& node) {
+    text.SetRole(RoleFor(node));
+    std::string content;
+    if (const UiValue* value = FindProperty(node, "text")) {
+        content = value->text;
+    }
+    if (const UiValue* value = FindProperty(node, "value")) {
+        content = value->text;
+    }
+    text.SetText(std::move(content));
+    const bool sizeSpecified = FindProperty(node, "fontSize") != nullptr;
+    const bool weightSpecified = FindProperty(node, "fontWeight") != nullptr;
+    const bool colorSpecified = FindProperty(node, "textColor") != nullptr || FindProperty(node, "tone") != nullptr;
+    TextAlign align = TextAlign::START;
+    if (const UiValue* value = FindProperty(node, "textAlign")) {
+        if (value->text == "center") {
+            align = TextAlign::CENTER;
+        } else if (value->text == "right" || value->text == "end") {
+            align = TextAlign::END;
+        } else if (value->text == "justify") {
+            align = TextAlign::JUSTIFY;
+        }
+    }
+    Color color = text.FontSize() >= 0.0f ? Color{0x1D / 255.0f, 0x1D / 255.0f, 0x1F / 255.0f, 1.0f} : Color{};
+    if (const UiValue* value = FindProperty(node, "tone")) {
+        color = ToneColor(value->text, color);
+    }
+    if (const UiValue* value = FindProperty(node, "textColor")) {
+        color = value->color;
+    }
+    const float size = sizeSpecified ? NumberOf(node, "fontSize", 19.0f) : 19.0f;
+    const int weight = weightSpecified ? static_cast<int>(NumberOf(node, "fontWeight", 400.0f)) : 400;
+    text.SetFont(size, weight, color, align);
+    text.SetFontSpecified(sizeSpecified, weightSpecified, colorSpecified);
+    if (!sizeSpecified || !weightSpecified || !colorSpecified) {
+        text.SetRole(RoleFor(node));
+    }
+    if (const UiValue* value = FindProperty(node, "letterSpacing")) {
+        text.SetTracking(static_cast<float>(value->number), true);
+    }
+    if (const UiValue* value = FindProperty(node, "lineHeight")) {
+        text.SetLeading(static_cast<float>(value->number), true);
+    }
+    if (const UiValue* value = FindProperty(node, "wordSpacing")) {
+        text.SetWordSpacing(static_cast<float>(value->number));
+    }
+    std::string family = "Inter";
+    std::string file;
+    std::string locale;
+    if (const UiValue* value = FindProperty(node, "fontFamily")) {
+        family = value->text;
+    }
+    if (const UiValue* value = FindProperty(node, "fontFile")) {
+        file = value->text;
+    }
+    if (const UiValue* value = FindProperty(node, "language")) {
+        locale = value->text;
+    }
+    const bool italic = FindProperty(node, "fontStyle") != nullptr &&
+                        (FindProperty(node, "fontStyle")->text == "italic" || FindProperty(node, "fontStyle")->text == "oblique");
+    const bool rtl = FindProperty(node, "direction") != nullptr && FindProperty(node, "direction")->text == "rtl";
+    text.SetTextStyle(std::move(family), std::move(file), italic, rtl, std::move(locale));
+    if (FindProperty(node, "layout") == nullptr && FindProperty(node, "direction") != nullptr) {
+        const std::string direction = FindProperty(node, "direction")->text;
+        if (direction == "ltr" || direction == "rtl") {
+            text.SetLayout(FrameLayout::NONE);
+        }
+    }
+    bool wrap = true;
+    if (const UiValue* value = FindProperty(node, "wrap")) {
+        wrap = value->text != "nowrap" && value->text != "false";
+        text.SetWrap(false);
+    }
+    text.SetWrapText(wrap);
+    if (const UiValue* value = FindProperty(node, "maxLines")) {
+        text.SetMaxLines(static_cast<int>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "ellipsis")) {
+        text.SetEllipsis(FlagValue(value));
+    }
+    if (const UiValue* value = FindProperty(node, "verticalAlign")) {
+        TextAlign vertical = TextAlign::START;
+        if (value->text == "center") {
+            vertical = TextAlign::CENTER;
+        } else if (value->text == "bottom" || value->text == "end") {
+            vertical = TextAlign::END;
+        }
+        text.SetVerticalAlign(vertical);
+    }
+    if (const UiValue* value = FindProperty(node, "textTransform")) {
+        text.SetTransform(value->text, true);
+    }
+    bool underline = false;
+    bool strike = false;
+    bool overline = false;
+    if (const UiValue* value = FindProperty(node, "underline")) {
+        underline = FlagValue(value);
+    }
+    if (const UiValue* value = FindProperty(node, "lineThrough")) {
+        strike = FlagValue(value);
+    }
+    if (const UiValue* value = FindProperty(node, "overline")) {
+        overline = FlagValue(value);
+    }
+    Color decoration = color;
+    if (const UiValue* value = FindProperty(node, "decorationColor")) {
+        decoration = value->color;
+    }
+    float decorationWidth = 1.0f;
+    if (const UiValue* value = FindProperty(node, "decorationWidth")) {
+        decorationWidth = static_cast<float>(value->number);
+    }
+    std::string decorationStyle;
+    if (const UiValue* value = FindProperty(node, "decorationStyle")) {
+        decorationStyle = value->text;
+    }
+    text.SetDecoration(underline, strike, overline, decoration, decorationWidth, decorationStyle);
+    if (const UiValue* value = FindProperty(node, "fontFeatures")) {
+        text.SetFontFeatures(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "writingMode")) {
+        text.SetWritingMode(value->text);
+    }
+}
+
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
     if (node.kind == NodeKind::INSTANCE) {
         if (const UiValue* value = FindProperty(node, "component")) {
@@ -545,6 +741,7 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
     case NodeKind::SHADOW:
         return nullptr;
     case NodeKind::TEXT:
+        return std::make_unique<TextElement>();
     case NodeKind::IMAGE:
     case NodeKind::VECTOR:
     case NodeKind::PATH:
@@ -581,7 +778,11 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         }
         return;
     }
-    if (Frame* frame = dynamic_cast<Frame*>(&element)) {
+    if (TextElement* text = dynamic_cast<TextElement*>(&element)) {
+        ApplyFrame(*text, node);
+        ApplyCommon(*text, node);
+        ApplyTypography(*text, node);
+    } else if (Frame* frame = dynamic_cast<Frame*>(&element)) {
         ApplyFrame(*frame, node);
         ApplyCommon(*frame, node);
         if (node.kind == NodeKind::SCROLL) {

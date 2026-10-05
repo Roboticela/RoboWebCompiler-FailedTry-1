@@ -10,7 +10,7 @@ namespace Runtime {
 namespace {
 
 bool IsFrame(const Element& element) {
-    return element.Kind() == NodeKind::FRAME;
+    return dynamic_cast<const Frame*>(&element) != nullptr;
 }
 
 const Frame* AsFrame(const Element& element) {
@@ -85,6 +85,10 @@ float Frame::ContentWidth() const {
 
 float Frame::ContentHeight() const {
     return std::max(0.0f, Bounds().height - padding.SpanY(Bounds().width));
+}
+
+Edges Frame::Padding() const {
+    return padding;
 }
 void Frame::SetLayout(FrameLayout value) { layout = value; }
 void Frame::SetShrink(float value) { shrink = value; }
@@ -173,7 +177,9 @@ Size Frame::Measure(TextMeasurer& measurer, float availableWidth, float availabl
         return measured;
     }
     const Length widthLength = basis.unit != LengthUnit::FIT && Width().unit == LengthUnit::FIT ? basis : ModeLength(Width(), widthMode);
-    const float outerWidth = widthLength.unit == LengthUnit::FIT ? availableWidth : widthLength.Resolve(availableWidth, availableWidth);
+    const float widthSpace = Width().unit == LengthUnit::SCREEN && viewportWidth > 0.0f ? viewportWidth : availableWidth;
+    const float heightSpace = Height().unit == LengthUnit::SCREEN && viewportHeight > 0.0f ? viewportHeight : availableHeight;
+    const float outerWidth = widthLength.unit == LengthUnit::FIT ? availableWidth : widthLength.Resolve(widthSpace, availableWidth);
     const float padX = padding.SpanX(outerWidth);
     const float padY = padding.SpanY(outerWidth);
     const float innerWidth = std::max(0.0f, outerWidth - padX);
@@ -254,13 +260,13 @@ Size Frame::Measure(TextMeasurer& measurer, float availableWidth, float availabl
 
     const float fitWidth = flowWidth + padX;
     float fitHeight = flowHeight + padY;
-    const float resolvedWidth = widthLength.unit == LengthUnit::FIT ? fitWidth : widthLength.Resolve(availableWidth, fitWidth);
+    const float resolvedWidth = widthLength.unit == LengthUnit::FIT ? fitWidth : widthLength.Resolve(widthSpace, fitWidth);
     if (aspectRatio > 0.0f && (Height().unit == LengthUnit::FIT || heightMode == SizeMode::FIT)) {
         fitHeight = resolvedWidth / aspectRatio;
     }
     const Length heightLength = ModeLength(Height(), heightMode);
-    measured.width = widthLength.unit == LengthUnit::FIT ? fitWidth : widthLength.Resolve(availableWidth, fitWidth);
-    measured.height = ResolveDefinite(heightLength, availableHeight, fitHeight, heightDefinite || heightMode == SizeMode::FILL || heightMode == SizeMode::PERCENT || heightMode == SizeMode::FIXED);
+    measured.width = widthLength.unit == LengthUnit::FIT ? fitWidth : widthLength.Resolve(widthSpace, fitWidth);
+    measured.height = ResolveDefinite(heightLength, heightSpace, fitHeight, heightDefinite || heightMode == SizeMode::FILL || heightMode == SizeMode::PERCENT || heightMode == SizeMode::FIXED);
     contentHeight = fitHeight;
     if (scrollY > std::max(0.0f, contentHeight - measured.height)) {
         scrollY = std::max(0.0f, contentHeight - measured.height);

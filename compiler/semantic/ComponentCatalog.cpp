@@ -264,6 +264,42 @@ std::vector<PropertySpec> ScrollProperties() {
                                     {"smoothScrolling", TypeKind::BOOL}});
 }
 
+std::vector<PropertySpec> TypographyProperties() {
+    std::vector<PropertySpec> properties = FrameProperties();
+    const PropertySpec extra[] = {
+        {"text", TypeKind::STRING},
+        {"value", TypeKind::STRING},
+        {"fontFamily", TypeKind::STRING},
+        {"fontFile", TypeKind::STRING},
+        {"fontSize", TypeKind::FONT_SIZE},
+        {"fontWeight", TypeKind::INT},
+        {"fontStyle", TypeKind::STRING},
+        {"letterSpacing", TypeKind::FLOAT},
+        {"wordSpacing", TypeKind::FLOAT},
+        {"lineHeight", TypeKind::FLOAT},
+        {"textColor", TypeKind::COLOR},
+        {"textAlign", TypeKind::STRING},
+        {"verticalAlign", TypeKind::STRING},
+        {"maxLines", TypeKind::INT},
+        {"ellipsis", TypeKind::BOOL},
+        {"underline", TypeKind::BOOL},
+        {"lineThrough", TypeKind::BOOL},
+        {"overline", TypeKind::BOOL},
+        {"decorationColor", TypeKind::COLOR},
+        {"decorationWidth", TypeKind::FLOAT},
+        {"decorationStyle", TypeKind::STRING},
+        {"textTransform", TypeKind::STRING},
+        {"fontFeatures", TypeKind::STRING},
+        {"language", TypeKind::STRING},
+        {"writingMode", TypeKind::STRING},
+        {"tone", TypeKind::STRING},
+        {"level", TypeKind::STRING},
+        {"size", TypeKind::STRING},
+    };
+    properties.insert(properties.end(), std::begin(extra), std::end(extra));
+    return properties;
+}
+
 std::vector<PropertySpec> ShadowProperties() {
     return {
         {"shadow", TypeKind::STRING},
@@ -282,7 +318,15 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"window", NodeKind::WINDOW, true, {{"id", TypeKind::STRING}, {"title", TypeKind::STRING}, {"width", TypeKind::LENGTH}, {"height", TypeKind::LENGTH}, {"background", TypeKind::COLOR}}},
         {"frame", NodeKind::FRAME, true, FrameProperties()},
         {"shadow", NodeKind::SHADOW, false, ShadowProperties()},
-        {"text", NodeKind::TEXT, false, TextProperties()},
+        {"text", NodeKind::TEXT, true, TypographyProperties()},
+        {"heading", NodeKind::TEXT, true, TypographyProperties()},
+        {"display", NodeKind::TEXT, true, TypographyProperties()},
+        {"subhead", NodeKind::TEXT, true, TypographyProperties()},
+        {"body", NodeKind::TEXT, true, TypographyProperties()},
+        {"content", NodeKind::TEXT, true, TypographyProperties()},
+        {"caption", NodeKind::TEXT, true, TypographyProperties()},
+        {"eyebrow", NodeKind::TEXT, true, TypographyProperties()},
+        {"label", NodeKind::TEXT, true, TypographyProperties()},
         {"image", NodeKind::IMAGE, false, ImageProperties()},
         {"vector", NodeKind::VECTOR, true, VectorProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},

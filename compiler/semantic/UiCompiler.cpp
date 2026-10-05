@@ -81,9 +81,9 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
             choices = options;
             choiceCount = 9;
         } else if (attribute.name == "wrap") {
-            static const char* options[] = {"nowrap", "wrap"};
+            static const char* options[] = {"nowrap", "wrap", "true", "false"};
             choices = options;
-            choiceCount = 2;
+            choiceCount = 4;
         } else if (attribute.name == "overflow") {
             static const char* options[] = {"visible", "hidden", "scroll", "auto"};
             choices = options;
@@ -109,13 +109,13 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
             choices = options;
             choiceCount = 2;
         } else if (attribute.name == "textAlign") {
-            static const char* options[] = {"left", "center", "right", "justify"};
+            static const char* options[] = {"left", "center", "right", "justify", "start", "end"};
             choices = options;
-            choiceCount = 4;
+            choiceCount = 6;
         } else if (attribute.name == "verticalAlign") {
-            static const char* options[] = {"top", "center", "bottom"};
+            static const char* options[] = {"top", "center", "bottom", "start", "end"};
             choices = options;
-            choiceCount = 3;
+            choiceCount = 5;
         } else if (attribute.name == "fontStyle") {
             static const char* options[] = {"normal", "italic", "oblique"};
             choices = options;

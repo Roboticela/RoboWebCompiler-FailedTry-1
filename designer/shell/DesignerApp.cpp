@@ -2113,6 +2113,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             };
             const LibraryItem items[] = {
                 {"Core", "frame"},       {"Core", "text"},       {"Core", "image"},
+                {"Typography", "heading"}, {"Typography", "subhead"}, {"Typography", "body"},
+                {"Typography", "caption"}, {"Typography", "eyebrow"}, {"Typography", "label"},
                 {"Shape", "vector"},     {"Shape", "path"},      {"Shape", "line"},
                 {"Layout", "group"},     {"Layout", "scroll"},
                 {"Composition", "component"}, {"Composition", "instance"}, {"Composition", "slot"},

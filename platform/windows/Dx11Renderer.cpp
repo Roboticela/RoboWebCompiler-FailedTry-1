@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <sstream>
 
 namespace Runtime {
@@ -274,30 +275,211 @@ void Dx11Renderer::FillRectangle(const Rect& rect, const Color& color, float rad
     d2dContext->FillRectangle(box, brush.Get());
 }
 
+std::wstring WidenAscii(const std::string& text) {
+    return std::wstring(text.begin(), text.end());
+}
+
+bool LooksLikeFontFile(const std::string& text) {
+    if (text.find('/') != std::string::npos || text.find('\\') != std::string::npos) {
+        return true;
+    }
+    const std::string lower = text;
+    return lower.size() >= 4 && (lower.rfind(".ttf") == lower.size() - 4 || lower.rfind(".otf") == lower.size() - 4 ||
+                                 lower.rfind(".ttc") == lower.size() - 4);
+}
+
+IDWriteFontCollection* Dx11Renderer::CollectionForFile(const std::string& path, std::wstring& familyName) {
+    const auto found = fileCollections.find(path);
+    if (found != fileCollections.end()) {
+        familyName = fileFamilies[path];
+        return found->second.Get();
+    }
+    Microsoft::WRL::ComPtr<IDWriteFactory5> factory5;
+    if (!writeFactory || FAILED(writeFactory.As(&factory5))) {
+        return nullptr;
+    }
+    const std::wstring widePath = WidenAscii(path);
+    Microsoft::WRL::ComPtr<IDWriteFontFile> fontFile;
+    if (FAILED(writeFactory->CreateFontFileReference(widePath.c_str(), nullptr, fontFile.GetAddressOf()))) {
+        return nullptr;
+    }
+    Microsoft::WRL::ComPtr<IDWriteFontSetBuilder1> builder;
+    if (FAILED(factory5->CreateFontSetBuilder(builder.GetAddressOf()))) {
+        return nullptr;
+    }
+    if (FAILED(builder->AddFontFile(fontFile.Get()))) {
+        return nullptr;
+    }
+    Microsoft::WRL::ComPtr<IDWriteFontSet> fontSet;
+    if (FAILED(builder->CreateFontSet(fontSet.GetAddressOf())) || fontSet->GetFontCount() == 0) {
+        return nullptr;
+    }
+    Microsoft::WRL::ComPtr<IDWriteFontFaceReference> faceReference;
+    Microsoft::WRL::ComPtr<IDWriteFontFace3> face;
+    if (SUCCEEDED(fontSet->GetFontFaceReference(0, faceReference.GetAddressOf())) && SUCCEEDED(faceReference->CreateFontFace(face.GetAddressOf()))) {
+        Microsoft::WRL::ComPtr<IDWriteLocalizedStrings> names;
+        if (SUCCEEDED(face->GetFamilyNames(names.GetAddressOf())) && names && names->GetCount() > 0) {
+            UINT32 length = 0;
+            if (SUCCEEDED(names->GetStringLength(0, &length))) {
+                std::wstring name(static_cast<std::size_t>(length) + 1, L'\0');
+                if (SUCCEEDED(names->GetString(0, name.data(), length + 1))) {
+                    name.resize(length);
+                    familyName = name;
+                }
+            }
+        }
+    }
+    if (familyName.empty()) {
+        familyName = L"Inter";
+    }
+    Microsoft::WRL::ComPtr<IDWriteFontCollection1> collection;
+    if (FAILED(factory5->CreateFontCollectionFromFontSet(fontSet.Get(), collection.GetAddressOf()))) {
+        return nullptr;
+    }
+    fileFamilies[path] = familyName;
+    fileCollections.emplace(path, collection);
+    return fileCollections[path].Get();
+}
+
+IDWriteFontCollection* Dx11Renderer::InterCollection() {
+    if (interCollection) {
+        return interCollection.Get();
+    }
+    Microsoft::WRL::ComPtr<IDWriteFactory5> factory5;
+    if (!writeFactory || FAILED(writeFactory.As(&factory5))) {
+        return nullptr;
+    }
+    const std::filesystem::path root = std::filesystem::path(RUNTIME_SOURCE_DIR) / "assets" / "fonts";
+    const char* files[] = {"Inter-Regular.ttf", "Inter-Medium.ttf", "Inter-SemiBold.ttf", "Inter-Italic.ttf"};
+    Microsoft::WRL::ComPtr<IDWriteFontSetBuilder1> builder;
+    if (FAILED(factory5->CreateFontSetBuilder(builder.GetAddressOf()))) {
+        return nullptr;
+    }
+    int added = 0;
+    for (const char* file : files) {
+        const std::filesystem::path path = root / file;
+        if (!std::filesystem::exists(path)) {
+            continue;
+        }
+        Microsoft::WRL::ComPtr<IDWriteFontFile> fontFile;
+        const std::wstring wide = path.wstring();
+        if (SUCCEEDED(writeFactory->CreateFontFileReference(wide.c_str(), nullptr, fontFile.GetAddressOf())) &&
+            SUCCEEDED(builder->AddFontFile(fontFile.Get()))) {
+            ++added;
+        }
+    }
+    if (added == 0) {
+        return nullptr;
+    }
+    Microsoft::WRL::ComPtr<IDWriteFontSet> fontSet;
+    Microsoft::WRL::ComPtr<IDWriteFontCollection1> collection;
+    if (FAILED(builder->CreateFontSet(fontSet.GetAddressOf())) ||
+        FAILED(factory5->CreateFontCollectionFromFontSet(fontSet.Get(), collection.GetAddressOf()))) {
+        return nullptr;
+    }
+    interCollection = collection;
+    return interCollection.Get();
+}
+
+void Dx11Renderer::ApplyTextLayout(IDWriteTextLayout* layout, IDWriteTextFormat* format, const TextStyle& style, unsigned length) {
+    if (layout == nullptr) {
+        return;
+    }
+    layout->SetWordWrapping(style.wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
+    layout->SetTextAlignment(ToHorizontal(style.horizontal));
+    layout->SetParagraphAlignment(ToVertical(style.vertical));
+    const DWRITE_TEXT_RANGE range{0, length};
+    Microsoft::WRL::ComPtr<IDWriteTextLayout1> layout1;
+    if (SUCCEEDED(layout->QueryInterface(IID_PPV_ARGS(layout1.GetAddressOf())))) {
+        if (style.letterSpacing != 0.0f || style.wordSpacing != 0.0f) {
+            layout1->SetCharacterSpacing(style.letterSpacing, style.letterSpacing, style.wordSpacing, range);
+        }
+        if (style.lineHeight > 0.0f && style.fontSize > 0.0f) {
+            const float height = style.fontSize * style.lineHeight;
+            layout1->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, height, height * 0.8f);
+        }
+    }
+    if (style.underline) {
+        layout->SetUnderline(TRUE, range);
+    }
+    if (style.lineThrough) {
+        layout->SetStrikethrough(TRUE, range);
+    }
+    if (style.maxLines > 0 && style.lineHeight > 0.0f) {
+        layout->SetMaxHeight(style.fontSize * style.lineHeight * static_cast<float>(style.maxLines));
+    }
+    DWRITE_TRIMMING trimming{};
+    trimming.granularity = style.ellipsis || style.maxLines > 0 ? DWRITE_TRIMMING_GRANULARITY_CHARACTER : DWRITE_TRIMMING_GRANULARITY_NONE;
+    Microsoft::WRL::ComPtr<IDWriteInlineObject> sign;
+    if (trimming.granularity != DWRITE_TRIMMING_GRANULARITY_NONE) {
+        writeFactory->CreateEllipsisTrimmingSign(format, sign.GetAddressOf());
+    }
+    layout->SetTrimming(&trimming, sign.Get());
+    if (!style.fontFeatures.empty()) {
+        Microsoft::WRL::ComPtr<IDWriteTypography> typography;
+        if (SUCCEEDED(writeFactory->CreateTypography(typography.GetAddressOf()))) {
+            std::string tag;
+            for (std::size_t index = 0; index <= style.fontFeatures.size(); ++index) {
+                const char character = index == style.fontFeatures.size() ? ',' : style.fontFeatures[index];
+                if (character == ',' || character == ' ') {
+                    if (tag.size() == 4) {
+                        const UINT32 name = static_cast<unsigned char>(tag[0]) | (static_cast<unsigned char>(tag[1]) << 8) |
+                                            (static_cast<unsigned char>(tag[2]) << 16) | (static_cast<unsigned char>(tag[3]) << 24);
+                        typography->AddFontFeature(DWRITE_FONT_FEATURE{static_cast<DWRITE_FONT_FEATURE_TAG>(name), 1});
+                    }
+                    tag.clear();
+                } else {
+                    tag.push_back(character);
+                }
+            }
+            layout->SetTypography(typography.Get(), range);
+        }
+    }
+}
+
 IDWriteTextFormat* Dx11Renderer::FormatFor(const TextStyle& style) {
     if (!writeFactory) {
         return nullptr;
     }
     const int weight = style.fontWeight < 100 ? 400 : style.fontWeight;
-    const std::string key = style.fontFamily + "|" + style.locale + "|" + std::to_string(weight) + "|" +
+    std::string family = style.fontFamily.empty() ? "Inter" : style.fontFamily;
+    std::string file = style.fontFile;
+    if (file.empty() && LooksLikeFontFile(family)) {
+        file = family;
+        family = "Inter";
+    }
+    const std::string key = family + "|" + file + "|" + style.locale + "|" + std::to_string(weight) + "|" +
                             std::to_string(static_cast<int>(style.fontSize * 100.0f)) + (style.italic ? "|i" : "|n") +
-                            (style.rtl ? "|r" : "|l");
+                            (style.rtl ? "|r" : "|l") + (style.verticalWriting ? "|v" : "|h");
     const auto found = formats.find(key);
     if (found != formats.end()) {
         return found->second.Get();
     }
-    const std::wstring family = style.fontFamily.empty() ? L"Segoe UI" : std::wstring(style.fontFamily.begin(), style.fontFamily.end());
-    const std::wstring locale = style.locale.empty() ? L"en-us" : std::wstring(style.locale.begin(), style.locale.end());
+    std::wstring familyName = WidenAscii(family);
+    IDWriteFontCollection* collection = nullptr;
+    if (!file.empty()) {
+        collection = CollectionForFile(file, familyName);
+    } else if (family == "Inter") {
+        collection = InterCollection();
+    }
+    const std::wstring locale = style.locale.empty() ? L"en-us" : WidenAscii(style.locale);
     Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
-    const HRESULT result = writeFactory->CreateTextFormat(
-        family.c_str(), nullptr, static_cast<DWRITE_FONT_WEIGHT>(weight),
-        style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, style.fontSize, locale.c_str(),
-        format.GetAddressOf());
+    const DWRITE_FONT_STYLE fontStyle = style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL;
+    HRESULT result = writeFactory->CreateTextFormat(familyName.c_str(), collection, static_cast<DWRITE_FONT_WEIGHT>(weight), fontStyle,
+                                                    DWRITE_FONT_STRETCH_NORMAL, style.fontSize, locale.c_str(), format.GetAddressOf());
+    if (FAILED(result)) {
+        result = writeFactory->CreateTextFormat(L"Segoe UI", nullptr, static_cast<DWRITE_FONT_WEIGHT>(weight), fontStyle, DWRITE_FONT_STRETCH_NORMAL,
+                                                style.fontSize, locale.c_str(), format.GetAddressOf());
+    }
     if (FAILED(result)) {
         return nullptr;
     }
     format->SetReadingDirection(style.rtl ? DWRITE_READING_DIRECTION_RIGHT_TO_LEFT : DWRITE_READING_DIRECTION_LEFT_TO_RIGHT);
     format->SetWordWrapping(style.wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
+    Microsoft::WRL::ComPtr<IDWriteTextFormat1> format1;
+    if (style.verticalWriting && SUCCEEDED(format.As(&format1))) {
+        format1->SetVerticalGlyphOrientation(DWRITE_VERTICAL_GLYPH_ORIENTATION_DEFAULT);
+    }
     formats.emplace(key, format);
     return format.Get();
 }
@@ -426,11 +608,15 @@ void Dx11Renderer::DrawString(std::string_view text, const Rect& rect, const Tex
             layout2->SetFontFallback(fallback.Get());
         }
     }
-    layout->SetWordWrapping(style.wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
-    layout->SetTextAlignment(ToHorizontal(style.horizontal));
-    layout->SetParagraphAlignment(ToVertical(style.vertical));
+    ApplyTextLayout(layout.Get(), format, style, static_cast<unsigned>(wide.size()));
     brush->SetColor(ToD2d(style.color, opacityStack.back()));
-    d2dContext->DrawTextLayout(D2D1::Point2F(rect.x, rect.y), layout.Get(), brush.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    const D2D1_DRAW_TEXT_OPTIONS options = style.maxLines > 0 || style.ellipsis ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE;
+    d2dContext->DrawTextLayout(D2D1::Point2F(rect.x, rect.y), layout.Get(), brush.Get(), options);
+    if (style.overline && rect.width > 0.0f) {
+        brush->SetColor(ToD2d(style.decorationColor.a > 0.0f ? style.decorationColor : style.color, opacityStack.back()));
+        const float thickness = style.decorationWidth > 0.0f ? style.decorationWidth : 1.0f;
+        d2dContext->FillRectangle(D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + thickness), brush.Get());
+    }
 }
 
 Size Dx11Renderer::MeasureText(std::string_view text, float fontSize, float maxWidth) {
@@ -439,6 +625,7 @@ Size Dx11Renderer::MeasureText(std::string_view text, float fontSize, float maxW
     }
     TextStyle style;
     style.fontSize = fontSize;
+    style.fontFamily = "Inter";
     style.fontWeight = WEIGHT_REGULAR;
     style.wrap = maxWidth < UNBOUNDED_MEASURE;
     IDWriteTextFormat* format = FormatFor(style);

@@ -101,6 +101,7 @@ public:
     float ContentY() const;
     float ContentWidth() const;
     float ContentHeight() const;
+    Edges Padding() const;
 
 private:
     bool OutOfFlow() const;

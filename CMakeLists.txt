@@ -61,6 +61,8 @@ add_library(RuntimeUi STATIC
     components/primitive/PrimitiveElement.h
     components/layout/WindowElement.cpp
     components/layout/WindowElement.h
+    components/text/TextElement.cpp
+    components/text/TextElement.h
     t/button/Button.cpp
     t/button/Button.h
     rendering/renderer/Renderer.h
@@ -92,6 +94,7 @@ add_library(RuntimePlatform STATIC
 )
 target_include_directories(RuntimePlatform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(RuntimePlatform PUBLIC RuntimeUi d3d11 dxgi d2d1 dwrite)
+target_compile_definitions(RuntimePlatform PUBLIC "RUNTIME_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
 
 add_library(RuntimeApp STATIC
     app/Application.cpp

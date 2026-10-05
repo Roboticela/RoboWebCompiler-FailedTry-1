@@ -124,6 +124,7 @@ enum class LengthUnit : std::uint8_t {
     PERCENT,
     FILL,
     FIT,
+    SCREEN,
 };
 
 enum class Alignment : std::uint8_t {
@@ -179,6 +180,10 @@ struct Length {
         return Length{0.0f, LengthUnit::FIT};
     }
 
+    static Length Screen(float percent = 100.0f) {
+        return Length{percent, LengthUnit::SCREEN};
+    }
+
     float Resolve(float available, float fit, bool allowNegative = false) const {
         float resolved = fit;
         switch (unit) {
@@ -190,6 +195,9 @@ struct Length {
             break;
         case LengthUnit::FILL:
             resolved = available;
+            break;
+        case LengthUnit::SCREEN:
+            resolved = available * (value <= 0.0f ? 1.0f : value / 100.0f);
             break;
         case LengthUnit::FIT:
             resolved = fit;

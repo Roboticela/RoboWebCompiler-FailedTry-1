@@ -297,23 +297,46 @@ Children: no. Place it inside a `frame` to add another shadow.
 | `shadowColor` | color |
 | `shadowX` `shadowY` `shadowBlur` `shadowSpread` | float |
 
-### `text`
+### Typography
 
-Children: no. `text` and `value` are the same string. Setting both is an error.
+`text`, `heading`, `display`, `subhead`, `body`, `content`, `caption`, `eyebrow`, and `label` are text. They accept children, so a text box can also be a horizontal, vertical, grid, wrap, or stack container. They accept every `frame` property, including width, height, min and max, `widthMode`, `heightMode`, padding, margin, grow, shrink, basis, gap, columns, rows, column, row, spans, position, anchor, background, border, radius, overflow, and the event attributes.
 
-Identity properties, plus:
+`width="fill"` and `width="parent"` use the parent width. `width="screen"` uses the viewport width. `height` accepts the same keywords. `width="100%"` is a percent of the parent.
+
+The default font is Inter. `fontFamily` is a family name such as `Inter` or `Segoe UI`. `fontFile` is a `.ttf`, `.otf`, or `.ttc` path. A path in `fontFamily` is treated as a file.
+
+Roles match the foundation scale. Below 735px the mobile size is used unless `fontSize` is set.
+
+| Element | Role | Desktop / mobile | Weight | Tracking | Line height | Tone |
+| --- | --- | --- | --- | --- | --- | --- |
+| `display` or `heading level="display"` | display | 80 / 40 | 600 | -0.015 | 1.05 | primary |
+| `heading` or `heading level="1"` | h1 | 56 / 32 | 600 | -0.015 | 1.07 | primary |
+| `heading level="2"` | h2 | 40 / 28 | 600 | -0.01 | 1.1 | primary |
+| `heading level="3"` | h3 | 28 / 21 | 600 | -0.005 | 1.14 | primary |
+| `subhead` | subhead | 24 / 19 | 400 | 0 | 1.33 | secondary |
+| `body` `content` `text` | content | 19 / 17 | 400 | 0 | 1.42, or 1.47 on a phone | secondary |
+| `body size="sm"` | content-sm | 17 | 400 | 0 | 1.47 | secondary |
+| `caption` | caption | 12 | 400 | 0 | 1.33 | tertiary |
+| `eyebrow` | eyebrow | 12 | 400 | 0.05 | 1.33 | tertiary, uppercase |
+| `label` | label | 17 | 500 | 0 | 1 | primary |
+
+`variant` sets the role directly: `display` `h1` `h2` `h3` `subhead` `content` `content-sm` `caption` `eyebrow` `label`. `tone` sets the color: `primary` `secondary` `tertiary` `disabled` `link` `danger` `success` `warning` `on-brand`. An explicit `fontSize`, `fontWeight`, `letterSpacing`, `lineHeight`, `textColor`, or `textTransform` replaces that part of the role.
+
+`text` and `value` are the same string. Setting both is an error.
+
+Text properties, in addition to the frame properties:
 
 | Property | Type | Values |
 | --- | --- | --- |
-| `text` `value` `fontFamily` `fontFeatures` `language` | string | free text |
+| `text` `value` `fontFamily` `fontFile` `fontFeatures` `language` | string | free text. `fontFile` is a font path |
 | `fontSize` | font size | pixel length or a `$type` token |
 | `fontWeight` | int | integer, or `$weight.regular` `$weight.medium` `$weight.semibold` |
 | `fontStyle` | string | `normal` `italic` `oblique` |
-| `letterSpacing` `wordSpacing` `lineHeight` `decorationWidth` | float | number |
+| `letterSpacing` `wordSpacing` `lineHeight` `decorationWidth` | float | number. Tracking and line height from a role are em and a multiplier |
 | `textColor` `decorationColor` | color | see Values |
-| `textAlign` | string | `left` `center` `right` `justify` |
-| `verticalAlign` | string | `top` `center` `bottom` |
-| `wrap` | string | `nowrap` `wrap` |
+| `textAlign` | string | `left` `start` `center` `right` `end` `justify` |
+| `verticalAlign` | string | `top` `start` `center` `bottom` `end` |
+| `wrap` | string | `wrap` `true` `nowrap` `false`. This wraps the text, not the flex line |
 | `maxLines` | int | integer |
 | `ellipsis` `underline` `lineThrough` `overline` | bool | `true` `false` |
 | `overflow` | string | `visible` `hidden` `scroll` `auto` |
