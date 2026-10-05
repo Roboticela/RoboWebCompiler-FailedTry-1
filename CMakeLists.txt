@@ -61,9 +61,23 @@ add_library(RuntimeUi STATIC
     components/layout/WindowElement.h
     rendering/renderer/Renderer.h
     rendering/text/TextMeasurer.h
+    rendering/text/TextLayout.cpp
+    rendering/text/TextLayout.h
+    rendering/path/PathCurve.cpp
+    rendering/path/PathCurve.h
+    rendering/image/ImageDecoder.cpp
+    rendering/image/ImageDecoder.h
+    rendering/image/ImageCodec.h
+    rendering/image/Inflate.cpp
+    rendering/image/Inflate.h
+    rendering/image/StillImage.cpp
+    rendering/image/WebpImage.cpp
+    rendering/image/AvifImage.cpp
+    engine/motion/Motion.cpp
+    engine/motion/Motion.h
 )
 target_include_directories(RuntimeUi PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(RuntimeUi PUBLIC RuntimeCompiler)
+target_link_libraries(RuntimeUi PUBLIC RuntimeCompiler dwrite)
 
 add_library(RuntimePlatform STATIC
     platform/windows/Win32Window.cpp
@@ -101,11 +115,11 @@ add_executable(RoboUIDesigner
     designer/shell/DesignerApp.h
     designer/tools/EditorTool.h
 )
-target_link_libraries(RoboUIDesigner PRIVATE RuntimeDesigner RuntimeApp)
+target_link_libraries(RoboUIDesigner PRIVATE RuntimeDesigner RuntimeApp ole32 shell32 uuid)
 target_compile_definitions(RoboUIDesigner PRIVATE "DESIGNER_HELLO_XML=\"${CMAKE_SOURCE_DIR}/examples/Hello/Hello.xml\"")
 
 add_executable(RuntimeTests tests/Main.cpp tests/TestHarness.h)
-target_link_libraries(RuntimeTests PRIVATE RuntimeUi RuntimeDesigner)
+target_link_libraries(RuntimeTests PRIVATE RuntimeUi RuntimeDesigner windowscodecs ole32)
 
 add_executable(RuntimeBenchmarks benchmarks/Main.cpp)
 target_link_libraries(RuntimeBenchmarks PRIVATE RuntimeUi)

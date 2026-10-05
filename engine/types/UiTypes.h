@@ -151,6 +151,26 @@ enum class TextAlign : std::uint8_t {
     START,
     CENTER,
     END,
+    JUSTIFY,
+};
+
+enum class BindMode : std::uint8_t {
+    ONE_WAY,
+    TWO_WAY,
+    ONE_TIME,
+    COMPUTED,
+    REACTIVE,
+    ASYNC,
+};
+
+enum class BoxEdge : std::uint8_t {
+    LEFT,
+    RIGHT,
+    TOP,
+    BOTTOM,
+    CENTER_X,
+    CENTER_Y,
+    COUNT,
 };
 
 struct Length {

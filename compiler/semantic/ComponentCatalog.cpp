@@ -3,8 +3,10 @@
 namespace Runtime {
 namespace {
 
+std::vector<PropertySpec> EventProperties();
+
 std::vector<PropertySpec> FrameProperties() {
-    return {
+    std::vector<PropertySpec> properties = {
         {"id", TypeKind::STRING},
         {"name", TypeKind::STRING},
         {"class", TypeKind::STRING},
@@ -103,13 +105,52 @@ std::vector<PropertySpec> FrameProperties() {
         {"grayscale", TypeKind::FLOAT},
         {"hueRotate", TypeKind::FLOAT},
         {"cursor", TypeKind::STRING},
+        {"style", TypeKind::STRING},
+        {"left", TypeKind::STRING},
+        {"right", TypeKind::STRING},
+        {"top", TypeKind::STRING},
+        {"bottom", TypeKind::STRING},
+        {"centerX", TypeKind::STRING},
+        {"centerY", TypeKind::STRING},
+        {"direction", TypeKind::STRING},
+        {"alignment", TypeKind::STRING},
+        {"distribution", TypeKind::STRING},
+        {"minScreen", TypeKind::FLOAT},
+        {"maxScreen", TypeKind::FLOAT},
+        {"orientation", TypeKind::STRING},
+        {"minContainer", TypeKind::FLOAT},
+        {"variant", TypeKind::STRING},
     };
+    const std::vector<PropertySpec> events = EventProperties();
+    properties.insert(properties.end(), events.begin(), events.end());
+    return properties;
+}
+
+std::vector<PropertySpec> EventProperties() {
+    const char* events[] = {"onPointerDown", "onPointerUp",     "onPointerMove", "onPointerEnter", "onPointerLeave", "onPointerOver",
+                            "onPointerOut",  "onPointerCancel", "onClick",       "onDoubleClick",  "onContextMenu",  "onTouchStart",
+                            "onTouchMove",   "onTouchEnd",      "onTouchCancel", "onKeyDown",      "onKeyUp",        "onKeyPress",
+                            "onFocus",       "onBlur",          "onFocusIn",     "onFocusOut",     "onInput",        "onChange",
+                            "onBeforeInput", "onCompositionStart", "onCompositionUpdate", "onCompositionEnd", "onSubmit", "onReset",
+                            "onValidate",    "onInvalid",       "onDragStart",   "onDrag",         "onDragEnter",    "onDragOver",
+                            "onDragLeave",   "onDrop",          "onDragEnd",     "onScroll",       "onScrollStart",  "onScrollEnd",
+                            "onCreate",      "onMount",         "onUnmount",     "onDestroy",      "onLoad",         "onUnload",
+                            "onResize",      "onLayout",        "onPositionChange", "onSizeChange", "onAnimationStart", "onAnimationUpdate",
+                            "onAnimationComplete", "onAnimationCancel", "onStateChange", "onPropertyChange", "onVariantChange", "onSelect",
+                            "onDeselect",    "onSelectionChange", "onLoadStart", "onLoadError",    "onPlay",         "onPause",
+                            "onEnded",       "onTimeUpdate"};
+    std::vector<PropertySpec> properties;
+    for (const char* event : events) {
+        properties.push_back({event, TypeKind::EVENT_HANDLER});
+    }
+    return properties;
 }
 
 std::vector<PropertySpec> IdentityProperties() {
-    return {
+    std::vector<PropertySpec> properties = {
         {"id", TypeKind::STRING},
         {"name", TypeKind::STRING},
+        {"style", TypeKind::STRING},
         {"x", TypeKind::LENGTH},
         {"y", TypeKind::LENGTH},
         {"width", TypeKind::LENGTH},
@@ -118,6 +159,9 @@ std::vector<PropertySpec> IdentityProperties() {
         {"opacity", TypeKind::FLOAT},
         {"visible", TypeKind::BOOL},
     };
+    const std::vector<PropertySpec> events = EventProperties();
+    properties.insert(properties.end(), events.begin(), events.end());
+    return properties;
 }
 
 std::vector<PropertySpec> With(std::vector<PropertySpec> base, std::vector<PropertySpec> extra) {
@@ -127,14 +171,46 @@ std::vector<PropertySpec> With(std::vector<PropertySpec> base, std::vector<Prope
 
 std::vector<PropertySpec> TextProperties() {
     return With(IdentityProperties(), {{"text", TypeKind::STRING},
+                                       {"value", TypeKind::STRING},
+                                       {"fontFamily", TypeKind::STRING},
                                        {"fontSize", TypeKind::FONT_SIZE},
                                        {"fontWeight", TypeKind::INT},
+                                       {"fontStyle", TypeKind::STRING},
+                                       {"letterSpacing", TypeKind::FLOAT},
+                                       {"wordSpacing", TypeKind::FLOAT},
+                                       {"lineHeight", TypeKind::FLOAT},
                                        {"textColor", TypeKind::COLOR},
-                                       {"textAlign", TypeKind::STRING}});
+                                       {"textAlign", TypeKind::STRING},
+                                       {"verticalAlign", TypeKind::STRING},
+                                       {"wrap", TypeKind::STRING},
+                                       {"maxLines", TypeKind::INT},
+                                       {"ellipsis", TypeKind::BOOL},
+                                       {"overflow", TypeKind::STRING},
+                                       {"underline", TypeKind::BOOL},
+                                       {"lineThrough", TypeKind::BOOL},
+                                       {"overline", TypeKind::BOOL},
+                                       {"decorationColor", TypeKind::COLOR},
+                                       {"decorationWidth", TypeKind::FLOAT},
+                                       {"decorationStyle", TypeKind::STRING},
+                                       {"textTransform", TypeKind::STRING},
+                                       {"fontFeatures", TypeKind::STRING},
+                                       {"language", TypeKind::STRING},
+                                       {"direction", TypeKind::STRING},
+                                       {"writingMode", TypeKind::STRING}});
 }
 
 std::vector<PropertySpec> ImageProperties() {
-    return With(IdentityProperties(), {{"source", TypeKind::STRING}, {"fit", TypeKind::STRING}, {"radius", TypeKind::LENGTH}});
+    return With(IdentityProperties(), {{"source", TypeKind::STRING},
+                                       {"fit", TypeKind::STRING},
+                                       {"radius", TypeKind::LENGTH},
+                                       {"clip", TypeKind::BOOL},
+                                       {"tint", TypeKind::COLOR},
+                                       {"brightness", TypeKind::FLOAT},
+                                       {"contrast", TypeKind::FLOAT},
+                                       {"saturation", TypeKind::FLOAT},
+                                       {"flipX", TypeKind::BOOL},
+                                       {"flipY", TypeKind::BOOL},
+                                       {"rotation", TypeKind::FLOAT}});
 }
 
 std::vector<PropertySpec> VectorProperties() {
@@ -142,11 +218,23 @@ std::vector<PropertySpec> VectorProperties() {
                                        {"fill", TypeKind::COLOR},
                                        {"stroke", TypeKind::COLOR},
                                        {"strokeWidth", TypeKind::FLOAT},
+                                       {"strokeOpacity", TypeKind::FLOAT},
+                                       {"lineCap", TypeKind::STRING},
+                                       {"lineJoin", TypeKind::STRING},
+                                       {"fillRule", TypeKind::STRING},
+                                       {"transform", TypeKind::STRING},
                                        {"radius", TypeKind::LENGTH}});
 }
 
 std::vector<PropertySpec> PathProperties() {
-    return With(IdentityProperties(), {{"d", TypeKind::STRING}, {"fill", TypeKind::COLOR}, {"stroke", TypeKind::COLOR}, {"strokeWidth", TypeKind::FLOAT}});
+    return With(IdentityProperties(), {{"d", TypeKind::STRING},
+                                       {"fill", TypeKind::COLOR},
+                                       {"stroke", TypeKind::COLOR},
+                                       {"strokeWidth", TypeKind::FLOAT},
+                                       {"lineCap", TypeKind::STRING},
+                                       {"lineJoin", TypeKind::STRING},
+                                       {"dash", TypeKind::STRING},
+                                       {"dashOffset", TypeKind::FLOAT}});
 }
 
 std::vector<PropertySpec> LineProperties() {
@@ -155,7 +243,22 @@ std::vector<PropertySpec> LineProperties() {
                                        {"x2", TypeKind::FLOAT},
                                        {"y2", TypeKind::FLOAT},
                                        {"stroke", TypeKind::COLOR},
-                                       {"strokeWidth", TypeKind::FLOAT}});
+                                       {"strokeWidth", TypeKind::FLOAT},
+                                       {"lineCap", TypeKind::STRING},
+                                       {"dash", TypeKind::STRING},
+                                       {"dashGap", TypeKind::FLOAT}});
+}
+
+std::vector<PropertySpec> ScrollProperties() {
+    return With(FrameProperties(), {{"direction", TypeKind::STRING},
+                                    {"offset", TypeKind::FLOAT},
+                                    {"contentWidth", TypeKind::LENGTH},
+                                    {"contentHeight", TypeKind::LENGTH},
+                                    {"scrollbar", TypeKind::STRING},
+                                    {"scrollbarVisibility", TypeKind::STRING},
+                                    {"overscroll", TypeKind::STRING},
+                                    {"scrollPhysics", TypeKind::STRING},
+                                    {"smoothScrolling", TypeKind::BOOL}});
 }
 
 std::vector<PropertySpec> ShadowProperties() {
@@ -181,11 +284,11 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"vector", NodeKind::VECTOR, false, VectorProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},
         {"line", NodeKind::LINE, false, LineProperties()},
-        {"group", NodeKind::GROUP, true, IdentityProperties()},
-        {"component", NodeKind::COMPONENT, true, IdentityProperties()},
-        {"instance", NodeKind::INSTANCE, true, With(IdentityProperties(), {{"component", TypeKind::STRING}})},
+        {"group", NodeKind::GROUP, true, With(IdentityProperties(), {{"transform", TypeKind::STRING}, {"rotation", TypeKind::FLOAT}, {"scale", TypeKind::FLOAT}, {"visibility", TypeKind::STRING}})},
+        {"component", NodeKind::COMPONENT, true, With(IdentityProperties(), {{"variant", TypeKind::STRING}})},
+        {"instance", NodeKind::INSTANCE, true, With(IdentityProperties(), {{"component", TypeKind::STRING}, {"variant", TypeKind::STRING}})},
         {"slot", NodeKind::SLOT, true, With(IdentityProperties(), {{"text", TypeKind::STRING}})},
-        {"scroll", NodeKind::SCROLL, true, FrameProperties()},
+        {"scroll", NodeKind::SCROLL, true, ScrollProperties()},
     };
     return catalog;
 }

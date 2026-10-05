@@ -24,5 +24,6 @@ bool IsEventName(std::string_view text);
 bool IsAction(std::string_view text);
 bool IsBindingExpression(std::string_view text);
 std::string BindingKey(std::string_view text);
+BindMode BindingModeOf(std::string_view text);
 
 }  // namespace Runtime

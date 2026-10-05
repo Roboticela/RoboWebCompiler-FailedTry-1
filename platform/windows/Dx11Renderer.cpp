@@ -32,6 +32,8 @@ DWRITE_TEXT_ALIGNMENT ToHorizontal(TextAlign align) {
         return DWRITE_TEXT_ALIGNMENT_CENTER;
     case TextAlign::END:
         return DWRITE_TEXT_ALIGNMENT_TRAILING;
+    case TextAlign::JUSTIFY:
+        return DWRITE_TEXT_ALIGNMENT_JUSTIFIED;
     case TextAlign::START:
         return DWRITE_TEXT_ALIGNMENT_LEADING;
     }
@@ -44,6 +46,8 @@ DWRITE_PARAGRAPH_ALIGNMENT ToVertical(TextAlign align) {
         return DWRITE_PARAGRAPH_ALIGNMENT_CENTER;
     case TextAlign::END:
         return DWRITE_PARAGRAPH_ALIGNMENT_FAR;
+    case TextAlign::JUSTIFY:
+        return DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
     case TextAlign::START:
         return DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
     }
@@ -268,33 +272,60 @@ void Dx11Renderer::FillRectangle(const Rect& rect, const Color& color, float rad
     d2dContext->FillRectangle(box, brush.Get());
 }
 
-IDWriteTextFormat* Dx11Renderer::FormatFor(float fontSize, int fontWeight) {
+IDWriteTextFormat* Dx11Renderer::FormatFor(const TextStyle& style) {
     if (!writeFactory) {
         return nullptr;
     }
-    const int weight = fontWeight < 100 ? 400 : fontWeight;
-    const int key = static_cast<int>(fontSize * 100.0f) * 1000 + weight;
+    const int weight = style.fontWeight < 100 ? 400 : style.fontWeight;
+    const std::string key = style.fontFamily + "|" + style.locale + "|" + std::to_string(weight) + "|" +
+                            std::to_string(static_cast<int>(style.fontSize * 100.0f)) + (style.italic ? "|i" : "|n") +
+                            (style.rtl ? "|r" : "|l");
     const auto found = formats.find(key);
     if (found != formats.end()) {
         return found->second.Get();
     }
+    const std::wstring family = style.fontFamily.empty() ? L"Segoe UI" : std::wstring(style.fontFamily.begin(), style.fontFamily.end());
+    const std::wstring locale = style.locale.empty() ? L"en-us" : std::wstring(style.locale.begin(), style.locale.end());
     Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
     const HRESULT result = writeFactory->CreateTextFormat(
-        L"Segoe UI", nullptr, static_cast<DWRITE_FONT_WEIGHT>(weight), DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize, L"en-us", format.GetAddressOf());
+        family.c_str(), nullptr, static_cast<DWRITE_FONT_WEIGHT>(weight),
+        style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, style.fontSize, locale.c_str(),
+        format.GetAddressOf());
     if (FAILED(result)) {
         return nullptr;
     }
-    format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    format->SetReadingDirection(style.rtl ? DWRITE_READING_DIRECTION_RIGHT_TO_LEFT : DWRITE_READING_DIRECTION_LEFT_TO_RIGHT);
+    format->SetWordWrapping(style.wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
     formats.emplace(key, format);
     return format.Get();
+}
+
+void Dx11Renderer::DrawCachedImage(std::string_view key, const Rect& rect, const unsigned char* bgra, int width, int height) {
+    if (!d2dContext || bgra == nullptr || width < 1 || height < 1 || rect.width <= 0.0f || rect.height <= 0.0f) {
+        return;
+    }
+    const std::string id(key);
+    auto found = imageCache.find(id);
+    if (found == imageCache.end()) {
+        const D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+        Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmap;
+        const HRESULT result = d2dContext->CreateBitmap(D2D1::SizeU(static_cast<UINT32>(width), static_cast<UINT32>(height)), bgra,
+                                                        static_cast<UINT32>(width * 4), properties, bitmap.GetAddressOf());
+        if (FAILED(result)) {
+            return;
+        }
+        found = imageCache.emplace(id, bitmap).first;
+    }
+    const D2D1_RECT_F destination = D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
+    d2dContext->DrawBitmap(found->second.Get(), destination, opacityStack.back(), D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
 }
 
 void Dx11Renderer::DrawString(std::string_view text, const Rect& rect, const TextStyle& style) {
     if (!d2dContext || !brush || !writeFactory || rect.width <= 0.0f || rect.height <= 0.0f) {
         return;
     }
-    IDWriteTextFormat* format = FormatFor(style.fontSize, style.fontWeight);
+    IDWriteTextFormat* format = FormatFor(style);
     if (format == nullptr) {
         return;
     }
@@ -306,7 +337,15 @@ void Dx11Renderer::DrawString(std::string_view text, const Rect& rect, const Tex
     if (FAILED(result)) {
         return;
     }
-    layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    Microsoft::WRL::ComPtr<IDWriteFactory2> factory2;
+    if (SUCCEEDED(writeFactory.As(&factory2))) {
+        Microsoft::WRL::ComPtr<IDWriteFontFallback> fallback;
+        Microsoft::WRL::ComPtr<IDWriteTextLayout2> layout2;
+        if (SUCCEEDED(factory2->GetSystemFontFallback(fallback.GetAddressOf())) && SUCCEEDED(layout.As(&layout2))) {
+            layout2->SetFontFallback(fallback.Get());
+        }
+    }
+    layout->SetWordWrapping(style.wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
     layout->SetTextAlignment(ToHorizontal(style.horizontal));
     layout->SetParagraphAlignment(ToVertical(style.vertical));
     brush->SetColor(ToD2d(style.color, opacityStack.back()));
@@ -317,7 +356,11 @@ Size Dx11Renderer::MeasureText(std::string_view text, float fontSize, float maxW
     if (!writeFactory || text.empty()) {
         return Size{0.0f, fontSize};
     }
-    IDWriteTextFormat* format = FormatFor(fontSize, WEIGHT_REGULAR);
+    TextStyle style;
+    style.fontSize = fontSize;
+    style.fontWeight = WEIGHT_REGULAR;
+    style.wrap = maxWidth < UNBOUNDED_MEASURE;
+    IDWriteTextFormat* format = FormatFor(style);
     if (format == nullptr) {
         return Size{text.size() * fontSize * 0.5f, fontSize};
     }

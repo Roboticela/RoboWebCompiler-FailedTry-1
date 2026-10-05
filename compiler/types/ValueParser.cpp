@@ -214,11 +214,118 @@ std::string BindingKey(std::string_view text) {
         text.remove_suffix(1);
         text = TrimCopyView(text);
     }
-    return std::string(text);
+    if (text.size() > 6 && text.substr(0, 6) == "async ") {
+        text.remove_prefix(6);
+    } else if (text.size() > 9 && text.substr(0, 9) == "reactive ") {
+        text.remove_prefix(9);
+    } else if (!text.empty() && (text.front() == '=' || text.front() == '!')) {
+        text.remove_prefix(1);
+    }
+    return std::string(TrimCopyView(text));
+}
+
+BindMode BindingModeOf(std::string_view text) {
+    text = TrimCopyView(text);
+    if (IsBindingExpression(text)) {
+        text.remove_prefix(1);
+        text.remove_suffix(1);
+        text = TrimCopyView(text);
+    }
+    if (text.size() > 6 && text.substr(0, 6) == "async ") {
+        return BindMode::ASYNC;
+    }
+    if (text.size() > 9 && text.substr(0, 9) == "reactive ") {
+        return BindMode::REACTIVE;
+    }
+    if (!text.empty() && text.front() == '=') {
+        return BindMode::TWO_WAY;
+    }
+    if (!text.empty() && text.front() == '!') {
+        return BindMode::ONE_TIME;
+    }
+    if (text.find('+') != std::string_view::npos) {
+        return BindMode::COMPUTED;
+    }
+    return BindMode::ONE_WAY;
+}
+
+bool IsVerb(std::string_view verb) {
+    static const char* verbs[] = {"navigate", "back",     "forward", "open",      "close",    "toggle", "show",      "hide",
+                                  "focus",    "blur",     "set",     "reset",     "animate",  "scrollTo", "select",  "deselect",
+                                  "submit",   "copy",     "paste",   "download",  "openURL",  "showDialog", "showToast", "play",
+                                  "pause",    "stop"};
+    for (const char* candidate : verbs) {
+        if (verb == candidate) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool IsActionCall(std::string_view text) {
+    text = TrimCopyView(text);
+    if (text.empty()) {
+        return false;
+    }
+    std::size_t end = 0;
+    while (end < text.size()) {
+        const char character = text[end];
+        const bool ok = (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
+                        (character >= '0' && character <= '9') || character == '_';
+        if (!ok) {
+            break;
+        }
+        ++end;
+    }
+    if (end == 0 || !IsVerb(text.substr(0, end))) {
+        return false;
+    }
+    text.remove_prefix(end);
+    text = TrimCopyView(text);
+    if (text.empty()) {
+        return true;
+    }
+    if (text.front() != '(' || text.back() != ')') {
+        return false;
+    }
+    int depth = 0;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        if (text[index] == '(') {
+            ++depth;
+        } else if (text[index] == ')') {
+            --depth;
+            if (depth < 0) {
+                return false;
+            }
+        }
+    }
+    return depth == 0;
 }
 
 bool IsAction(std::string_view text) {
     text = TrimCopyView(text);
+    if (text.find(';') != std::string_view::npos || text.find('(') != std::string_view::npos) {
+        bool any = false;
+        while (!text.empty()) {
+            const std::size_t split = text.find(';');
+            const std::string_view part = TrimCopyView(split == std::string_view::npos ? text : text.substr(0, split));
+            if (!part.empty()) {
+                any = true;
+                if (!IsActionCall(part)) {
+                    return false;
+                }
+            }
+            if (split == std::string_view::npos) {
+                break;
+            }
+            text.remove_prefix(split + 1);
+            text = TrimCopyView(text);
+        }
+        return any;
+    }
+    if (IsActionCall(text)) {
+        return true;
+    }
     auto named = [&](std::string_view prefix) {
         return text.size() > prefix.size() && text.substr(0, prefix.size()) == prefix && IsEventName(text.substr(prefix.size()));
     };

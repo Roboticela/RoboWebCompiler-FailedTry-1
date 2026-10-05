@@ -9,6 +9,8 @@
 #include "ui/input/PointerInput.h"
 #include "xml/diagnostics/Diagnostic.h"
 
+#include <string>
+
 namespace Runtime {
 
 void UiContext::Bind(Element* rootElement) {
@@ -130,6 +132,36 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
         }
     });
     window.SetKeyDown([&](unsigned key) {
+        KeyEvent event;
+        event.ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        event.shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        event.alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+        event.meta = (GetKeyState(VK_LWIN) & 0x8000) != 0 || (GetKeyState(VK_RWIN) & 0x8000) != 0;
+        if (key == VK_RETURN) {
+            event.key = "Enter";
+            event.code = "Enter";
+        } else if (key == VK_SPACE) {
+            event.key = "Space";
+            event.code = "Space";
+        } else if (key == VK_TAB) {
+            event.key = "Tab";
+            event.code = "Tab";
+        } else if (key >= 'A' && key <= 'Z') {
+            event.key = std::string(1, static_cast<char>(key));
+            event.code = "Key" + event.key;
+        } else {
+            event.key = std::to_string(key);
+            event.code = event.key;
+        }
+        if (key == VK_TAB && root != nullptr) {
+            focused = root->NextFocus(focused, event.shift);
+            paintDirty = true;
+            return true;
+        }
+        if (focused != nullptr && focused->OnKeyEvent(event)) {
+            paintDirty = true;
+            return true;
+        }
         if (focused != nullptr && focused->OnKeyDown(key)) {
             paintDirty = true;
             return true;
@@ -169,6 +201,9 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
         }
         if (context.ConsumeInvalidated() || root->TakeLayoutDirty()) {
             layoutDirty = true;
+            paintDirty = true;
+        }
+        if (root->Tick(1.0f / 60.0f)) {
             paintDirty = true;
         }
         if (layoutDirty) {

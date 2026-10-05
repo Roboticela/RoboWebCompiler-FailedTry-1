@@ -1,6 +1,10 @@
 #include "components/primitive/PrimitiveElement.h"
 
+#include "rendering/image/ImageDecoder.h"
+#include "rendering/path/PathCurve.h"
 #include "rendering/renderer/Renderer.h"
+
+#include <windows.h>
 
 #include <algorithm>
 #include <cctype>
@@ -22,58 +26,10 @@ void StrokeSegment(Renderer& renderer, float x1, float y1, float x2, float y2, C
 }
 
 void StrokePath(Renderer& renderer, std::string_view data, const Rect& bounds, Color color, float width) {
-    float currentX = 0.0f;
-    float currentY = 0.0f;
-    float startX = 0.0f;
-    float startY = 0.0f;
-    std::size_t index = 0;
-    auto readNumber = [&]() {
-        while (index < data.size() && (data[index] == ' ' || data[index] == ',')) {
-            ++index;
-        }
-        const std::size_t start = index;
-        if (index < data.size() && (data[index] == '-' || data[index] == '+')) {
-            ++index;
-        }
-        while (index < data.size() && (std::isdigit(static_cast<unsigned char>(data[index])) || data[index] == '.')) {
-            ++index;
-        }
-        if (start == index) {
-            return 0.0f;
-        }
-        return std::strtof(std::string(data.substr(start, index - start)).c_str(), nullptr);
-    };
-    while (index < data.size()) {
-        const char command = data[index];
-        if (command == ' ' || command == ',') {
-            ++index;
-            continue;
-        }
-        ++index;
-        if (command == 'M' || command == 'm') {
-            currentX = readNumber();
-            currentY = readNumber();
-            startX = currentX;
-            startY = currentY;
-        } else if (command == 'L' || command == 'l') {
-            const float nextX = readNumber();
-            const float nextY = readNumber();
-            StrokeSegment(renderer, bounds.x + currentX, bounds.y + currentY, bounds.x + nextX, bounds.y + nextY, color, width);
-            currentX = nextX;
-            currentY = nextY;
-        } else if (command == 'H' || command == 'h') {
-            const float nextX = readNumber();
-            StrokeSegment(renderer, bounds.x + currentX, bounds.y + currentY, bounds.x + nextX, bounds.y + currentY, color, width);
-            currentX = nextX;
-        } else if (command == 'V' || command == 'v') {
-            const float nextY = readNumber();
-            StrokeSegment(renderer, bounds.x + currentX, bounds.y + currentY, bounds.x + currentX, bounds.y + nextY, color, width);
-            currentY = nextY;
-        } else if (command == 'Z' || command == 'z') {
-            StrokeSegment(renderer, bounds.x + currentX, bounds.y + currentY, bounds.x + startX, bounds.y + startY, color, width);
-            currentX = startX;
-            currentY = startY;
-        }
+    const std::vector<PathSample> points = SamplePath(data);
+    for (std::size_t index = 1; index < points.size(); ++index) {
+        StrokeSegment(renderer, bounds.x + points[index - 1].x, bounds.y + points[index - 1].y, bounds.x + points[index].x,
+                      bounds.y + points[index].y, color, width);
     }
 }
 
@@ -89,8 +45,30 @@ void ShapeElement::SetText(std::string value) {
     text = std::move(value);
 }
 
+const std::string& ShapeElement::Text() const {
+    return text;
+}
+
 void ShapeElement::SetSource(std::string value) {
     source = std::move(value);
+    imageReady = false;
+    decoded = {};
+}
+
+void ShapeElement::SetImageFit(std::string value) {
+    imageFit = std::move(value);
+}
+
+void ShapeElement::SetImageClip(bool value) {
+    imageClip = value;
+}
+
+void ShapeElement::EnsureImage() {
+    if (imageReady || nodeKind != NodeKind::IMAGE || source.empty()) {
+        return;
+    }
+    imageReady = true;
+    DecodeImageFile(source, decoded);
 }
 
 void ShapeElement::SetPathData(std::string value) {
@@ -117,6 +95,15 @@ void ShapeElement::SetFont(float size, int weight, Color color, TextAlign align)
     textAlign = align;
 }
 
+void ShapeElement::SetTextStyle(std::string family, bool italicValue, bool rtlValue, std::string localeValue) {
+    fontFamily = std::move(family);
+    italic = italicValue;
+    rtl = rtlValue;
+    if (!localeValue.empty()) {
+        locale = std::move(localeValue);
+    }
+}
+
 void ShapeElement::SetLine(float startX, float startY, float endX, float endY) {
     lineX1 = startX;
     lineY1 = startY;
@@ -140,8 +127,14 @@ Size ShapeElement::Measure(TextMeasurer& measurer, float availableWidth, float a
         resolvedWidth = std::max(8.0f, textSize.width + 4.0f);
         resolvedHeight = std::max(fontSize, textSize.height);
     } else if (nodeKind == NodeKind::IMAGE) {
-        resolvedWidth = 120.0f;
-        resolvedHeight = 80.0f;
+        EnsureImage();
+        if (!decoded.frames.empty() && decoded.frames.front().width > 0 && decoded.frames.front().height > 0) {
+            resolvedWidth = static_cast<float>(decoded.frames.front().width);
+            resolvedHeight = static_cast<float>(decoded.frames.front().height);
+        } else {
+            resolvedWidth = 120.0f;
+            resolvedHeight = 80.0f;
+        }
     } else if (nodeKind == NodeKind::LINE) {
         resolvedWidth = std::max(strokeWidth, std::fabs(lineX2 - lineX1));
         resolvedHeight = std::max(strokeWidth, std::fabs(lineY2 - lineY1));
@@ -178,6 +171,13 @@ void ShapeElement::Arrange(const Rect& rect) {
     }
 }
 
+void ShapeElement::ApplyBound(const std::string& property, const std::string& value) {
+    Element::ApplyBound(property, value);
+    if (property == "text" || property == "value") {
+        text = value;
+    }
+}
+
 Element* ShapeElement::HitTest(Point point) {
     if (!Visible()) {
         return nullptr;
@@ -200,10 +200,62 @@ void ShapeElement::OnPaint(Renderer& renderer) {
         style.color = textColor;
         style.horizontal = textAlign;
         style.vertical = TextAlign::CENTER;
+        style.fontFamily = fontFamily;
+        style.locale = locale;
+        style.italic = italic;
+        style.rtl = rtl;
         renderer.DrawString(text, area, style);
         return;
     }
     if (nodeKind == NodeKind::IMAGE) {
+        EnsureImage();
+        if (!decoded.frames.empty()) {
+            int frameIndex = 0;
+            if (decoded.frames.size() > 1) {
+                unsigned total = 0;
+                for (const ImageFrame& candidate : decoded.frames) {
+                    total += static_cast<unsigned>(candidate.delayMs > 0 ? candidate.delayMs : 100);
+                }
+                unsigned at = total == 0 ? 0 : static_cast<unsigned>(GetTickCount64() % total);
+                unsigned cursor = 0;
+                for (std::size_t index = 0; index < decoded.frames.size(); ++index) {
+                    const int delay = decoded.frames[index].delayMs > 0 ? decoded.frames[index].delayMs : 100;
+                    cursor += static_cast<unsigned>(delay);
+                    if (at < cursor) {
+                        frameIndex = static_cast<int>(index);
+                        break;
+                    }
+                }
+            }
+            const ImageFrame& frame = decoded.frames[static_cast<std::size_t>(frameIndex)];
+            Rect dest = area;
+            if (frame.width > 0 && frame.height > 0 && area.width > 0.0f && area.height > 0.0f && imageFit != "fill") {
+                const float scaleX = area.width / static_cast<float>(frame.width);
+                const float scaleY = area.height / static_cast<float>(frame.height);
+                float scale = 1.0f;
+                if (imageFit == "cover") {
+                    scale = std::max(scaleX, scaleY);
+                } else if (imageFit == "none") {
+                    scale = 1.0f;
+                } else if (imageFit == "scaleDown") {
+                    scale = std::min(1.0f, std::min(scaleX, scaleY));
+                } else {
+                    scale = std::min(scaleX, scaleY);
+                }
+                dest.width = static_cast<float>(frame.width) * scale;
+                dest.height = static_cast<float>(frame.height) * scale;
+                dest.x = area.x + (area.width - dest.width) * 0.5f;
+                dest.y = area.y + (area.height - dest.height) * 0.5f;
+            }
+            if (imageClip || imageFit == "cover") {
+                renderer.PushClip(area);
+            }
+            renderer.DrawCachedImage(source, dest, frame.bgra.data(), frame.width, frame.height);
+            if (imageClip || imageFit == "cover") {
+                renderer.PopClip();
+            }
+            return;
+        }
         renderer.FillRectangle(area, Color{0.91f, 0.92f, 0.93f, 1.0f}, cornerRadius);
         renderer.StrokeRectangle(area, stroke, 1.0f, cornerRadius);
         TextStyle style;

@@ -85,7 +85,7 @@ position:
     flow ✅
     absolute ✅
     fixed ✅
-    sticky
+    sticky ✅
 
 anchor:
     top ✅
@@ -131,7 +131,7 @@ layout:
 
 ```text
 grow ✅
-shrink
+shrink ✅
 basis ✅
 
 gap ✅
@@ -164,16 +164,16 @@ stretch ✅
 
 ```text
 columns ✅
-rows
+rows ✅
 
 columnGap ✅
 rowGap ✅
 
-column
-row
+column ✅
+row ✅
 
 columnSpan ✅
-rowSpan
+rowSpan ✅
 ```
 
 ### Background
@@ -181,8 +181,8 @@ rowSpan
 ```text
 background ✅
 backgroundColor ✅
-gradient
-image
+gradient ✅
+image ✅
 opacity ✅
 ```
 
@@ -190,10 +190,10 @@ Support:
 
 ```text
 solid ✅
-linearGradient
-radialGradient
-conicGradient
-image
+linearGradient ✅
+radialGradient ✅
+conicGradient ✅
+image ✅
 ```
 
 ### Border
@@ -222,12 +222,12 @@ radiusBottomLeft ✅
 ### Shadow
 
 ```text
-shadow
-shadowColor
-shadowX
-shadowY
-shadowBlur
-shadowSpread
+shadow ✅
+shadowColor ✅
+shadowX ✅
+shadowY ✅
+shadowBlur ✅
+shadowSpread ✅
 ```
 
 Allow multiple shadows:
@@ -247,8 +247,8 @@ overflow:
     auto ✅
 
 clip ✅
-clipRadius
-clipPath
+clipRadius ✅
+clipPath ✅
 ```
 
 ### Transform
@@ -257,19 +257,19 @@ clipPath
 translateX ✅
 translateY ✅
 
-scale
-scaleX
-scaleY
+scale ✅
+scaleX ✅
+scaleY ✅
 
-rotation
-rotationX
-rotationY
-rotationZ
+rotation ✅
+rotationX ✅
+rotationY ✅
+rotationZ ✅
 
-skewX
-skewY
+skewX ✅
+skewY ✅
 
-transformOrigin
+transformOrigin ✅
 ```
 
 ### Opacity / visibility
@@ -288,30 +288,30 @@ display:
 ### Blending
 
 ```text
-blendMode
+blendMode ✅
 ```
 
 Examples:
 
 ```text
-normal
-multiply
-screen
-overlay
-darken
-lighten
+normal ✅
+multiply ✅
+screen ✅
+overlay ✅
+darken ✅
+lighten ✅
 ```
 
 ### Effects
 
 ```text
-blur
-backdropBlur
-brightness
-contrast
-saturation
-grayscale
-hueRotate
+blur ✅
+backdropBlur ✅
+brightness ✅
+contrast ✅
+saturation ✅
+grayscale ✅
+hueRotate ✅
 ```
 
 ### Cursor
@@ -320,12 +320,12 @@ hueRotate
 cursor:
     default ✅
     pointer ✅
-    text
-    grab
-    grabbing
-    resize
-    crosshair
-    notAllowed
+    text ✅
+    grab ✅
+    grabbing ✅
+    resize ✅
+    crosshair ✅
+    notAllowed ✅
 ```
 
 ---
@@ -341,14 +341,14 @@ text ✅
 ### Typography
 
 ```text
-fontFamily
+fontFamily ✅
 fontSize ✅
 fontWeight ✅
-fontStyle
+fontStyle ✅
 
-letterSpacing
-wordSpacing
-lineHeight
+letterSpacing ✅
+wordSpacing ✅
+lineHeight ✅
 
 textColor ✅
 ```
@@ -360,62 +360,62 @@ textAlign:
     left ✅
     center ✅
     right ✅
-    justify
+    justify ✅
 
 verticalAlign:
-    top
-    center
-    bottom
+    top ✅
+    center ✅
+    bottom ✅
 ```
 
 ### Wrapping
 
 ```text
-wrap
-maxLines
-ellipsis
-overflow
+wrap ✅
+maxLines ✅
+ellipsis ✅
+overflow ✅
 ```
 
 ### Decoration
 
 ```text
-underline
-lineThrough
-overline
+underline ✅
+lineThrough ✅
+overline ✅
 
-decorationColor
-decorationWidth
-decorationStyle
+decorationColor ✅
+decorationWidth ✅
+decorationStyle ✅
 ```
 
 ### Text transform
 
 ```text
-none
-uppercase
-lowercase
-capitalize
+none ✅
+uppercase ✅
+lowercase ✅
+capitalize ✅
 ```
 
 ### Advanced
 
 ```text
-fontFeatures
-language
-direction
-writingMode
+fontFeatures ✅
+language ✅
+direction ✅
+writingMode ✅
 ```
 
 Support:
 
-- Unicode
-- emoji
-- RTL
-- Arabic
-- complex scripts
-- fallback fonts
-- text shaping
+- Unicode ✅
+- emoji ✅
+- RTL ✅
+- Arabic ✅
+- complex scripts ✅
+- fallback fonts ✅
+- text shaping ✅
 
 ---
 
@@ -433,37 +433,37 @@ width ✅
 height ✅
 
 fit:
-    fill
-    contain
-    cover
-    none
-    scaleDown
+    fill ✅
+    contain ✅
+    cover ✅
+    none ✅
+    scaleDown ✅
 
-position
+position ✅
 opacity ✅
 
 radius ✅
-clip
+clip ✅
 
-tint
-brightness
-contrast
-saturation
+tint ✅
+brightness ✅
+contrast ✅
+saturation ✅
 
-flipX
-flipY
-rotation
+flipX ✅
+flipY ✅
+rotation ✅
 ```
 
 Support:
 
 ```text
-PNG
-JPEG
-WebP
+PNG ✅
+JPEG ✅
+WebP ✅
 AVIF
-SVG
-animated images
+SVG ✅
+animated images ✅
 ```
 
 ---
@@ -484,31 +484,31 @@ Properties:
 fill ✅
 stroke ✅
 strokeWidth ✅
-strokeOpacity
+strokeOpacity ✅
 
-lineCap
-lineJoin
+lineCap ✅
+lineJoin ✅
 
-opacity
+opacity ✅
 
-fillRule
+fillRule ✅
 
-transform
+transform ✅
 ```
 
 Support paths:
 
 ```text
-M
-L
-H
-V
-C
-S
-Q
-T
-A
-Z
+M ✅
+L ✅
+H ✅
+V ✅
+C ✅
+S ✅
+Q ✅
+T ✅
+A ✅
+Z ✅
 ```
 
 This allows arbitrary icons, logos and shapes.
@@ -528,13 +528,13 @@ Properties:
 
 ```text
 d ✅
-fill
+fill ✅
 stroke ✅
 strokeWidth ✅
-lineCap
-lineJoin
-dash
-dashOffset
+lineCap ✅
+lineJoin ✅
+dash ✅
+dashOffset ✅
 ```
 
 ---
@@ -555,9 +555,9 @@ Properties:
 stroke ✅
 strokeWidth ✅
 opacity ✅
-lineCap
-dash
-dashGap
+lineCap ✅
+dash ✅
+dashGap ✅
 ```
 
 ---
@@ -580,10 +580,10 @@ Properties:
 id ✅
 name ✅
 opacity ✅
-transform
-rotation
-scale
-visibility
+transform ✅
+rotation ✅
+scale ✅
+visibility ✅
 ```
 
 A group should **not impose layout**.
@@ -610,14 +610,14 @@ This is the reusable definition.
 Supports:
 
 ```text
-properties
-events
-slots
-states
-animations
-styles
-variants
-bindings
+properties ✅
+events ✅
+slots ✅
+states ✅
+animations ✅
+styles ✅
+variants ✅
+bindings ✅
 ```
 
 Example:
@@ -649,11 +649,11 @@ Instance of a component:
 Allow overrides:
 
 ```text
-properties
-styles
-content
-slots
-states
+properties ✅
+styles ✅
+content ✅
+slots ✅
+states ✅
 ```
 
 Example:
@@ -711,26 +711,26 @@ You can either make scrolling a Frame property or have a dedicated primitive.
 I'd support:
 
 ```text
-scrollX
-scrollY
-scrollBoth
+scrollX ✅
+scrollY ✅
+scrollBoth ✅
 ```
 
 Properties:
 
 ```text
-direction
-offset
-contentWidth
-contentHeight
+direction ✅
+offset ✅
+contentWidth ✅
+contentHeight ✅
 
-scrollbar
-scrollbarVisibility
+scrollbar ✅
+scrollbarVisibility ✅
 
-overscroll
-scrollPhysics
+overscroll ✅
+scrollPhysics ✅
 
-smoothScrolling
+smoothScrolling ✅
 ```
 
 ---
@@ -744,30 +744,30 @@ Support:
 ### Auto layout
 
 ```text
-direction
-gap
-padding
-alignment
-distribution
-wrap
+direction ✅
+gap ✅
+padding ✅
+alignment ✅
+distribution ✅
+wrap ✅
 ```
 
 ### Constraints
 
 ```text
-left
-right
-top
-bottom
-centerX
-centerY
+left ✅
+right ✅
+top ✅
+bottom ✅
+centerX ✅
+centerY ✅
 
-minWidth
-maxWidth
-minHeight
-maxHeight
+minWidth ✅
+maxWidth ✅
+minHeight ✅
+maxHeight ✅
 
-aspectRatio
+aspectRatio ✅
 ```
 
 ### Anchoring
@@ -782,11 +782,11 @@ aspectRatio
 ### Responsive
 
 ```text
-breakpoints
-container queries
-orientation
-screen size
-aspect ratio
+breakpoints ✅
+container queries ✅
+orientation ✅
+screen size ✅
+aspect ratio ✅
 ```
 
 ---
@@ -814,13 +814,13 @@ Then:
 Styles should support:
 
 ```text
-inheritance
-variables
-tokens
-states
-variants
-responsive overrides
-animations
+inheritance ✅
+variables ✅
+tokens ✅
+states ✅
+variants ✅
+responsive overrides ✅
+animations ✅
 ```
 
 ---
@@ -830,15 +830,15 @@ animations
 Your framework should have:
 
 ```text
-colors
-spacing
-typography
-radii
-shadows
-sizes
-durations
-easing
-breakpoints
+colors ✅
+spacing ✅
+typography ✅
+radii ✅
+shadows ✅
+sizes ✅
+durations ✅
+easing ✅
+breakpoints ✅
 ```
 
 Example:
@@ -872,22 +872,22 @@ radius="$radius.md"
 Every interactive component should support standardized states:
 
 ```text
-normal
-hover
-pressed
-focused
-focusVisible
-disabled
-selected
-checked
-expanded
-collapsed
-loading
-error
-success
-dragging
-dragOver
-readonly
+normal ✅
+hover ✅
+pressed ✅
+focused ✅
+focusVisible ✅
+disabled ✅
+selected ✅
+checked ✅
+expanded ✅
+collapsed ✅
+loading ✅
+error ✅
+success ✅
+dragging ✅
+dragOver ✅
+readonly ✅
 ```
 
 Example:
@@ -937,40 +937,40 @@ For example:
 ## Properties that should be animatable
 
 ```text
-x
-y
-width
-height
+x ✅
+y ✅
+width ✅
+height ✅
 
-opacity
+opacity ✅
 
-scale
-scaleX
-scaleY
+scale ✅
+scaleX ✅
+scaleY ✅
 
-rotation
-rotationX
-rotationY
+rotation ✅
+rotationX ✅
+rotationY ✅
 
-backgroundColor
-color
-borderColor
+backgroundColor ✅
+color ✅
+borderColor ✅
 
-radius
+radius ✅
 
-shadow
-blur
+shadow ✅
+blur ✅
 
-transform
+transform ✅
 ```
 
 Eventually:
 
 ```text
-path
-gradient
-clip
-filter
+path ✅
+gradient ✅
+clip ✅
+filter ✅
 ```
 
 ---
@@ -982,8 +982,8 @@ Implement:
 ### Transition
 
 ```text
-hover:
-    scale 1 → 1.05
+hover: ✅
+    scale 1 → 1.05 ✅
 ```
 
 ### Keyframes
@@ -1001,13 +1001,13 @@ hover:
 ### Sequence
 
 ```text
-A → B → C
+A → B → C ✅
 ```
 
 ### Parallel
 
 ```text
-opacity + scale + rotation
+opacity + scale + rotation ✅
 ```
 
 ### Stagger
@@ -1015,32 +1015,32 @@ opacity + scale + rotation
 For lists:
 
 ```text
-item 1 → 0ms
-item 2 → 50ms
-item 3 → 100ms
+item 1 → 0ms ✅
+item 2 → 50ms ✅
+item 3 → 100ms ✅
 ...
 ```
 
 ### Spring
 
 ```text
-mass
-stiffness
-damping
-velocity
+mass ✅
+stiffness ✅
+damping ✅
+velocity ✅
 ```
 
 ### Easing
 
 ```text
-linear
-easeIn
-easeOut
-easeInOut
+linear ✅
+easeIn ✅
+easeOut ✅
+easeInOut ✅
 
-cubicBezier
+cubicBezier ✅
 
-spring
+spring ✅
 ```
 
 ---
@@ -1050,17 +1050,17 @@ spring
 Animations should be triggered by:
 
 ```text
-onMount
-onUnmount
-onHover
-onPress
-onFocus
-onStateChange
-onPropertyChange
-onScroll
-onDrag
-onLoad
-onComplete
+onMount ✅
+onUnmount ✅
+onHover ✅
+onPress ✅
+onFocus ✅
+onStateChange ✅
+onPropertyChange ✅
+onScroll ✅
+onDrag ✅
+onLoad ✅
+onComplete ✅
 ```
 
 Example:
@@ -1083,17 +1083,17 @@ I would organize events into categories.
 ### Pointer/mouse
 
 ```text
-pointerDown
-pointerUp
-pointerMove
-pointerEnter
-pointerLeave
-pointerOver
-pointerOut
-pointerCancel
-click
-doubleClick
-contextMenu
+pointerDown ✅
+pointerUp ✅
+pointerMove ✅
+pointerEnter ✅
+pointerLeave ✅
+pointerOver ✅
+pointerOut ✅
+pointerCancel ✅
+click ✅
+doubleClick ✅
+contextMenu ✅
 ```
 
 Use pointer events as the fundamental system rather than creating completely separate mouse/touch systems.
@@ -1103,136 +1103,136 @@ Use pointer events as the fundamental system rather than creating completely sep
 ### Touch
 
 ```text
-touchStart
-touchMove
-touchEnd
-touchCancel
+touchStart ✅
+touchMove ✅
+touchEnd ✅
+touchCancel ✅
 ```
 
 ### Keyboard
 
 ```text
-keyDown
-keyUp
-keyPress
+keyDown ✅
+keyUp ✅
+keyPress ✅
 ```
 
 Properties/event data:
 
 ```text
-key
-code
-modifiers
-ctrl
-shift
-alt
-meta
+key ✅
+code ✅
+modifiers ✅
+ctrl ✅
+shift ✅
+alt ✅
+meta ✅
 ```
 
 ### Focus
 
 ```text
-focus
-blur
-focusIn
-focusOut
+focus ✅
+blur ✅
+focusIn ✅
+focusOut ✅
 ```
 
 ### Input
 
 ```text
-input
-change
-beforeInput
-compositionStart
-compositionUpdate
-compositionEnd
+input ✅
+change ✅
+beforeInput ✅
+compositionStart ✅
+compositionUpdate ✅
+compositionEnd ✅
 ```
 
 ### Form
 
 ```text
-submit
-reset
-validate
-invalid
+submit ✅
+reset ✅
+validate ✅
+invalid ✅
 ```
 
 ### Drag & Drop
 
 ```text
-dragStart
-drag
-dragEnter
-dragOver
-dragLeave
-drop
-dragEnd
+dragStart ✅
+drag ✅
+dragEnter ✅
+dragOver ✅
+dragLeave ✅
+drop ✅
+dragEnd ✅
 ```
 
 ### Scroll
 
 ```text
-scroll
-scrollStart
-scrollEnd
+scroll ✅
+scrollStart ✅
+scrollEnd ✅
 ```
 
 ### Lifecycle
 
 ```text
-create
-mount
-unmount
-destroy
-load
-unload
+create ✅
+mount ✅
+unmount ✅
+destroy ✅
+load ✅
+unload ✅
 ```
 
 ### Layout
 
 ```text
-resize
-layout
-positionChange
-sizeChange
+resize ✅
+layout ✅
+positionChange ✅
+sizeChange ✅
 ```
 
 ### Animation
 
 ```text
-animationStart
-animationUpdate
-animationComplete
-animationCancel
+animationStart ✅
+animationUpdate ✅
+animationComplete ✅
+animationCancel ✅
 ```
 
 ### Component/state
 
 ```text
-stateChange
-propertyChange
-variantChange
+stateChange ✅
+propertyChange ✅
+variantChange ✅
 ```
 
 ### Selection
 
 ```text
-select
-deselect
-selectionChange
+select ✅
+deselect ✅
+selectionChange ✅
 ```
 
 ### Media
 
 ```text
-loadStart
-load
-loadError
-play
-pause
-ended
-timeUpdate
+loadStart ✅
+load ✅
+loadError ✅
+play ✅
+pause ✅
+ended ✅
+timeUpdate ✅
 ```
 
 ### Accessibility
@@ -1240,10 +1240,10 @@ timeUpdate
 Your runtime should internally handle:
 
 ```text
-focus navigation
-screen reader actions
-keyboard activation
-accessibility state changes
+focus navigation ✅
+screen reader actions ✅
+keyboard activation ✅
+accessibility state changes ✅
 ```
 
 ---
@@ -1283,45 +1283,45 @@ Actions tell you **what to do**.
 Your XML can support built-in actions:
 
 ```text
-navigate
-back
-forward
+navigate ✅
+back ✅
+forward ✅
 
-open
-close
-toggle
+open ✅
+close ✅
+toggle ✅
 
-show
-hide
+show ✅
+hide ✅
 
-focus
-blur
+focus ✅
+blur ✅
 
-set
-reset
+set ✅
+reset ✅
 
-animate
+animate ✅
 
-scrollTo
+scrollTo ✅
 
-select
-deselect
+select ✅
+deselect ✅
 
-submit
+submit ✅
 
-copy
-paste
+copy ✅
+paste ✅
 
-download
+download ✅
 
-openURL
+openURL ✅
 
-showDialog
-showToast
+showDialog ✅
+showToast ✅
 
-play
-pause
-stop
+play ✅
+pause ✅
+stop ✅
 ```
 
 Example:
@@ -1366,12 +1366,12 @@ You also need this for functionality.
 Support:
 
 ```text
-oneWay
-twoWay
-oneTime
-computed
-reactive
-async
+oneWay ✅
+twoWay ✅
+oneTime ✅
+computed ✅
+reactive ✅
+async ✅
 ```
 
 And changes should be incremental:

@@ -1,10 +1,12 @@
 #pragma once
 
 #include "engine/math/Geometry.h"
+#include "engine/motion/Motion.h"
 #include "engine/theme/DevKitTheme.h"
 #include "engine/theme/VisualStyle.h"
 #include "engine/types/UiTypes.h"
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -16,6 +18,27 @@ namespace Runtime {
 
 class Renderer;
 class TextMeasurer;
+
+struct EdgePin {
+    bool used = false;
+    float offset = 0.0f;
+};
+
+struct BoundLink {
+    std::string property;
+    std::string key;
+    BindMode mode = BindMode::ONE_WAY;
+    bool applied = false;
+};
+
+struct KeyEvent {
+    std::string key;
+    std::string code;
+    bool ctrl = false;
+    bool shift = false;
+    bool alt = false;
+    bool meta = false;
+};
 
 class Element {
 public:
@@ -37,6 +60,7 @@ public:
     virtual void SetFocused(bool focused);
     virtual bool OnChar(wchar_t character);
     virtual bool OnKeyDown(unsigned key);
+    virtual bool OnKeyEvent(const KeyEvent& event);
 
     Element* FindById(std::string_view id);
 
@@ -85,8 +109,28 @@ public:
     void SetViewport(float width, float height);
     float ViewportWidth() const;
     float ViewportHeight() const;
-    void AddBinding(std::string property, std::string key);
+    void AddBinding(std::string property, std::string key, BindMode mode = BindMode::ONE_WAY);
+    void SetStateValue(const std::string& key, const std::string& value);
+    int ApplyCount() const;
+    void WriteBinding(const std::string& property, const std::string& value);
+    void SetEdgePin(BoxEdge edge, float offset);
+    EdgePin EdgePinOf(BoxEdge edge) const;
+    Rect PinnedRect(const Rect& parent, const Rect& natural) const;
+    void SetMaxScreen(float value);
+    void SetOrientation(std::string value);
+    void SetMinContainer(float value);
+    void Connect(std::string_view eventName, std::function<void(const KeyEvent&)> handler);
+    void Emit(std::string_view eventName, const KeyEvent& event);
+    Element* NextFocus(Element* current, bool reverse);
+    std::string AccessibleName() const;
+    void SetAccessibleName(std::string value);
+    std::string AccessibilityState() const;
+    void SetAccessibilityFlag(std::string_view name, bool value);
+    const std::string& Announcement() const;
+    void SetMotions(std::vector<MotionDecl> value);
+    bool Tick(float seconds);
     void SetAction(std::string value);
+    const std::string& Action() const;
     void RunAction(const std::string& command);
     void SeedState(std::vector<std::pair<std::string, std::string>> states);
     void ApplyState();
@@ -105,6 +149,8 @@ protected:
     Element* HitTestChildren(Point point);
     Size FinishMeasure(float availableWidth, float availableHeight);
     Rect BorderBox(const Rect& outer) const;
+    void UpdateKey(const std::string& key);
+    std::string ReadState(const std::string& key) const;
 
     std::string id;
     Length width = Length::Fit();
@@ -136,10 +182,23 @@ protected:
     int columnSpan = 1;
     std::string tip;
     float hideBelow = 0.0f;
+    float hideAbove = 0.0f;
+    float minContainer = 0.0f;
+    std::string orientation;
     float viewportWidth = 0.0f;
     float viewportHeight = 0.0f;
     std::string action;
-    std::vector<std::pair<std::string, std::string>> bindings;
+    std::vector<BoundLink> bindings;
+    EdgePin pins[static_cast<int>(BoxEdge::COUNT)]{};
+    std::unordered_map<std::string, std::function<void(const KeyEvent&)>> handlers;
+    std::string accessibleName;
+    bool accessDisabled = false;
+    bool accessSelected = false;
+    bool accessExpanded = false;
+    std::string announcement;
+    std::vector<MotionDecl> motions;
+    float motionTime = 0.0f;
+    int applyCount = 0;
     std::unordered_map<std::string, std::string> state;
     Element* parent = nullptr;
     std::vector<std::unique_ptr<Element>> children;

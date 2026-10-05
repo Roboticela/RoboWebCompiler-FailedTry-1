@@ -2,6 +2,10 @@
 
 #include "engine/types/UiTypes.h"
 
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 namespace Runtime {
 
 inline constexpr int STYLE_NORMAL = 0;
@@ -28,6 +32,37 @@ struct StylePatch {
     float fontSizeValue = 17.0f;
     bool fontWeight = false;
     int fontWeightValue = 400;
+    float maxWidth = 0.0f;
+    float minWidth = 0.0f;
+};
+
+struct MotionKey {
+    float time = 0.0f;
+    std::string property;
+    float number = 0.0f;
+    bool hasNumber = false;
+    std::string text;
+};
+
+struct MotionDecl {
+    std::string name;
+    std::string target;
+    std::string property;
+    float from = 0.0f;
+    float to = 1.0f;
+    bool hasFrom = false;
+    bool hasTo = false;
+    float duration = 0.15f;
+    std::string easing = "linear";
+    std::string trigger;
+    std::string sequence;
+    std::string parallel;
+    float stagger = 0.0f;
+    float mass = 1.0f;
+    float stiffness = 180.0f;
+    float damping = 12.0f;
+    float velocity = 0.0f;
+    std::vector<MotionKey> keys;
 };
 
 inline void OverlayPatch(StylePatch& base, const StylePatch& over) {
@@ -60,11 +95,21 @@ inline void OverlayPatch(StylePatch& base, const StylePatch& over) {
         base.fontWeight = true;
         base.fontWeightValue = over.fontWeightValue;
     }
+    if (over.maxWidth > 0.0f) {
+        base.maxWidth = over.maxWidth;
+    }
+    if (over.minWidth > 0.0f) {
+        base.minWidth = over.minWidth;
+    }
 }
 
 struct VisualStyle {
     bool used = false;
+    std::string extends;
+    std::string variant;
     StylePatch phases[STYLE_COUNT]{};
+    std::unordered_map<std::string, StylePatch> extraPhases;
+    std::vector<MotionDecl> motions;
 };
 
 }  // namespace Runtime

@@ -23,6 +23,7 @@ struct UiValue {
     Edges edges{};
     Alignment alignment = Alignment::START;
     std::string binding;
+    BindMode bindMode = BindMode::ONE_WAY;
 };
 
 struct IrNode {

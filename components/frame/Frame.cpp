@@ -435,6 +435,13 @@ void Frame::Arrange(const Rect& rect) {
         }
         child->Arrange(Rect{x, y, childWidth, childHeight});
     }
+    for (const std::unique_ptr<Element>& child : children) {
+        const Rect natural = child->Bounds();
+        const Rect pinned = child->PinnedRect(bounds, natural);
+        if (pinned.x != natural.x || pinned.y != natural.y || pinned.width != natural.width || pinned.height != natural.height) {
+            child->Arrange(pinned);
+        }
+    }
 }
 
 void Frame::OnPaint(Renderer& renderer) {

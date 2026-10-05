@@ -12,10 +12,11 @@
 
 #include <d2d1_1.h>
 #include <d3d11.h>
-#include <dwrite.h>
+#include <dwrite_2.h>
 #include <dxgi1_2.h>
 #include <wrl/client.h>
 
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -35,6 +36,7 @@ public:
     void FillRectangle(const Rect& rect, const Color& color, float radius) override;
     void StrokeRectangle(const Rect& rect, const Color& color, float thickness, float radius) override;
     void DrawString(std::string_view text, const Rect& rect, const TextStyle& style) override;
+    void DrawCachedImage(std::string_view key, const Rect& rect, const unsigned char* bgra, int width, int height) override;
     Size MeasureText(std::string_view text, float fontSize, float maxWidth) override;
     void PushClip(const Rect& rect) override;
     void PopClip() override;
@@ -45,7 +47,7 @@ private:
     bool CreateDevice();
     bool CreateSwapChain(HWND window, int width, int height);
     bool CreateTarget();
-    IDWriteTextFormat* FormatFor(float fontSize, int fontWeight);
+    IDWriteTextFormat* FormatFor(const TextStyle& style);
 
     Microsoft::WRL::ComPtr<ID3D11Device> device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> deviceContext;
@@ -56,7 +58,8 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
     Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory;
-    std::unordered_map<int, Microsoft::WRL::ComPtr<IDWriteTextFormat>> formats;
+    std::unordered_map<std::string, Microsoft::WRL::ComPtr<IDWriteTextFormat>> formats;
+    std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> imageCache;
     std::vector<float> opacityStack{1.0f};
     float dpi = 96.0f;
     int pixelWidth = 0;

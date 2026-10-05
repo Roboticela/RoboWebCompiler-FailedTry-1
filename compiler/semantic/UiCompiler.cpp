@@ -44,6 +44,7 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
         }
         value.kind = spec.type;
         value.binding = BindingKey(raw);
+        value.bindMode = BindingModeOf(raw);
         value.text.clear();
         value.boolean = false;
         return true;
@@ -100,6 +101,62 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
             choiceCount = 8;
         } else if (attribute.name == "visibility") {
             static const char* options[] = {"visible", "hidden"};
+            choices = options;
+            choiceCount = 2;
+        } else if (attribute.name == "textAlign") {
+            static const char* options[] = {"left", "center", "right", "justify"};
+            choices = options;
+            choiceCount = 4;
+        } else if (attribute.name == "verticalAlign") {
+            static const char* options[] = {"top", "center", "bottom"};
+            choices = options;
+            choiceCount = 3;
+        } else if (attribute.name == "fontStyle") {
+            static const char* options[] = {"normal", "italic", "oblique"};
+            choices = options;
+            choiceCount = 3;
+        } else if (attribute.name == "textTransform") {
+            static const char* options[] = {"none", "uppercase", "lowercase", "capitalize"};
+            choices = options;
+            choiceCount = 4;
+        } else if (attribute.name == "decorationStyle") {
+            static const char* options[] = {"solid", "dashed", "dotted", "double", "none"};
+            choices = options;
+            choiceCount = 5;
+        } else if (attribute.name == "direction") {
+            static const char* options[] = {"ltr", "rtl", "scrollX", "scrollY", "scrollBoth", "horizontal", "vertical"};
+            choices = options;
+            choiceCount = 7;
+        } else if (attribute.name == "writingMode") {
+            static const char* options[] = {"horizontal", "vertical"};
+            choices = options;
+            choiceCount = 2;
+        } else if (attribute.name == "fit") {
+            static const char* options[] = {"fill", "contain", "cover", "none", "scaleDown"};
+            choices = options;
+            choiceCount = 5;
+        } else if (attribute.name == "lineCap") {
+            static const char* options[] = {"butt", "round", "square"};
+            choices = options;
+            choiceCount = 3;
+        } else if (attribute.name == "lineJoin") {
+            static const char* options[] = {"miter", "round", "bevel"};
+            choices = options;
+            choiceCount = 3;
+        } else if (attribute.name == "fillRule") {
+            static const char* options[] = {"nonzero", "evenodd"};
+            choices = options;
+            choiceCount = 2;
+        } else if (attribute.name == "scrollbar" || attribute.name == "scrollbarVisibility") {
+            static const char* options[] = {"auto", "visible", "hidden"};
+            choices = options;
+            choiceCount = 3;
+        } else if (attribute.name == "overscroll") {
+            static const char* options[] = {"auto", "contain", "none"};
+            choices = options;
+            choiceCount = 3;
+        } else if (attribute.name == "scrollPhysics") {
+            static const char* options[] = {"clamping", "bouncing"};
             choices = options;
             choiceCount = 2;
         }
@@ -295,6 +352,13 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
                 break;
             }
         }
+        if (property == nullptr && spec->kind == NodeKind::INSTANCE) {
+            UiValue extra;
+            extra.kind = TypeKind::STRING;
+            extra.text = std::string(TrimCopyView(attribute.value));
+            lowered.properties.emplace_back(attribute.name, std::move(extra));
+            continue;
+        }
         if (property == nullptr) {
             std::vector<std::string> names;
             for (const PropertySpec& candidate : spec->properties) {
@@ -338,16 +402,23 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
             }
             lowered.id = value.text;
         }
-        if (canonical == "style" && value.binding.empty()) {
-            const auto found = model.styles.find(value.text);
-            if (found == model.styles.end()) {
-                AddDiagnostic(diagnostics, DIAGNOSTIC_UNKNOWN_PROPERTY, "Unknown style '" + value.text + "'.", attribute.valueLocation,
-                              attribute.valueSpan);
-                continue;
+        lowered.properties.emplace_back(canonical, std::move(value));
+    }
+    if (const UiValue* styleName = FindProperty(lowered, "style")) {
+        std::string key = styleName->text;
+        if (const UiValue* variant = FindProperty(lowered, "variant")) {
+            const auto varied = model.styles.find(key + "/" + variant->text);
+            if (varied != model.styles.end()) {
+                key += "/" + variant->text;
             }
+        }
+        const auto found = model.styles.find(key);
+        if (found == model.styles.end()) {
+            AddDiagnostic(diagnostics, DIAGNOSTIC_UNKNOWN_PROPERTY, "Unknown style '" + key + "'.", node.location,
+                          static_cast<int>(node.name.size()));
+        } else {
             lowered.visual = found->second;
         }
-        lowered.properties.emplace_back(canonical, std::move(value));
     }
     if (depth == 1) {
         lowered.states = model.states;
@@ -391,6 +462,9 @@ CompileResult CompileUi(const SourceFile& source) {
     const std::size_t before = result.diagnostics.size();
     auto lowered = Lower(*parsed.root, result.diagnostics, ids, model, 1);
     if (result.diagnostics.size() == before && lowered.has_value()) {
+        for (const AnimationSpec& animation : model.animations) {
+            lowered->visual.motions.push_back(MotionFromAnimation(animation));
+        }
         result.root = std::move(*lowered);
     }
     return result;

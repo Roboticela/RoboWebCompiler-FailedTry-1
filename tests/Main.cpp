@@ -1,6 +1,11 @@
 #include "compiler/semantic/UiCompiler.h"
 #include "components/frame/Frame.h"
+#include "components/primitive/PrimitiveElement.h"
 #include "designer/model/DesignDocument.h"
+#include "engine/motion/Motion.h"
+#include "rendering/image/ImageDecoder.h"
+#include "rendering/path/PathCurve.h"
+#include "rendering/text/TextLayout.h"
 #include "rendering/text/TextMeasurer.h"
 #include "tests/TestHarness.h"
 #include "ui/element/Element.h"
@@ -8,9 +13,21 @@
 #include "xml/parser/XmlParser.h"
 #include "xml/serializer/XmlSerializer.h"
 
+#include <wincodec.h>
+#include <wrl/client.h>
+
+#ifdef ABSOLUTE
+#undef ABSOLUTE
+#endif
+#ifdef RELATIVE
+#undef RELATIVE
+#endif
+
+#include <cstring>
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace Runtime {
 namespace {
@@ -272,6 +289,367 @@ void TestDesignDocumentEditsXml(TestContext& test) {
     Finish(test, "design document", before);
 }
 
+void TestCompilerSurface(TestContext& test) {
+    const int before = test.failed;
+    const CompileResult compiled = CompileUi(Source(
+        "<window><tokens><color name=\"primary\" value=\"#2563EB\"/><spacing name=\"md\" value=\"16\"/><radius name=\"md\" value=\"8\"/></tokens>"
+        "<style name=\"button\" background=\"#111111\" radius=\"8\"><state name=\"hover\" background=\"#222222\"/>"
+        "<state name=\"loading\" background=\"#333333\"/></style>"
+        "<animation name=\"pulse\" trigger=\"hover\" property=\"opacity\" easing=\"easeOut\"><keyframe time=\"0%\" opacity=\"1\"/></animation>"
+        "<animate target=\"title\" property=\"scale\" from=\"1\" to=\"1.05\" duration=\"150ms\" easing=\"easeOut\" trigger=\"onHover\"/>"
+        "<frame id=\"card\" style=\"button\" background=\"$primary\" padding=\"$spacing.md\" radius=\"$radius.md\" position=\"sticky\" shrink=\"1\" "
+        "onClick=\"set(user.loggedIn, true); navigate('/dashboard');\">"
+        "<text text=\"Hello\" fontFamily=\"Segoe UI\" fontStyle=\"italic\" textAlign=\"justify\" verticalAlign=\"center\" textTransform=\"uppercase\" "
+        "underline=\"true\" direction=\"ltr\" writingMode=\"horizontal\"/>"
+        "<image source=\"photo.png\" fit=\"cover\" flipX=\"true\"/>"
+        "<path d=\"M0 0 L10 0 Z\" fill=\"#000000\" lineCap=\"round\" dash=\"2 2\"/>"
+        "<line x2=\"10\" lineCap=\"butt\" dashGap=\"2\"/>"
+        "<group rotation=\"10\" scale=\"1\" visibility=\"visible\"/>"
+        "<scroll direction=\"scrollY\" smoothScrolling=\"true\" scrollbar=\"auto\"/>"
+        "</frame></window>"));
+    CHECK(test, compiled.Ok());
+    if (compiled.root.has_value()) {
+        const IrNode* card = nullptr;
+        for (const IrNode& child : compiled.root->children) {
+            if (child.id == "card") {
+                card = &child;
+            }
+        }
+        CHECK(test, card != nullptr);
+        if (card != nullptr) {
+            const UiValue* background = FindProperty(*card, "background");
+            CHECK(test, background != nullptr && background->color.r > 0.1f);
+            const UiValue* click = FindProperty(*card, "onClick");
+            CHECK(test, click != nullptr && click->kind == TypeKind::EVENT_HANDLER);
+            CHECK(test, card->visual.used);
+            CHECK(test, card->visual.extraPhases.count("loading") == 1);
+        }
+    }
+    Finish(test, "compiler surface", before);
+}
+
+bool EncodeBitmap(const GUID& format, std::vector<unsigned char>& bytes) {
+    const HRESULT start = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.GetAddressOf())))) {
+        if (start == S_OK) {
+            CoUninitialize();
+        }
+        return false;
+    }
+    Microsoft::WRL::ComPtr<IStream> stream;
+    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, stream.GetAddressOf()))) {
+        if (start == S_OK) {
+            CoUninitialize();
+        }
+        return false;
+    }
+    Microsoft::WRL::ComPtr<IWICBitmapEncoder> encoder;
+    if (FAILED(factory->CreateEncoder(format, nullptr, encoder.GetAddressOf())) || FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache))) {
+        if (start == S_OK) {
+            CoUninitialize();
+        }
+        return false;
+    }
+    Microsoft::WRL::ComPtr<IWICBitmapFrameEncode> frame;
+    if (FAILED(encoder->CreateNewFrame(frame.GetAddressOf(), nullptr)) || FAILED(frame->Initialize(nullptr))) {
+        if (start == S_OK) {
+            CoUninitialize();
+        }
+        return false;
+    }
+    frame->SetSize(1, 1);
+    WICPixelFormatGUID pixel = GUID_WICPixelFormat32bppRGBA;
+    frame->SetPixelFormat(&pixel);
+    const unsigned char pixelBytes[4] = {255, 0, 0, 255};
+    if (FAILED(frame->WritePixels(1, 4, 4, const_cast<unsigned char*>(pixelBytes))) || FAILED(frame->Commit()) || FAILED(encoder->Commit())) {
+        if (start == S_OK) {
+            CoUninitialize();
+        }
+        return false;
+    }
+    HGLOBAL memory = nullptr;
+    GetHGlobalFromStream(stream.Get(), &memory);
+    const unsigned char* data = static_cast<const unsigned char*>(GlobalLock(memory));
+    const SIZE_T size = GlobalSize(memory);
+    if (data != nullptr && size > 0) {
+        bytes.assign(data, data + size);
+    }
+    if (data != nullptr) {
+        GlobalUnlock(memory);
+    }
+    encoder.Reset();
+    frame.Reset();
+    stream.Reset();
+    factory.Reset();
+    if (start == S_OK) {
+        CoUninitialize();
+    }
+    return !bytes.empty();
+}
+
+void TestRemainingSurface(TestContext& test) {
+    const int before = test.failed;
+    const std::vector<PathSample> cubic = SamplePath("M0 0 C0 40 30 40 30 0");
+    CHECK(test, cubic.size() > 2);
+    bool curved = false;
+    for (const PathSample& point : cubic) {
+        if (point.y > 5.0f) {
+            curved = true;
+        }
+    }
+    CHECK(test, curved);
+    const std::vector<PathSample> smooth = SamplePath("M0 0 C0 20 10 20 10 0 S20 -20 20 0");
+    CHECK(test, smooth.size() > cubic.size() / 2);
+    const std::vector<PathSample> quad = SamplePath("M0 0 Q15 30 30 0");
+    CHECK(test, quad.back().x > 20.0f);
+    const std::vector<PathSample> smoothQuad = SamplePath("M0 0 Q10 20 20 0 T40 0");
+    CHECK(test, smoothQuad.back().x > 30.0f);
+    const std::vector<PathSample> arc = SamplePath("M0 10 A10 10 0 0 1 20 10");
+    bool bowed = false;
+    for (const PathSample& point : arc) {
+        if (std::fabs(point.y - 10.0f) > 2.0f) {
+            bowed = true;
+        }
+    }
+    CHECK(test, bowed);
+    const std::vector<PathSample> closed = SamplePath("M0 0 L10 0 L10 10 Z");
+    CHECK(test, !closed.empty() && closed.back().x == 0.0f && closed.back().y == 0.0f);
+
+    TextStyle latin;
+    latin.fontSize = 18.0f;
+    const ShapedText hello = ShapeText("Hello", latin, 200.0f);
+    CHECK(test, hello.shaped && hello.width > 10.0f && hello.fallback);
+    TextStyle arabic = latin;
+    arabic.rtl = true;
+    arabic.locale = "ar";
+    const ShapedText greeting = ShapeText("مرحبا", arabic, 200.0f);
+    CHECK(test, greeting.shaped && greeting.rtl && greeting.width > 4.0f);
+    const ShapedText emoji = ShapeText("😀", latin, 80.0f);
+    CHECK(test, emoji.shaped && emoji.width > 1.0f);
+    TextStyle missing = latin;
+    missing.fontFamily = "MissingFontXYZ";
+    const ShapedText fallback = ShapeText("Hello", missing, 200.0f);
+    CHECK(test, fallback.shaped && fallback.fallback);
+
+    std::vector<unsigned char> png;
+    std::vector<unsigned char> jpeg;
+    CHECK(test, EncodeBitmap(GUID_ContainerFormatPng, png));
+    CHECK(test, EncodeBitmap(GUID_ContainerFormatJpeg, jpeg));
+    DecodedImage decoded;
+    CHECK(test, DecodeImageBytes(png.data(), static_cast<int>(png.size()), decoded) && decoded.format == "png" && decoded.frames.size() == 1);
+    CHECK(test, DecodeImageBytes(jpeg.data(), static_cast<int>(jpeg.size()), decoded) && decoded.format == "jpeg");
+    const unsigned char webp[] = {
+        0x52, 0x49, 0x46, 0x46, 0x3C, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, 0x30, 0x00, 0x00, 0x00, 0xD0, 0x01,
+        0x00, 0x9D, 0x01, 0x2A, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x34, 0x25, 0xA0, 0x02, 0x74, 0xBA, 0x01, 0xF8, 0x00, 0x03, 0xB0, 0x00,
+        0xFE, 0xF0, 0xC4, 0x0B, 0xFF, 0x20, 0xB9, 0x61, 0x75, 0xC8, 0xD7, 0xFF, 0x20, 0x3F, 0xE4, 0x07, 0xFC, 0x80, 0xFF, 0xF8, 0xF2, 0x00,
+        0x00, 0x00};
+    CHECK(test, DecodeImageBytes(webp, static_cast<int>(sizeof(webp)), decoded) && decoded.format == "webp" && decoded.frames.size() == 1);
+    CHECK(test, decoded.frames[0].width == 1 && decoded.frames[0].bgra.size() >= 4 && decoded.frames[0].bgra[2] > 240 &&
+                    decoded.frames[0].bgra[1] < 16 && decoded.frames[0].bgra[0] < 16);
+    const unsigned char avif[] = {
+        0x00, 0x00, 0x00, 0x1C, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66, 0x00, 0x00, 0x00, 0x00,
+        0x6D, 0x69, 0x66, 0x31, 0x61, 0x76, 0x69, 0x66, 0x6D, 0x69, 0x61, 0x66, 0x00, 0x00, 0x00, 0xD6,
+        0x6D, 0x65, 0x74, 0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x68, 0x64, 0x6C, 0x72,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x70, 0x69, 0x63, 0x74, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x69, 0x6C, 0x6F,
+        0x63, 0x00, 0x00, 0x00, 0x00, 0x44, 0x40, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xFA, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x23, 0x69,
+        0x69, 0x6E, 0x66, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x15, 0x69, 0x6E, 0x66,
+        0x65, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x61, 0x76, 0x30, 0x31, 0x00, 0x00, 0x00,
+        0x00, 0x0E, 0x70, 0x69, 0x74, 0x6D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x56,
+        0x69, 0x70, 0x72, 0x70, 0x00, 0x00, 0x00, 0x38, 0x69, 0x70, 0x63, 0x6F, 0x00, 0x00, 0x00, 0x0C,
+        0x61, 0x76, 0x31, 0x43, 0x81, 0x40, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x14, 0x69, 0x73, 0x70, 0x65,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x10,
+        0x70, 0x69, 0x78, 0x69, 0x00, 0x00, 0x00, 0x00, 0x03, 0x0C, 0x0C, 0x0C, 0x00, 0x00, 0x00, 0x16,
+        0x69, 0x70, 0x6D, 0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x03, 0x81,
+        0x02, 0x03, 0x00, 0x00, 0x00, 0x31, 0x6D, 0x64, 0x61, 0x74, 0x12, 0x00, 0x0A, 0x09, 0x58, 0x08,
+        0xBF, 0x6B, 0x40, 0x43, 0x41, 0xB8, 0x40, 0x32, 0x1A, 0x19, 0x47, 0x87, 0x86, 0x21, 0x89, 0xA6,
+        0x9A, 0x66, 0x80, 0x00, 0x00, 0x90, 0x3F, 0x9B, 0x0C, 0x61, 0x4B, 0x2B, 0x4D, 0x8F, 0x51, 0x45,
+        0x4E, 0xA4, 0x20};
+    CHECK(test, DecodeImageBytes(avif, static_cast<int>(sizeof(avif)), decoded) && decoded.format == "avif" && decoded.frames.size() == 1);
+    if (!decoded.frames.empty()) {
+        CHECK(test, decoded.frames[0].width == 8 && decoded.frames[0].bgra.size() >= 4 && decoded.frames[0].bgra[2] > 200 &&
+                        decoded.frames[0].bgra[0] < 40);
+    }
+    const char* svg = "<svg width=\"2\" height=\"2\"><rect width=\"2\" height=\"2\" fill=\"#ff0000\"/></svg>";
+    CHECK(test, DecodeImageBytes(reinterpret_cast<const unsigned char*>(svg), static_cast<int>(std::strlen(svg)), decoded) && decoded.format == "svg");
+    CHECK(test, !decoded.frames.empty() && decoded.frames[0].bgra.size() >= 3 && decoded.frames[0].bgra[2] == 255);
+    const unsigned char gif[] = {0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00,
+                                 0x00, 0x21, 0xF9, 0x04, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+                                 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x21, 0xF9, 0x04, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00,
+                                 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3B};
+    CHECK(test, DecodeImageBytes(gif, static_cast<int>(sizeof(gif)), decoded) && decoded.frames.size() >= 2);
+
+    std::unique_ptr<Element> anchored = Layout(
+        "<window width=\"200\" height=\"100\"><frame id=\"bar\" position=\"absolute\" left=\"parent.left\" right=\"parent.right\" "
+        "top=\"parent.top\" height=\"20\"/></window>",
+        200.0f, 100.0f);
+    CHECK(test, anchored != nullptr && anchored->FindById("bar") != nullptr);
+    if (anchored != nullptr && anchored->FindById("bar") != nullptr) {
+        CHECK(test, std::fabs(anchored->FindById("bar")->Bounds().width - 200.0f) < 1.0f);
+        CHECK(test, std::fabs(anchored->FindById("bar")->Bounds().y) < 1.0f);
+    }
+    std::unique_ptr<Element> responsive = Layout(
+        "<window width=\"400\" height=\"200\"><frame id=\"phone\" minScreen=\"700\" width=\"30\" height=\"10\"/>"
+        "<frame id=\"wide\" maxScreen=\"500\" width=\"30\" height=\"10\"/>"
+        "<frame id=\"side\" orientation=\"landscape\" width=\"30\" height=\"10\"/>"
+        "<frame width=\"120\" height=\"40\"><frame id=\"query\" minContainer=\"300\" width=\"10\" height=\"10\"/></frame></window>",
+        200.0f, 400.0f);
+    CHECK(test, responsive != nullptr);
+    if (responsive != nullptr) {
+        CHECK(test, responsive->FindById("phone")->Measured().width == 0.0f);
+        CHECK(test, responsive->FindById("wide")->Measured().width > 0.0f);
+        CHECK(test, responsive->FindById("side")->Measured().width == 0.0f);
+        CHECK(test, responsive->FindById("query")->Measured().width == 0.0f);
+    }
+
+    const CompileResult styled = CompileUi(Source(
+        "<window><tokens><color name=\"primary\" value=\"#112233\"/></tokens>"
+        "<style name=\"base\" background=\"$primary\"/>"
+        "<style name=\"button\" extends=\"base\"><state name=\"compact\" maxWidth=\"500\" background=\"#445566\"/></style>"
+        "<style name=\"button\" variant=\"primary\" background=\"#778899\"/>"
+        "<frame id=\"box\" style=\"button\" variant=\"primary\" width=\"40\" height=\"20\"/>"
+        "<frame id=\"plain\" style=\"button\" width=\"40\" height=\"20\"/></window>"));
+    CHECK(test, styled.Ok());
+    if (styled.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*styled.root, {});
+        root->SetViewport(800.0f, 200.0f);
+        Element* plain = root->FindById("plain");
+        CHECK(test, plain != nullptr && plain->ActivePatch().background && plain->ActivePatch().backgroundColor.r < 0.15f);
+        root->SetViewport(400.0f, 200.0f);
+        CHECK(test, plain->ActivePatch().backgroundColor.r > 0.2f);
+        Element* box = root->FindById("box");
+        CHECK(test, box != nullptr && box->ActivePatch().backgroundColor.b > box->ActivePatch().backgroundColor.r);
+    }
+
+    const CompileResult bound = CompileUi(Source(
+        "<window><state name=\"user.name\" value=\"Ada\"/><state name=\"user.age\" value=\"36\"/>"
+        "<state name=\"user.first\" value=\"Ada\"/><state name=\"user.last\" value=\"Lovelace\"/>"
+        "<text id=\"name\" text=\"{user.name}\"/>"
+        "<text id=\"once\" text=\"{!user.name}\"/>"
+        "<text id=\"age\" text=\"{user.age}\"/>"
+        "<text id=\"full\" text=\"{user.first + user.last}\"/>"
+        "<text id=\"edit\" text=\"{=user.name}\"/>"
+        "<text id=\"live\" text=\"{reactive user.name}\"/>"
+        "<text id=\"later\" text=\"{async user.photo}\"/>"
+        "</window>"));
+    CHECK(test, bound.Ok());
+    if (bound.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*bound.root, {});
+        auto* name = dynamic_cast<ShapeElement*>(root->FindById("name"));
+        auto* once = dynamic_cast<ShapeElement*>(root->FindById("once"));
+        auto* age = dynamic_cast<ShapeElement*>(root->FindById("age"));
+        auto* full = dynamic_cast<ShapeElement*>(root->FindById("full"));
+        auto* edit = dynamic_cast<ShapeElement*>(root->FindById("edit"));
+        auto* live = dynamic_cast<ShapeElement*>(root->FindById("live"));
+        auto* later = dynamic_cast<ShapeElement*>(root->FindById("later"));
+        CHECK(test, name != nullptr && name->Text() == "Ada");
+        CHECK(test, full != nullptr && full->Text() == "Ada Lovelace");
+        CHECK(test, later != nullptr && later->Text().empty());
+        const int ageCount = age->ApplyCount();
+        root->SetStateValue("user.name", "Grace");
+        CHECK(test, name->Text() == "Grace");
+        CHECK(test, once->Text() == "Ada");
+        CHECK(test, age->ApplyCount() == ageCount);
+        CHECK(test, live->Text() == "Grace");
+        edit->WriteBinding("text", "Joan");
+        CHECK(test, name->Text() == "Joan");
+        root->SetStateValue("user.photo", "ready");
+        CHECK(test, later->Text() == "ready");
+        CHECK(test, name == root->FindById("name"));
+    }
+
+    MotionDecl fade;
+    fade.name = "fade";
+    fade.property = "opacity";
+    fade.from = 0.0f;
+    fade.to = 1.0f;
+    fade.hasFrom = true;
+    fade.hasTo = true;
+    fade.duration = 0.1f;
+    MotionDecl slide = fade;
+    slide.name = "slide";
+    slide.property = "x";
+    slide.to = 20.0f;
+    MotionDecl intro;
+    intro.sequence = "fade,slide";
+    const std::vector<MotionSample> midway = SampleMotions({fade, slide, intro}, 0.05f, 0, false);
+    CHECK(test, !midway.empty() && midway[0].property == "opacity" && midway[0].number > 0.4f && midway[0].number < 0.6f);
+    MotionDecl scale = fade;
+    scale.name = "scale";
+    scale.property = "scale";
+    MotionDecl turn = fade;
+    turn.name = "turn";
+    turn.property = "rotation";
+    MotionDecl pop;
+    pop.parallel = "fade,scale,turn";
+    CHECK(test, SampleMotions({fade, scale, turn, pop}, 0.1f, 0, false).size() >= 3);
+    MotionDecl item = fade;
+    item.stagger = 0.05f;
+    const std::vector<MotionSample> staggered = SampleMotions({item}, 0.05f, 2, false);
+    CHECK(test, !staggered.empty() && staggered[0].number < 0.05f);
+    MotionDecl spring;
+    spring.property = "x";
+    spring.from = 0.0f;
+    spring.to = 10.0f;
+    spring.hasFrom = true;
+    spring.hasTo = true;
+    spring.easing = "spring";
+    spring.mass = 1.0f;
+    spring.stiffness = 180.0f;
+    spring.damping = 20.0f;
+    const std::vector<MotionSample> settled = SampleMotions({spring}, 2.0f, 0, false);
+    CHECK(test, !settled.empty() && std::fabs(settled[0].number - 10.0f) < 1.0f);
+    MotionDecl pathMotion;
+    pathMotion.property = "path";
+    pathMotion.duration = 1.0f;
+    pathMotion.keys.push_back(MotionKey{0.0f, "path", 0.0f, false, "M0 0"});
+    pathMotion.keys.push_back(MotionKey{1.0f, "path", 0.0f, false, "M10 10"});
+    const std::vector<MotionSample> pathSample = SampleMotions({pathMotion}, 0.2f, 0, false);
+    CHECK(test, !pathSample.empty() && pathSample[0].text == "M0 0");
+
+    std::unique_ptr<Element> played = Layout("<window><frame id=\"title\" width=\"20\" height=\"20\" opacity=\"1\"/></window>", 100.0f, 100.0f);
+    CHECK(test, played != nullptr);
+    if (played != nullptr) {
+        MotionDecl play;
+        play.target = "title";
+        play.property = "opacity";
+        play.from = 1.0f;
+        play.to = 0.0f;
+        play.hasFrom = true;
+        play.hasTo = true;
+        play.duration = 0.1f;
+        played->SetMotions({play});
+        played->Tick(0.05f);
+        CHECK(test, played->FindById("title")->Opacity() < 0.6f && played->FindById("title")->Opacity() > 0.4f);
+    }
+
+    int clicks = 0;
+    std::unique_ptr<Element> events = Layout("<window><frame id=\"save\" name=\"Save\" width=\"40\" height=\"20\"/></window>", 100.0f, 40.0f);
+    CHECK(test, events != nullptr);
+    if (events != nullptr) {
+        Element* save = events->FindById("save");
+        save->Connect("click", [&](const KeyEvent& event) {
+            ++clicks;
+            CHECK(test, event.key == "Enter" && event.ctrl);
+        });
+        KeyEvent key;
+        key.key = "Enter";
+        key.code = "Enter";
+        key.ctrl = true;
+        save->OnKeyEvent(key);
+        CHECK(test, clicks == 1);
+        CHECK(test, events->Announcement().find("activate") != std::string::npos);
+        Element* next = events->NextFocus(nullptr, false);
+        CHECK(test, next == save);
+        CHECK(test, events->Announcement().find("focus") != std::string::npos);
+        save->SetAccessibilityFlag("disabled", true);
+        CHECK(test, save->AccessibilityState().find("disabled") != std::string::npos);
+    }
+    Finish(test, "remaining surface", before);
+}
+
 void TestIrDump(TestContext& test) {
     const int before = test.failed;
     const CompileResult compiled = CompileUi(Source("<window><frame id=\"box\" name=\"Box\"/></window>"));
@@ -294,6 +672,8 @@ int RunUnitTests() {
     TestPrimitives(test);
     TestBoards(test);
     TestDesignDocumentEditsXml(test);
+    TestCompilerSurface(test);
+    TestRemainingSurface(test);
     TestIrDump(test);
     if (test.failed == 0) {
         std::cout << "✓ All tests passed\n";

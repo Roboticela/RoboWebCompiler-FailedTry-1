@@ -5,6 +5,7 @@
 #include "components/primitive/PrimitiveElement.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace Runtime {
 namespace {
@@ -167,6 +168,24 @@ void ApplyFrame(Frame& frame, const IrNode& node) {
         frame.SetMargin(margin);
     }
     if (const UiValue* value = FindProperty(node, "layout")) frame.SetLayout(ParseLayout(value->text));
+    if (const UiValue* value = FindProperty(node, "direction")) {
+        const std::string text = value->text == "row" || value->text == "horizontal" ? "horizontal" : "vertical";
+        frame.SetLayout(ParseLayout(text));
+    }
+    if (const UiValue* value = FindProperty(node, "alignment")) {
+        frame.SetAlign(value->text == "center" ? Alignment::CENTER : value->text == "end" || value->text == "right" ? Alignment::END
+                                                                 : value->text == "stretch" ? Alignment::STRETCH
+                                                                                            : Alignment::START);
+    }
+    if (const UiValue* value = FindProperty(node, "distribution")) {
+        if (value->text == "spaceBetween") {
+            frame.SetJustifyBetween(true);
+        } else if (value->text == "center") {
+            frame.SetJustify(Alignment::CENTER);
+        } else if (value->text == "end") {
+            frame.SetJustify(Alignment::END);
+        }
+    }
     if (const UiValue* value = FindProperty(node, "grow")) frame.SetGrow(static_cast<float>(value->number));
     if (const UiValue* value = FindProperty(node, "shrink")) frame.SetShrink(static_cast<float>(value->number));
     if (const UiValue* value = FindProperty(node, "basis")) frame.SetBasis(value->length);
@@ -270,6 +289,54 @@ void ApplyCommon(Element& element, const IrNode& node) {
     if (const UiValue* value = FindProperty(node, "position")) {
         element.SetPositionMode(ParsePosition(value->text));
     }
+    const auto pin = [&](const char* name, BoxEdge edge) {
+        const UiValue* value = FindProperty(node, name);
+        if (value == nullptr || value->text.empty()) {
+            return;
+        }
+        const std::string text = value->text;
+        float offset = 0.0f;
+        const std::size_t plus = text.find_first_of("+-");
+        const bool parent = text.find("parent.") != std::string::npos || plus == std::string::npos;
+        if (plus != std::string::npos && plus > 0) {
+            offset = std::strtof(text.c_str() + plus, nullptr);
+        } else if (text.find("parent.") == std::string::npos) {
+            offset = std::strtof(text.c_str(), nullptr);
+        }
+        if (parent) {
+            element.SetEdgePin(edge, offset);
+        }
+    };
+    pin("left", BoxEdge::LEFT);
+    pin("right", BoxEdge::RIGHT);
+    pin("top", BoxEdge::TOP);
+    pin("bottom", BoxEdge::BOTTOM);
+    pin("centerX", BoxEdge::CENTER_X);
+    pin("centerY", BoxEdge::CENTER_Y);
+    if (const UiValue* value = FindProperty(node, "minScreen")) {
+        element.SetHiddenBelow(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "maxScreen")) {
+        element.SetMaxScreen(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "orientation")) {
+        element.SetOrientation(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "minContainer")) {
+        element.SetMinContainer(static_cast<float>(value->number));
+    }
+    for (const auto& property : node.properties) {
+        if (!property.second.binding.empty()) {
+            element.AddBinding(property.first, property.second.binding, property.second.bindMode);
+        }
+    }
+    if (node.visual.used || !node.visual.motions.empty()) {
+        element.SetVisualStyle(node.visual);
+        element.SetMotions(node.visual.motions);
+    }
+    if (const UiValue* value = FindProperty(node, "name")) {
+        element.SetAccessibleName(value->text);
+    }
 }
 
 void ApplyShape(ShapeElement& shape, const IrNode& node) {
@@ -284,6 +351,12 @@ void ApplyShape(ShapeElement& shape, const IrNode& node) {
     }
     if (const UiValue* value = FindProperty(node, "source")) {
         shape.SetSource(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "fit")) {
+        shape.SetImageFit(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "clip")) {
+        shape.SetImageClip(value->boolean);
     }
     if (const UiValue* value = FindProperty(node, "d")) {
         shape.SetPathData(value->text);
@@ -317,11 +390,24 @@ void ApplyShape(ShapeElement& shape, const IrNode& node) {
     if (const UiValue* value = FindProperty(node, "textAlign")) {
         if (value->text == "center") {
             align = TextAlign::CENTER;
-        } else if (value->text == "right" || value->text == "end") {
+        } else         if (value->text == "right" || value->text == "end") {
             align = TextAlign::END;
+        } else if (value->text == "justify") {
+            align = TextAlign::JUSTIFY;
         }
     }
     shape.SetFont(NumberOf(node, "fontSize", 16.0f), static_cast<int>(NumberOf(node, "fontWeight", 400.0f)), textColor, align);
+    std::string family;
+    std::string locale;
+    if (const UiValue* value = FindProperty(node, "fontFamily")) {
+        family = value->text;
+    }
+    if (const UiValue* value = FindProperty(node, "language")) {
+        locale = value->text;
+    }
+    const bool italic = FindProperty(node, "fontStyle") != nullptr && FindProperty(node, "fontStyle")->text == "italic";
+    const bool rtl = FindProperty(node, "direction") != nullptr && FindProperty(node, "direction")->text == "rtl";
+    shape.SetTextStyle(std::move(family), italic, rtl, std::move(locale));
     shape.SetLine(NumberOf(node, "x1", 0.0f), NumberOf(node, "y1", 0.0f), NumberOf(node, "x2", 80.0f), NumberOf(node, "y2", 0.0f));
 }
 
