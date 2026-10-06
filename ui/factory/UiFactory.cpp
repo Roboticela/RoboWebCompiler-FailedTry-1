@@ -8,6 +8,7 @@
 #include "components/primitive/PrimitiveElement.h"
 #include "components/ellipse/EllipseElement.h"
 #include "components/line/LineElement.h"
+#include "components/polygon/PolygonElement.h"
 #include "components/rectangle/RectangleElement.h"
 #include "components/text/TextElement.h"
 #include <algorithm>
@@ -674,6 +675,15 @@ void ApplyEllipse(EllipseElement& ellipse, const IrNode& node) {
     }
 }
 
+void ApplyPolygon(PolygonElement& polygon, const IrNode& node) {
+    // A polygon reads everything a rectangle reads, because it is a rectangle with a different
+    // outline. Only the number of sides is read here.
+    ApplyRectangle(polygon, node);
+    if (const UiValue* value = FindProperty(node, "sides")) {
+        polygon.SetSides(static_cast<int>(value->number));
+    }
+}
+
 void ApplyLine(LineElement& line, const IrNode& node) {
     ApplyCommon(line, node);
     ApplyShapeBox(line, node);
@@ -1062,6 +1072,8 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<RectangleElement>();
     case NodeKind::ELLIPSE:
         return std::make_unique<EllipseElement>();
+    case NodeKind::POLYGON:
+        return std::make_unique<PolygonElement>();
     case NodeKind::LINE:
         return std::make_unique<LineElement>();
     case NodeKind::ARROW:
@@ -1103,6 +1115,10 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         }
     } else if (GroupElement* group = dynamic_cast<GroupElement*>(&element)) {
         ApplyGroup(*group, node);
+    } else if (PolygonElement* polygon = dynamic_cast<PolygonElement*>(&element)) {
+        // A polygon is a rectangle, so it has to be asked first: the rectangle branch below
+        // would otherwise take it and leave the sides unsaid.
+        ApplyPolygon(*polygon, node);
     } else if (RectangleElement* rectangle = dynamic_cast<RectangleElement*>(&element)) {
         ApplyRectangle(*rectangle, node);
     } else if (EllipseElement* ellipse = dynamic_cast<EllipseElement*>(&element)) {

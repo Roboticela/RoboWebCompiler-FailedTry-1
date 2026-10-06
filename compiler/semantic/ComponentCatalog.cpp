@@ -438,6 +438,23 @@ std::vector<PropertySpec> LineProperties() {
                                        {"minContainer", TypeKind::FLOAT}});
 }
 
+// A polygon is a rectangle with a different outline, so it accepts everything a rectangle
+// accepts and the number of sides on top of it. The four named corner radii a rectangle offers
+// mean nothing to a ring of sides, so they are dropped here rather than being accepted and then
+// quietly ignored: the compiler rejects them.
+std::vector<PropertySpec> PolygonProperties() {
+    std::vector<PropertySpec> properties;
+    for (const PropertySpec& property : RectangleProperties()) {
+        const std::string_view name(property.name);
+        if (name == "radiusTopLeft" || name == "radiusTopRight" || name == "radiusBottomRight" || name == "radiusBottomLeft") {
+            continue;
+        }
+        properties.push_back(property);
+    }
+    properties.push_back({"sides", TypeKind::INT});
+    return properties;
+}
+
 // An arrow is a line with a head, so it accepts everything a line accepts and the three
 // values that shape the head on top of it. Anything the line rejects, the arrow rejects too.
 std::vector<PropertySpec> ArrowProperties() {
@@ -517,6 +534,7 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"vector", NodeKind::VECTOR, true, VectorProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},
         {"ellipse", NodeKind::ELLIPSE, false, EllipseProperties(false)},
+        {"polygon", NodeKind::POLYGON, false, PolygonProperties()},
         {"circle", NodeKind::ELLIPSE, false, EllipseProperties(true)},
         {"line", NodeKind::LINE, false, LineProperties()},
         {"arrow", NodeKind::ARROW, false, ArrowProperties()},

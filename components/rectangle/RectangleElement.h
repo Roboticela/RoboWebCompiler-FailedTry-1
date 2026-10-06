@@ -38,6 +38,11 @@ public:
 protected:
     void OnPaint(Renderer& renderer) override;
 
+    // Paints one closed path as this shape: under this shape's turn, in this shape's fill, and
+    // with this shape's stroke. A shape that is not a box builds its own outline instead of
+    // the box's, and hands it here, so being filled and stroked is decided in one place.
+    void PaintOutline(Renderer& renderer, const std::string& path);
+
 private:
     // A rounded box is four independent corner arcs, so it only goes through a path when
     // the corners differ. A uniform radius keeps the platform rectangle primitive.

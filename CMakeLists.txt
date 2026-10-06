@@ -61,6 +61,8 @@ add_library(RuntimeUi STATIC
     components/group/GroupElement.h
     components/rectangle/RectangleElement.cpp
     components/rectangle/RectangleElement.h
+    components/polygon/PolygonElement.cpp
+    components/polygon/PolygonElement.h
     components/ellipse/EllipseElement.cpp
     components/ellipse/EllipseElement.h
     components/line/LineElement.cpp

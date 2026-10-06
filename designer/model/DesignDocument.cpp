@@ -172,6 +172,12 @@ XmlNode MakeComponent(std::string_view name) {
     } else if (name == "circle") {
         AddDefaultAttribute(node, "diameter", "100");
         AddDefaultAttribute(node, "fill", "#0E7AFF");
+    } else if (name == "polygon") {
+        // A polygon starts as the same box a rectangle does, with a ring of sides inside it.
+        AddDefaultAttribute(node, "width", "100");
+        AddDefaultAttribute(node, "height", "100");
+        AddDefaultAttribute(node, "fill", "#0E7AFF");
+        AddDefaultAttribute(node, "sides", "3");
     } else if (name == "shadow") {
         AddDefaultAttribute(node, "shadowX", "0");
         AddDefaultAttribute(node, "shadowY", "4");

@@ -2740,6 +2740,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Frame", "F", 43, activeTool == EditorTool::FRAME);
                 addCommand("Rectangle", "R", 49, activeTool == EditorTool::RECTANGLE);
                 addCommand("Ellipse", "O", 56, activeTool == EditorTool::ELLIPSE);
+                addCommand("Polygon", "P", 58, activeTool == EditorTool::POLYGON);
                 addCommand("Text", "T", 44, activeTool == EditorTool::TEXT);
                 addCommand("Image", "I", 45, activeTool == EditorTool::IMAGE);
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
@@ -3742,6 +3743,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             activeTool = EditorTool::RECTANGLE;
         } else if (action == 56) {
             activeTool = EditorTool::ELLIPSE;
+        } else if (action == 58) {
+            activeTool = EditorTool::POLYGON;
         } else if (action == 44) {
             activeTool = EditorTool::TEXT;
         } else if (action == 45) {
@@ -3785,7 +3788,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             MessageBoxW(window.Hwnd(), L"RoboUIDesigner\nA visual editor for Runtime XML.", L"About RoboUIDesigner", MB_OK);
         } else if (action == 61) {
             MessageBoxW(window.Hwnd(),
-                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nF5  Run\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   R Rectangle   O Ellipse   T Text\nI Image   L Line   A Arrow   H Hand   Z Zoom\n\nDrag with a shape tool to draw it at the size you want.",
+                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nF5  Run\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   R Rectangle   O Ellipse   P Polygon   T Text\nI Image   L Line   A Arrow   H Hand   Z Zoom\n\nDrag with a shape tool to draw it at the size you want.",
                         L"Keyboard Shortcuts", MB_OK);
         } else if (action >= 70 && action <= 77) {
             const char* names[] = {"frame", "text", "image", "vector", "path", "line", "group", "scroll"};
@@ -5514,6 +5517,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 paintDirty = true;
                 return true;
             }
+            if (key == 'P') {
+                activeTool = EditorTool::POLYGON;
+                paintDirty = true;
+                return true;
+            }
             if (key == 'T') {
                 activeTool = EditorTool::TEXT;
                 paintDirty = true;
@@ -6661,7 +6669,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         // Every component a shape tool can draw has to survive that trip, because the
         // editor writes defaults of its own for each of them and a default the component
         // does not declare would leave a document that no longer compiles.
-        const char* drawable[] = {"rectangle", "ellipse", "circle", "frame", "text", "image", "line", "arrow", "vector", "group"};
+        const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "frame", "text", "image", "line", "arrow", "vector", "group"};
         for (const char* component : drawable) {
             std::vector<int> drawnShape;
             if (!document.InsertChild({0}, component, drawnShape) || !document.SetAttribute(drawnShape, "id", "drawnShape") ||

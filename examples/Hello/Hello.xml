@@ -452,6 +452,35 @@
             </frame>
         </frame>
     </frame>
+    <frame name="Polygon" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="polygon — a rectangle with a different outline: as many sides as it is given, and a radius to round them" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="three sides, the default" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <polygon name="Triangle" width="88" height="88" fill="#0E7AFF"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="five sides, radius 20" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <polygon name="Pentagon" width="88" height="88" sides="5" radius="20" fill="#30D158"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="six sides, radius 12" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <polygon name="Hexagon" width="88" height="88" sides="6" radius="12" fill="#FF9F0A"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="eight sides, stroke 3" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <polygon name="Octagon" width="88" height="88" sides="8" fill="#FFFFFF" stroke="#0E7AFF" strokeWidth="3" radius="6"/>
+                </frame>
+            </frame>
+        </frame>
+    </frame>
     <frame name="Line" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
         <text text="line — two endpoints with a cap, a width, and an optional dash pattern" fontSize="13" textColor="#86868B"/>
         <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">

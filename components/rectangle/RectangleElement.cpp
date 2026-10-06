@@ -228,9 +228,9 @@ std::string RectangleElement::CornerPath(float boxWidth, float boxHeight) const 
     return path;
 }
 
-void RectangleElement::OnPaint(Renderer& renderer) {
+void RectangleElement::PaintOutline(Renderer& renderer, const std::string& path) {
     const Rect area = Bounds();
-    if (area.width <= 0.0f || area.height <= 0.0f) {
+    if (area.width <= 0.0f || area.height <= 0.0f || path.empty()) {
         return;
     }
     const bool filled = fill.a > 0.0f;
@@ -242,33 +242,54 @@ void RectangleElement::OnPaint(Renderer& renderer) {
     if (turned) {
         renderer.PushRotation(rotationZ, area.x + area.width * 0.5f, area.y + area.height * 0.5f);
     }
+    VectorPaint paint;
+    paint.bounds = area;
+    paint.data = path;
+    paint.viewX = 0.0f;
+    paint.viewY = 0.0f;
+    paint.viewWidth = area.width;
+    paint.viewHeight = area.height;
+    paint.fill = fill;
+    paint.stroke = stroke;
+    paint.strokeWidth = strokeWidth;
+    paint.fillEnabled = filled;
+    paint.lineJoin = 'r';
+    renderer.DrawVector(paint);
+    if (turned) {
+        renderer.PopTransform();
+    }
+}
+
+void RectangleElement::OnPaint(Renderer& renderer) {
+    const Rect area = Bounds();
+    if (area.width <= 0.0f || area.height <= 0.0f) {
+        return;
+    }
+    const bool filled = fill.a > 0.0f;
+    const bool stroked = strokeWidth > 0.0f && stroke.a > 0.0f;
+    if (!filled && !stroked) {
+        return;
+    }
     if (UniformCorners()) {
+        // A uniform radius is the one case the platform can draw without a path, so it does.
+        const bool turned = std::fabs(rotationZ) > TURN_EPSILON;
+        if (turned) {
+            renderer.PushRotation(rotationZ, area.x + area.width * 0.5f, area.y + area.height * 0.5f);
+        }
         if (filled) {
             renderer.FillRectangle(area, fill, Radius());
         }
         if (stroked) {
             renderer.StrokeRectangle(area, stroke, strokeWidth, Radius());
         }
-    } else {
-        // The path outlives the paint it is handed to; a view into a temporary would dangle.
-        const std::string path = CornerPath(area.width, area.height);
-        VectorPaint paint;
-        paint.bounds = area;
-        paint.data = path;
-        paint.viewX = 0.0f;
-        paint.viewY = 0.0f;
-        paint.viewWidth = area.width;
-        paint.viewHeight = area.height;
-        paint.fill = fill;
-        paint.stroke = stroke;
-        paint.strokeWidth = strokeWidth;
-        paint.fillEnabled = filled;
-        paint.lineJoin = 'r';
-        renderer.DrawVector(paint);
+        if (turned) {
+            renderer.PopTransform();
+        }
+        return;
     }
-    if (turned) {
-        renderer.PopTransform();
-    }
+    // The path outlives the paint it is handed to; a view into a temporary would dangle.
+    const std::string path = CornerPath(area.width, area.height);
+    PaintOutline(renderer, path);
 }
 
 }  // namespace Runtime

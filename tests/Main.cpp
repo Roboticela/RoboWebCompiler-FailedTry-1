@@ -7,6 +7,7 @@
 #include "components/group/GroupElement.h"
 #include "components/line/LineElement.h"
 #include "components/layout/BoardElement.h"
+#include "components/polygon/PolygonElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
 #include "components/rectangle/RectangleElement.h"
@@ -1264,6 +1265,230 @@ void TestEllipse(TestContext& test) {
     Finish(test, "ellipse", before);
 }
 
+// A polygon is a rectangle with a different outline, built on the rectangle instead of beside
+// it. So most of what is checked here is the rectangle showing through the polygon: the box, the
+// default size, the fill, the stroke, the radius, the turn, and the bindings.
+void TestPolygon(TestContext& test) {
+    const int before = test.failed;
+
+    // The box and the defaults belong to the rectangle underneath, and a polygon is still a
+    // rectangle to anything that asks for one.
+    std::unique_ptr<Element> plain = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<polygon id=\"ring\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* ring = plain != nullptr ? plain->FindById("ring") : nullptr;
+    CHECK(test, ring != nullptr && ring->Kind() == NodeKind::POLYGON);
+    if (ring != nullptr) {
+        CHECK(test, std::fabs(ring->Bounds().width - 100.0f) < 0.01f);
+        CHECK(test, std::fabs(ring->Bounds().height - 100.0f) < 0.01f);
+        CHECK(test, ring->Children().empty());
+        CHECK(test, dynamic_cast<RectangleElement*>(ring) != nullptr);
+        PolygonElement* polygon = dynamic_cast<PolygonElement*>(ring);
+        CHECK(test, polygon != nullptr);
+        if (polygon != nullptr) {
+            // Three sides is the fewest that can close a ring, and it is where a polygon starts.
+            CHECK(test, polygon->Sides() == 3);
+        }
+    }
+
+    // The number of sides comes from the document, stays inside what a ring can be, and the
+    // values of the rectangle underneath still arrive on the polygon.
+    std::unique_ptr<Element> counts = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<polygon id=\"six\" x=\"0\" y=\"0\" width=\"80\" height=\"80\" sides=\"6\"/>"
+        "<polygon id=\"sliver\" x=\"100\" y=\"0\" width=\"80\" height=\"80\" sides=\"1\"/>"
+        "<polygon id=\"many\" x=\"200\" y=\"0\" width=\"80\" height=\"80\" sides=\"900\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    PolygonElement* six = counts != nullptr ? dynamic_cast<PolygonElement*>(counts->FindById("six")) : nullptr;
+    PolygonElement* sliver = counts != nullptr ? dynamic_cast<PolygonElement*>(counts->FindById("sliver")) : nullptr;
+    PolygonElement* many = counts != nullptr ? dynamic_cast<PolygonElement*>(counts->FindById("many")) : nullptr;
+    CHECK(test, six != nullptr && sliver != nullptr && many != nullptr);
+    if (six != nullptr && sliver != nullptr && many != nullptr) {
+        CHECK(test, six->Sides() == 6);
+        CHECK(test, sliver->Sides() == 3);
+        CHECK(test, many->Sides() == 64);
+        six->ApplyBound("fill", "#FF0000");
+        CHECK(test, six->Fill().r > 0.9f && six->Fill().g < 0.1f);
+        six->ApplyBound("stroke", "#00FF00");
+        six->ApplyBound("strokeWidth", "4");
+        CHECK(test, six->StrokeColor().g > 0.9f && six->StrokeColor().r < 0.1f);
+        CHECK(test, std::fabs(six->StrokeWidth() - 4.0f) < 0.01f);
+        six->ApplyBound("radius", "8");
+        CHECK(test, std::fabs(six->Radius() - 8.0f) < 0.01f);
+        six->ApplyBound("rotation", "90");
+        CHECK(test, std::fabs(six->Rotation() - 90.0f) < 0.01f);
+        six->ApplyBound("sides", "5");
+        CHECK(test, six->Sides() == 5);
+    }
+
+    // What is drawn is the ring: one corner per side, spread over the whole box. A shape left
+    // inside the circle it was read from would sit away from the handles of the box it was
+    // dragged out to, so a triangle reaches the middle of the top edge and both bottom corners,
+    // and a four-sided ring stands on one corner and reaches the middle of every edge.
+    std::unique_ptr<Element> drawn = Layout(
+        "<window width=\"400\" height=\"300\"><frame layout=\"none\" width=\"400\" height=\"300\">"
+        "<polygon id=\"triangle\" x=\"0\" y=\"0\" width=\"90\" height=\"60\" fill=\"#0E7AFF\"/>"
+        "<polygon id=\"diamond\" x=\"120\" y=\"0\" width=\"80\" height=\"80\" sides=\"4\" fill=\"#0E7AFF\"/>"
+        "<polygon id=\"hexagon\" x=\"240\" y=\"0\" width=\"100\" height=\"100\" sides=\"6\" fill=\"#0E7AFF\"/>"
+        "</frame></window>",
+        400.0f, 300.0f);
+    Element* triangle = drawn != nullptr ? drawn->FindById("triangle") : nullptr;
+    Element* diamond = drawn != nullptr ? drawn->FindById("diamond") : nullptr;
+    Element* hexagon = drawn != nullptr ? drawn->FindById("hexagon") : nullptr;
+    CHECK(test, triangle != nullptr && diamond != nullptr && hexagon != nullptr);
+    if (triangle != nullptr && diamond != nullptr && hexagon != nullptr) {
+        RecordingRenderer renderer;
+        drawn->Paint(renderer);
+        const PaintRecord* trianglePaint = PaintRecordFor(renderer, triangle->Bounds());
+        const PaintRecord* diamondPaint = PaintRecordFor(renderer, diamond->Bounds());
+        const PaintRecord* hexagonPaint = PaintRecordFor(renderer, hexagon->Bounds());
+        CHECK(test, trianglePaint != nullptr && diamondPaint != nullptr && hexagonPaint != nullptr);
+        if (trianglePaint != nullptr && diamondPaint != nullptr && hexagonPaint != nullptr) {
+            CHECK(test, trianglePaint->vector && diamondPaint->vector && hexagonPaint->vector);
+            // A triangle points up, so its corners are the middle of the top edge and both ends
+            // of the bottom edge, which is the outline three sides are drawn with everywhere.
+            const std::vector<PathSample> triangleRing = SampleContours(trianglePaint->path).front().points;
+            CHECK(test, triangleRing.size() == 4);
+            if (triangleRing.size() == 4) {
+                CHECK(test, std::fabs(triangleRing[0].x - 45.0f) < 0.5f && std::fabs(triangleRing[0].y) < 0.5f);
+                CHECK(test, std::fabs(triangleRing[1].x - 90.0f) < 0.5f && std::fabs(triangleRing[1].y - 60.0f) < 0.5f);
+                CHECK(test, std::fabs(triangleRing[2].x) < 0.5f && std::fabs(triangleRing[2].y - 60.0f) < 0.5f);
+            }
+            const std::vector<PathSample> diamondRing = SampleContours(diamondPaint->path).front().points;
+            CHECK(test, diamondRing.size() == 5);
+            if (diamondRing.size() == 5) {
+                CHECK(test, std::fabs(diamondRing[0].x - 40.0f) < 0.5f && std::fabs(diamondRing[0].y) < 0.5f);
+                CHECK(test, std::fabs(diamondRing[1].x - 80.0f) < 0.5f && std::fabs(diamondRing[1].y - 40.0f) < 0.5f);
+                CHECK(test, std::fabs(diamondRing[2].x - 40.0f) < 0.5f && std::fabs(diamondRing[2].y - 80.0f) < 0.5f);
+                CHECK(test, std::fabs(diamondRing[3].x) < 0.5f && std::fabs(diamondRing[3].y - 40.0f) < 0.5f);
+            }
+            // However many sides there are, the ring reaches every edge of its box.
+            const PaintRecord* boxes[3] = {trianglePaint, diamondPaint, hexagonPaint};
+            for (const PaintRecord* record : boxes) {
+                float minX = 100000.0f;
+                float maxX = -100000.0f;
+                float minY = 100000.0f;
+                float maxY = -100000.0f;
+                // The ring is held in a local of its own: the samples belong to a temporary that
+                // a range over it would leave dangling.
+                const std::vector<PathSample> spanRing = SampleContours(record->path).front().points;
+                for (const PathSample& sample : spanRing) {
+                    minX = std::min(minX, sample.x);
+                    maxX = std::max(maxX, sample.x);
+                    minY = std::min(minY, sample.y);
+                    maxY = std::max(maxY, sample.y);
+                }
+                CHECK(test, std::fabs(minX) < 0.5f && std::fabs(minY) < 0.5f);
+                CHECK(test, std::fabs(maxX - record->rect.width) < 0.5f);
+                CHECK(test, std::fabs(maxY - record->rect.height) < 0.5f);
+            }
+        }
+    }
+
+    // A radius rounds the corners of the ring, and the corner is the only part of a ring that can
+    // be cut away: the side still reaches the box, and the corner of the box no longer does.
+    std::unique_ptr<Element> rounded = Layout(
+        "<window width=\"300\" height=\"300\"><frame layout=\"none\" width=\"300\" height=\"300\">"
+        "<polygon id=\"sharp\" x=\"0\" y=\"0\" width=\"100\" height=\"100\" sides=\"4\" fill=\"#0E7AFF\"/>"
+        "<polygon id=\"soft\" x=\"120\" y=\"0\" width=\"100\" height=\"100\" sides=\"4\" radius=\"24\" fill=\"#0E7AFF\"/>"
+        "</frame></window>",
+        300.0f, 300.0f);
+    Element* sharp = rounded != nullptr ? rounded->FindById("sharp") : nullptr;
+    Element* soft = rounded != nullptr ? rounded->FindById("soft") : nullptr;
+    CHECK(test, sharp != nullptr && soft != nullptr);
+    if (sharp != nullptr && soft != nullptr) {
+        RecordingRenderer renderer;
+        rounded->Paint(renderer);
+        const PaintRecord* softPaint = PaintRecordFor(renderer, soft->Bounds());
+        CHECK(test, softPaint != nullptr);
+        if (softPaint != nullptr) {
+            // The cut corner is drawn as an arc rather than as a corner.
+            CHECK(test, softPaint->path.find("A ") != std::string::npos);
+            const std::vector<PathSample> roundedRing = SampleContours(softPaint->path).front().points;
+            CHECK(test, roundedRing.size() > 5);
+            // An arc that bulged the wrong way would leave the box it is drawn in.
+            bool insideBox = true;
+            for (const PathSample& sample : roundedRing) {
+                if (sample.x < -0.5f || sample.y < -0.5f || sample.x > softPaint->rect.width + 0.5f || sample.y > softPaint->rect.height + 0.5f) {
+                    insideBox = false;
+                }
+            }
+            CHECK(test, insideBox);
+            const Rect softBox = soft->Bounds();
+            const Rect sharpBox = sharp->Bounds();
+            // The top corner of the ring is exactly where a radius cuts, so the same point that
+            // lands on a square corner misses the rounded one.
+            CHECK(test, sharp->HitTest(Point{sharpBox.x + 50.0f, sharpBox.y}) == sharp);
+            CHECK(test, soft->HitTest(Point{softBox.x + 50.0f, softBox.y}) == nullptr);
+            CHECK(test, soft->HitTest(Point{softBox.x + 50.0f, softBox.y + 30.0f}) == soft);
+        }
+    }
+
+    // The ring is hit where it is drawn: inside the outline, and not in the empty corner of the
+    // box that a triangle leaves behind.
+    std::unique_ptr<Element> hits = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<polygon id=\"wedge\" x=\"0\" y=\"0\" width=\"100\" height=\"100\" sides=\"3\" fill=\"#0E7AFF\"/>"
+        "<polygon id=\"spun\" x=\"0\" y=\"120\" width=\"60\" height=\"60\" sides=\"3\" rotation=\"45\" fill=\"#0E7AFF\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* wedge = hits != nullptr ? hits->FindById("wedge") : nullptr;
+    Element* spun = hits != nullptr ? hits->FindById("spun") : nullptr;
+    CHECK(test, wedge != nullptr && spun != nullptr);
+    if (wedge != nullptr && spun != nullptr) {
+        const Rect box = wedge->Bounds();
+        CHECK(test, wedge->HitTest(Point{box.x + 50.0f, box.y + 80.0f}) == wedge);
+        CHECK(test, wedge->HitTest(Point{box.x + 2.0f, box.y + 2.0f}) == nullptr);
+        CHECK(test, wedge->HitTest(Point{box.x + box.width - 2.0f, box.y + 2.0f}) == nullptr);
+        CHECK(test, wedge->HitTest(Point{box.x - 4.0f, box.y + 50.0f}) == nullptr);
+        // A turned polygon keeps the box the renderer turned with it, as a turned rectangle does.
+        const Rect spunBox = spun->Bounds();
+        CHECK(test, spun->HitTest(Point{spunBox.x + 2.0f, spunBox.y + 2.0f}) == spun);
+    }
+
+    // Hidden and display="none" polygons measure to nothing, paint nothing, and are not hit.
+    std::unique_ptr<Element> hidden = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<polygon id=\"gone\" width=\"80\" height=\"80\" sides=\"5\" display=\"none\"/>"
+        "<polygon id=\"away\" x=\"90\" y=\"0\" width=\"80\" height=\"80\" sides=\"5\" visible=\"false\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* gone = hidden != nullptr ? hidden->FindById("gone") : nullptr;
+    Element* away = hidden != nullptr ? hidden->FindById("away") : nullptr;
+    CHECK(test, gone != nullptr && away != nullptr);
+    if (gone != nullptr && away != nullptr) {
+        CHECK(test, !gone->Visible() && !away->Visible());
+        CHECK(test, gone->Measured().width == 0.0f && gone->Measured().height == 0.0f);
+        CHECK(test, away->Measured().width == 0.0f && away->Measured().height == 0.0f);
+        CHECK(test, gone->HitTest(Point{gone->Bounds().x + 40.0f, gone->Bounds().y + 40.0f}) == nullptr);
+        RecordingRenderer renderer;
+        hidden->Paint(renderer);
+        bool paintedPolygon = false;
+        for (const PaintRecord& record : renderer.records) {
+            if (std::fabs(record.rect.width - 80.0f) < 0.01f) {
+                paintedPolygon = true;
+            }
+        }
+        CHECK(test, !paintedPolygon);
+    }
+
+    // A polygon takes what a rectangle takes plus a number of sides. The four named corner radii
+    // a rectangle offers belong to a box and not to a ring, so they are refused rather than
+    // accepted and then quietly ignored, and so is everything else a shape has no use for.
+    CHECK(test, CompileUi(Source("<window><polygon width=\"80\" height=\"60\" sides=\"5\" fill=\"#FFFFFF\" stroke=\"#000000\" strokeWidth=\"2\" radius=\"6\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><polygon sides=\"4\" radiusTopLeft=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><polygon layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><polygon padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><polygon gap=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><polygon overflow=\"scroll\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><polygon><frame/></polygon></window>")).Ok());
+
+    Finish(test, "polygon", before);
+}
+
 void TestLine(TestContext& test) {
     const int before = test.failed;
 
@@ -2300,6 +2525,7 @@ int RunUnitTests() {
     TestGroup(test);
     TestRectangle(test);
     TestEllipse(test);
+    TestPolygon(test);
     TestLine(test);
     TestArrow(test);
     TestBoards(test);
