@@ -2,6 +2,7 @@
 #include "compiler/semantic/UiCompiler.h"
 #include "compiler/types/ValueParser.h"
 #include "components/frame/Frame.h"
+#include "components/group/GroupElement.h"
 #include "components/layout/BoardElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
@@ -9,6 +10,7 @@
 #include "designer/model/DesignDocument.h"
 #include "engine/motion/Motion.h"
 #include "rendering/image/ImageDecoder.h"
+#include "rendering/renderer/Renderer.h"
 #include "rendering/path/PathCurve.h"
 #include "rendering/text/TextLayout.h"
 #include "rendering/text/TextMeasurer.h"
@@ -29,6 +31,8 @@
 #undef RELATIVE
 #endif
 
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <filesystem>
@@ -45,6 +49,79 @@ public:
         return Size{fontSize, fontSize};
     }
 };
+
+struct PaintRecord {
+    Rect rect;
+    float opacity = 1.0f;
+    int clipDepth = 0;
+    int rotationDepth = 0;
+    float rotation = 0.0f;
+};
+
+// Records what a paint pass handed to each draw, so a group can be checked for passing its
+// own opacity, clip, rotation, and translation down to every child it holds.
+class RecordingRenderer : public Renderer {
+public:
+    Size MeasureText(std::string_view, float fontSize, float) override { return Size{fontSize, fontSize}; }
+    void SetDpi(float) override {}
+    void SetTransform(float, float, float) override {}
+    void BeginFrame(Color) override {}
+    bool EndFrame() override { return true; }
+    void FillRectangle(const Rect& rect, const Color&, float) override { Record(rect); }
+    void StrokeRectangle(const Rect& rect, const Color&, float, float) override { Record(rect); }
+    void DrawString(std::string_view, const Rect& rect, const TextStyle&) override { Record(rect); }
+    void DrawCachedImage(std::string_view, const Rect& rect, const unsigned char*, int, int) override { Record(rect); }
+    void DrawVector(const VectorPaint& paint) override { Record(paint.bounds); }
+    void PushClip(const Rect& rect) override { clips.push_back(rect); }
+    void PopClip() override {
+        if (!clips.empty()) {
+            clips.pop_back();
+        }
+    }
+    void PushOpacity(float value) override {
+        const float parent = opacityStack.empty() ? 1.0f : opacityStack.back();
+        opacityStack.push_back(parent * std::clamp(value, 0.0f, 1.0f));
+    }
+    void PopOpacity() override {
+        if (!opacityStack.empty()) {
+            opacityStack.pop_back();
+        }
+    }
+    void PushRotation(float degrees, float, float) override { rotations.push_back(degrees); }
+    void PopTransform() override {
+        if (!rotations.empty()) {
+            rotations.pop_back();
+        }
+    }
+
+    std::vector<PaintRecord> records;
+
+private:
+    void Record(const Rect& rect) {
+        PaintRecord record;
+        record.rect = rect;
+        record.opacity = opacityStack.empty() ? 1.0f : opacityStack.back();
+        record.clipDepth = static_cast<int>(clips.size());
+        record.rotationDepth = static_cast<int>(rotations.size());
+        record.rotation = rotations.empty() ? 0.0f : rotations.back();
+        records.push_back(record);
+    }
+
+    std::vector<float> opacityStack;
+    std::vector<Rect> clips;
+    std::vector<float> rotations;
+};
+
+const PaintRecord* PaintRecordFor(const RecordingRenderer& renderer, const Rect& rect) {
+    for (const PaintRecord& record : renderer.records) {
+        const bool same = std::fabs(record.rect.x - rect.x) < 0.01f && std::fabs(record.rect.y - rect.y) < 0.01f &&
+                          std::fabs(record.rect.width - rect.width) < 0.01f && std::fabs(record.rect.height - rect.height) < 0.01f;
+        if (same) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
 
 SourceFile Source(std::string text) {
     return SourceFile{"memory.xml", std::move(text)};
@@ -357,6 +434,120 @@ void TestFrameLayout(TestContext& test) {
     CHECK(test, hbar->FindById("hscroll")->OnWheel(-120, true));
     hbar->Arrange(Rect{0.0f, 0.0f, 160.0f, 80.0f});
     CHECK(test, wide->Bounds().x < hbar->FindById("hscroll")->Bounds().x - 1.0f);
+
+    // Wheel distance follows the raw delta so precision touchpads move a fraction of a notch.
+    std::unique_ptr<Element> fine = Layout(
+        "<window width=\"100\" height=\"50\"><frame id=\"fine\" overflow=\"scroll\" layout=\"vertical\" width=\"100\" height=\"50\">"
+        "<frame id=\"fineFirst\" width=\"40\" height=\"200\"/></frame></window>",
+        100.0f, 50.0f);
+    CHECK(test, fine != nullptr);
+    Element* fineScroll = fine->FindById("fine");
+    CHECK(test, fineScroll->OnWheel(-8));
+    fine->Arrange(Rect{0.0f, 0.0f, 100.0f, 50.0f});
+    const float smallShift = fineScroll->Bounds().y - fine->FindById("fineFirst")->Bounds().y;
+    CHECK(test, smallShift > 0.0f && smallShift < 48.0f);
+    CHECK(test, fineScroll->OnWheel(-8));
+    fine->Arrange(Rect{0.0f, 0.0f, 100.0f, 50.0f});
+    const float secondShift = fineScroll->Bounds().y - fine->FindById("fineFirst")->Bounds().y;
+    CHECK(test, secondShift > smallShift && secondShift < 48.0f);
+
+    // Shift+wheel on a vertical-only scroller still scrolls vertically instead of doing nothing.
+    std::unique_ptr<Element> shifted = Layout(
+        "<window width=\"100\" height=\"50\"><frame id=\"shifted\" overflow=\"scroll\" layout=\"vertical\" width=\"100\" height=\"50\">"
+        "<frame id=\"shiftedFirst\" width=\"40\" height=\"200\"/></frame></window>",
+        100.0f, 50.0f);
+    CHECK(test, shifted != nullptr);
+    CHECK(test, shifted->FindById("shifted")->OnWheel(-120, true));
+    shifted->Arrange(Rect{0.0f, 0.0f, 100.0f, 50.0f});
+    CHECK(test, shifted->FindById("shiftedFirst")->Bounds().y < shifted->FindById("shifted")->Bounds().y);
+
+    // A horizontal wheel or trackpad swipe scrolls the X axis of a horizontal scroller.
+    std::unique_ptr<Element> hwheel = Layout(
+        "<window width=\"80\" height=\"40\"><frame id=\"hwheel\" overflow=\"scroll\" clip=\"true\" layout=\"horizontal\" width=\"80\" height=\"40\">"
+        "<frame id=\"hwheelWide\" width=\"400\" height=\"40\"/></frame></window>",
+        80.0f, 40.0f);
+    CHECK(test, hwheel != nullptr);
+    CHECK(test, hwheel->FindById("hwheel")->OnWheel(120, false, 1));
+    hwheel->Arrange(Rect{0.0f, 0.0f, 80.0f, 40.0f});
+    CHECK(test, hwheel->FindById("hwheelWide")->Bounds().x < hwheel->FindById("hwheel")->Bounds().x - 1.0f);
+
+    // A fill width capped by maxWidth gives content something to overflow against.
+    std::unique_ptr<Element> capped = Layout(
+        "<window width=\"800\" height=\"120\"><frame layout=\"vertical\" width=\"800\" height=\"120\">"
+        "<frame id=\"capped\" overflow=\"scroll\" layout=\"horizontal\" width=\"fill\" maxWidth=\"300\" height=\"60\">"
+        "<frame id=\"cappedWide\" width=\"500\" height=\"40\"/></frame></frame></window>",
+        800.0f, 120.0f);
+    CHECK(test, capped != nullptr);
+    CHECK(test, std::fabs(capped->FindById("capped")->Bounds().width - 300.0f) < 0.01f);
+    CHECK(test, capped->FindById("capped")->OnWheel(120, false, 1));
+    capped->Arrange(Rect{0.0f, 0.0f, 800.0f, 120.0f});
+    CHECK(test, capped->FindById("cappedWide")->Bounds().x < capped->FindById("capped")->Bounds().x - 1.0f);
+
+    // A maxWidth-capped scroller keeps its scroll range across a real layout pass. The
+    // runtime re-measures whenever the wheel moves, so clamping the scroll against the
+    // unclamped fill width drew a thumb that snapped back to the start on every frame.
+    std::unique_ptr<Element> cappedScroll = Layout(
+        "<window width=\"800\" height=\"120\"><frame layout=\"vertical\" width=\"800\" height=\"120\">"
+        "<frame id=\"cappedTrack\" overflow=\"scroll\" clip=\"true\" scrollbarVisibility=\"visible\" layout=\"horizontal\""
+        " width=\"fill\" maxWidth=\"300\" height=\"60\">"
+        "<frame id=\"cappedItem\" width=\"500\" height=\"40\"/>"
+        "<frame id=\"cappedBar\" role=\"scrollbar\" orientation=\"horizontal\" position=\"absolute\" width=\"300\" height=\"14\">"
+        "<frame id=\"cappedLeft\" role=\"decrement\" width=\"14\" height=\"14\"/>"
+        "<frame id=\"cappedThumb\" role=\"thumb\" width=\"20\" height=\"14\"/>"
+        "<frame id=\"cappedRight\" role=\"increment\" width=\"14\" height=\"14\"/></frame>"
+        "</frame></frame></window>",
+        800.0f, 120.0f);
+    CHECK(test, cappedScroll != nullptr);
+    Element* cappedFrame = cappedScroll->FindById("cappedTrack");
+    Element* cappedItem = cappedScroll->FindById("cappedItem");
+    Element* cappedThumb = cappedScroll->FindById("cappedThumb");
+    CHECK(test, cappedFrame != nullptr && cappedItem != nullptr && cappedThumb != nullptr);
+    CHECK(test, std::fabs(cappedFrame->Bounds().width - 300.0f) < 0.01f);
+    CHECK(test, cappedFrame->OnWheel(120, false, 1));
+    FakeMeasurer cappedMeasurer;
+    auto relayoutCapped = [&]() {
+        cappedScroll->SetViewport(800.0f, 120.0f);
+        cappedScroll->Measure(cappedMeasurer, 800.0f, 120.0f, true);
+        cappedScroll->Arrange(Rect{0.0f, 0.0f, 800.0f, 120.0f});
+    };
+    relayoutCapped();
+    CHECK(test, std::fabs((cappedFrame->Bounds().x - cappedItem->Bounds().x) - 48.0f) < 0.01f);
+    const float cappedThumbStart = cappedThumb->Bounds().x;
+    CHECK(test, cappedThumbStart > cappedFrame->Bounds().x + 14.0f);
+    for (int step = 0; step < 8; ++step) {
+        cappedFrame->OnWheel(120, false, 1);
+        relayoutCapped();
+    }
+    CHECK(test, std::fabs(cappedItem->Bounds().x - (cappedFrame->Bounds().x - 200.0f)) < 0.01f);
+    CHECK(test, cappedThumb->Bounds().x > cappedThumbStart);
+
+    // A drag that reaches the scroll frame arms a pan, then moves the content (touch/mouse drag).
+    std::unique_ptr<Element> panned = Layout(
+        "<window width=\"100\" height=\"50\"><frame id=\"panned\" overflow=\"scroll\" clip=\"true\" width=\"100\" height=\"50\">"
+        "<frame id=\"panBlock\" width=\"40\" height=\"200\"/></frame></window>",
+        100.0f, 50.0f);
+    CHECK(test, panned != nullptr);
+    Element* panScroll = panned->FindById("panned");
+    CHECK(test, panScroll->OnDrag(Point{50.0f, 50.0f}));
+    CHECK(test, panScroll->OnDrag(Point{50.0f, 20.0f}));
+    panned->Arrange(Rect{0.0f, 0.0f, 100.0f, 50.0f});
+    CHECK(test, panned->FindById("panBlock")->Bounds().y < panScroll->Bounds().y - 1.0f);
+
+    // Page keys move by a page and Shift+Space pages back up.
+    std::unique_ptr<Element> keyed = Layout(
+        "<window width=\"100\" height=\"50\"><frame id=\"keyed\" overflow=\"scroll\" layout=\"vertical\" width=\"100\" height=\"50\">"
+        "<frame id=\"keyedFirst\" width=\"40\" height=\"200\"/></frame></window>",
+        100.0f, 50.0f);
+    CHECK(test, keyed != nullptr);
+    Element* keyScroll = keyed->FindById("keyed");
+    CHECK(test, keyScroll->OnKeyDown(0x22, false));
+    keyed->Arrange(Rect{0.0f, 0.0f, 100.0f, 50.0f});
+    const float afterPageDown = keyScroll->Bounds().y - keyed->FindById("keyedFirst")->Bounds().y;
+    CHECK(test, afterPageDown > 1.0f);
+    CHECK(test, keyScroll->OnKeyDown(0x20, true));
+    keyed->Arrange(Rect{0.0f, 0.0f, 100.0f, 50.0f});
+    const float afterPageUp = keyScroll->Bounds().y - keyed->FindById("keyedFirst")->Bounds().y;
+    CHECK(test, afterPageUp < afterPageDown);
     Finish(test, "frame layout", before);
 }
 
@@ -382,6 +573,253 @@ void TestPrimitives(TestContext& test) {
     CHECK(test, root->FindById("badge")->Children().size() == 1);
     CHECK(test, root->FindById("scroller")->Kind() == NodeKind::SCROLL);
     Finish(test, "primitives", before);
+}
+
+void TestGroup(TestContext& test) {
+    const int before = test.failed;
+
+    // A group is one item in the parent's flow even though it holds several children, and
+    // it wraps exactly those children.
+    std::unique_ptr<Element> row = Layout(
+        "<window width=\"400\" height=\"200\"><frame id=\"row\" layout=\"horizontal\" gap=\"10\" width=\"400\" height=\"200\">"
+        "<frame id=\"lead\" width=\"40\" height=\"40\" background=\"#010203\"/>"
+        "<group id=\"pair\" opacity=\"0.5\" rotation=\"30\" clip=\"true\">"
+        "<frame id=\"one\" x=\"0\" y=\"0\" width=\"20\" height=\"30\" background=\"#111111\"/>"
+        "<frame id=\"two\" x=\"30\" y=\"10\" width=\"20\" height=\"30\" background=\"#222222\"/>"
+        "</group>"
+        "<frame id=\"tail\" width=\"40\" height=\"40\" background=\"#333333\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    CHECK(test, row != nullptr);
+    Element* pair = row != nullptr ? row->FindById("pair") : nullptr;
+    Element* one = row != nullptr ? row->FindById("one") : nullptr;
+    Element* two = row != nullptr ? row->FindById("two") : nullptr;
+    Element* tail = row != nullptr ? row->FindById("tail") : nullptr;
+    CHECK(test, pair != nullptr && one != nullptr && two != nullptr && tail != nullptr);
+    if (pair != nullptr && one != nullptr && two != nullptr && tail != nullptr) {
+        CHECK(test, pair->Kind() == NodeKind::GROUP);
+        CHECK(test, std::fabs(pair->Bounds().x - 50.0f) < 0.01f);
+        CHECK(test, std::fabs(pair->Bounds().width - 50.0f) < 0.01f);
+        CHECK(test, std::fabs(pair->Bounds().height - 40.0f) < 0.01f);
+        CHECK(test, std::fabs(tail->Bounds().x - 110.0f) < 0.01f);
+        CHECK(test, std::fabs(one->Bounds().x - pair->Bounds().x) < 0.01f);
+        CHECK(test, std::fabs(two->Bounds().x - (pair->Bounds().x + 30.0f)) < 0.01f);
+        CHECK(test, std::fabs(two->Bounds().y - (pair->Bounds().y + 10.0f)) < 0.01f);
+
+        // One paint pass proves the group hands its opacity, its clip, and its rotation to
+        // every child, paints nothing of its own box, and leaves its siblings alone.
+        RecordingRenderer renderer;
+        row->Paint(renderer);
+        const PaintRecord* leadPaint = PaintRecordFor(renderer, row->FindById("lead")->Bounds());
+        const PaintRecord* onePaint = PaintRecordFor(renderer, one->Bounds());
+        const PaintRecord* twoPaint = PaintRecordFor(renderer, two->Bounds());
+        const PaintRecord* tailPaint = PaintRecordFor(renderer, tail->Bounds());
+        CHECK(test, PaintRecordFor(renderer, pair->Bounds()) == nullptr);
+        CHECK(test, leadPaint != nullptr && onePaint != nullptr && twoPaint != nullptr && tailPaint != nullptr);
+        if (leadPaint != nullptr && onePaint != nullptr && twoPaint != nullptr && tailPaint != nullptr) {
+            CHECK(test, std::fabs(leadPaint->opacity - 1.0f) < 0.001f && leadPaint->clipDepth == 0 && leadPaint->rotationDepth == 0);
+            CHECK(test, std::fabs(tailPaint->opacity - 1.0f) < 0.001f && tailPaint->clipDepth == 0 && tailPaint->rotationDepth == 0);
+            CHECK(test, std::fabs(onePaint->opacity - 0.5f) < 0.001f);
+            CHECK(test, onePaint->clipDepth == 1 && onePaint->rotationDepth == 1);
+            CHECK(test, std::fabs(onePaint->rotation - 30.0f) < 0.01f);
+            CHECK(test, std::fabs(twoPaint->opacity - 0.5f) < 0.001f && twoPaint->clipDepth == 1 && twoPaint->rotationDepth == 1);
+        }
+    }
+
+    // Nested groups multiply, so a child inside a group inside a group sees both opacities.
+    std::unique_ptr<Element> nested = Layout(
+        "<window width=\"100\" height=\"100\"><frame width=\"100\" height=\"100\">"
+        "<group id=\"outer\" opacity=\"0.5\"><group id=\"inner\" opacity=\"0.5\">"
+        "<frame id=\"deep\" width=\"20\" height=\"20\" background=\"#010101\"/></group></group>"
+        "</frame></window>",
+        100.0f, 100.0f);
+    CHECK(test, nested != nullptr && nested->FindById("deep") != nullptr);
+    if (nested != nullptr && nested->FindById("deep") != nullptr) {
+        CHECK(test, nested->FindById("outer")->Kind() == NodeKind::GROUP);
+        CHECK(test, nested->FindById("inner")->Kind() == NodeKind::GROUP);
+        RecordingRenderer renderer;
+        nested->Paint(renderer);
+        const PaintRecord* deepPaint = PaintRecordFor(renderer, nested->FindById("deep")->Bounds());
+        CHECK(test, deepPaint != nullptr && std::fabs(deepPaint->opacity - 0.25f) < 0.001f);
+    }
+
+    // An explicit box moves and resizes every child with it.
+    std::unique_ptr<Element> scaled = Layout(
+        "<window width=\"400\" height=\"200\"><frame width=\"400\" height=\"200\">"
+        "<group id=\"scaled\" x=\"0\" y=\"0\" width=\"100\" height=\"80\">"
+        "<frame id=\"inner\" x=\"10\" y=\"20\" width=\"20\" height=\"20\"/></group>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    CHECK(test, scaled != nullptr && scaled->FindById("scaled") != nullptr && scaled->FindById("inner") != nullptr);
+    if (scaled != nullptr && scaled->FindById("scaled") != nullptr && scaled->FindById("inner") != nullptr) {
+        Element* box = scaled->FindById("scaled");
+        Element* inner = scaled->FindById("inner");
+        CHECK(test, std::fabs(box->Bounds().width - 100.0f) < 0.01f && std::fabs(box->Bounds().height - 80.0f) < 0.01f);
+        CHECK(test, std::fabs(inner->Bounds().x - (box->Bounds().x + 10.0f * 100.0f / 30.0f)) < 0.01f);
+        CHECK(test, std::fabs(inner->Bounds().y - (box->Bounds().y + 40.0f)) < 0.01f);
+        CHECK(test, std::fabs(inner->Bounds().width - 20.0f * 100.0f / 30.0f) < 0.01f);
+        CHECK(test, std::fabs(inner->Bounds().height - 40.0f) < 0.01f);
+    }
+
+    // Min and max caps limit the group box and the children follow it.
+    std::unique_ptr<Element> capped = Layout(
+        "<window width=\"400\" height=\"200\"><frame width=\"400\" height=\"200\">"
+        "<group id=\"capped\" width=\"300\" maxWidth=\"120\"><frame id=\"capKid\" width=\"40\" height=\"40\"/></group>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    CHECK(test, capped != nullptr && capped->FindById("capped") != nullptr && capped->FindById("capKid") != nullptr);
+    if (capped != nullptr && capped->FindById("capped") != nullptr && capped->FindById("capKid") != nullptr) {
+        CHECK(test, std::fabs(capped->FindById("capped")->Bounds().width - 120.0f) < 0.01f);
+        CHECK(test, std::fabs(capped->FindById("capKid")->Bounds().width - 120.0f) < 0.01f);
+    }
+
+    // Scale, translate, and the transform shorthand reach the children as geometry.
+    std::unique_ptr<Element> moved = Layout(
+        "<window width=\"200\" height=\"200\"><frame width=\"200\" height=\"200\">"
+        "<group id=\"moved\" transform=\"translate(6, 4) scale(2) rotate(15)\">"
+        "<frame id=\"mark\" x=\"0\" y=\"0\" width=\"10\" height=\"10\"/></group>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    CHECK(test, moved != nullptr && moved->FindById("moved") != nullptr);
+    if (moved != nullptr && moved->FindById("moved") != nullptr) {
+        GroupElement* typed = dynamic_cast<GroupElement*>(moved->FindById("moved"));
+        Element* mark = moved->FindById("mark");
+        CHECK(test, typed != nullptr && mark != nullptr);
+        if (typed != nullptr && mark != nullptr) {
+            CHECK(test, typed->Transform() == "translate(6, 4) scale(2) rotate(15)");
+            CHECK(test, std::fabs(typed->Rotation() - 15.0f) < 0.01f);
+            CHECK(test, std::fabs(typed->Bounds().x - 6.0f) < 0.01f);
+            CHECK(test, std::fabs(typed->Bounds().y - 4.0f) < 0.01f);
+            CHECK(test, std::fabs(typed->Bounds().width - 20.0f) < 0.01f);
+            CHECK(test, std::fabs(mark->Bounds().x - typed->Bounds().x) < 0.01f);
+            CHECK(test, std::fabs(mark->Bounds().width - 20.0f) < 0.01f);
+        }
+    }
+
+    // Clicking a child keeps the child, clicking the empty part of the group returns the
+    // group so the whole group is selected and moved as one, and the outside matches
+    // nothing.
+    std::unique_ptr<Element> hits = Layout(
+        "<window width=\"200\" height=\"100\"><frame id=\"stage\" width=\"200\" height=\"100\">"
+        "<group id=\"hitBox\" x=\"10\" y=\"10\">"
+        "<frame id=\"pad\" x=\"0\" y=\"0\" width=\"10\" height=\"10\" background=\"#040506\"/>"
+        "<frame id=\"corner\" x=\"30\" y=\"10\" width=\"10\" height=\"10\" background=\"#010203\"/>"
+        "</group></frame></window>",
+        200.0f, 100.0f);
+    CHECK(test, hits != nullptr && hits->FindById("hitBox") != nullptr);
+    if (hits != nullptr && hits->FindById("hitBox") != nullptr) {
+        Element* hitBox = hits->FindById("hitBox");
+        CHECK(test, std::fabs(hitBox->Bounds().width - 40.0f) < 0.01f && std::fabs(hitBox->Bounds().height - 20.0f) < 0.01f);
+        Element* pad = hits->HitTest(Point{15.0f, 15.0f});
+        Element* corner = hits->HitTest(Point{45.0f, 25.0f});
+        Element* empty = hits->HitTest(Point{35.0f, 15.0f});
+        Element* outside = hits->HitTest(Point{90.0f, 60.0f});
+        CHECK(test, pad != nullptr && pad->Id() == "pad");
+        CHECK(test, corner != nullptr && corner->Id() == "corner");
+        CHECK(test, empty == hitBox);
+        CHECK(test, outside != nullptr && outside->Id() == "stage");
+    }
+
+    // Children keep the offsets they were written with, so a group does not move what it
+    // wraps and a child at a negative offset simply hangs outside the box.
+    std::unique_ptr<Element> negative = Layout(
+        "<window width=\"200\" height=\"100\"><frame width=\"200\" height=\"100\">"
+        "<group id=\"negative\" x=\"50\" y=\"50\">"
+        "<frame id=\"left\" x=\"-20\" y=\"0\" width=\"20\" height=\"20\"/>"
+        "<frame id=\"right\" x=\"10\" y=\"0\" width=\"20\" height=\"20\"/>"
+        "</group></frame></window>",
+        200.0f, 100.0f);
+    CHECK(test, negative != nullptr && negative->FindById("negative") != nullptr && negative->FindById("left") != nullptr);
+    if (negative != nullptr && negative->FindById("negative") != nullptr && negative->FindById("left") != nullptr) {
+        Element* negativeGroup = negative->FindById("negative");
+        Element* left = negative->FindById("left");
+        Element* right = negative->FindById("right");
+        CHECK(test, std::fabs(negativeGroup->Bounds().x - 50.0f) < 0.01f);
+        CHECK(test, std::fabs(negativeGroup->Bounds().width - 30.0f) < 0.01f);
+        CHECK(test, std::fabs(left->Bounds().x - (negativeGroup->Bounds().x - 20.0f)) < 0.01f);
+        CHECK(test, std::fabs(right->Bounds().x - (negativeGroup->Bounds().x + 10.0f)) < 0.01f);
+    }
+
+    // A clipped group keeps a child that hangs outside the box from taking the click.
+    const char* spilled =
+        "<window width=\"200\" height=\"100\"><frame id=\"stage\" width=\"200\" height=\"100\">"
+        "<group id=\"clipBox\"%s><frame id=\"poke\" translateX=\"30\" width=\"20\" height=\"20\" background=\"#010203\"/></group>"
+        "</frame></window>";
+    char clippedXml[512];
+    char openXml[512];
+    std::snprintf(clippedXml, sizeof(clippedXml), spilled, " clip=\"true\"");
+    std::snprintf(openXml, sizeof(openXml), spilled, "");
+    std::unique_ptr<Element> clipped = Layout(clippedXml, 200.0f, 100.0f);
+    std::unique_ptr<Element> open = Layout(openXml, 200.0f, 100.0f);
+    CHECK(test, clipped != nullptr && open != nullptr);
+    if (clipped != nullptr && open != nullptr && clipped->FindById("poke") != nullptr && open->FindById("poke") != nullptr) {
+        const Rect pokeBounds = open->FindById("poke")->Bounds();
+        CHECK(test, std::fabs(pokeBounds.x - 30.0f) < 0.01f);
+        Element* openHit = open->HitTest(Point{40.0f, 10.0f});
+        Element* clippedHit = clipped->HitTest(Point{40.0f, 10.0f});
+        CHECK(test, openHit != nullptr && openHit->Id() == "poke");
+        CHECK(test, clippedHit != nullptr && clippedHit->Id() == "stage");
+        RecordingRenderer renderer;
+        clipped->Paint(renderer);
+        const PaintRecord* pokePaint = PaintRecordFor(renderer, clipped->FindById("poke")->Bounds());
+        CHECK(test, pokePaint != nullptr && pokePaint->clipDepth == 1);
+    }
+
+    // Hiding the group hides every child, and a group leaves hit testing silent too.
+    std::unique_ptr<Element> hidden = Layout(
+        "<window width=\"200\" height=\"100\"><frame id=\"stage\" width=\"200\" height=\"100\">"
+        "<group id=\"gone\" visible=\"false\" x=\"10\" y=\"10\"><frame id=\"ghost\" width=\"40\" height=\"20\" background=\"#010203\"/></group>"
+        "</frame></window>",
+        200.0f, 100.0f);
+    CHECK(test, hidden != nullptr && hidden->FindById("gone") != nullptr);
+    if (hidden != nullptr && hidden->FindById("gone") != nullptr) {
+        Element* gone = hidden->FindById("gone");
+        Element* ghost = hidden->FindById("ghost");
+        CHECK(test, std::fabs(gone->Measured().width) < 0.01f && std::fabs(gone->Measured().height) < 0.01f);
+        Element* hiddenHit = hidden->HitTest(Point{20.0f, 20.0f});
+        CHECK(test, hiddenHit != nullptr && hiddenHit->Id() == "stage");
+        RecordingRenderer renderer;
+        hidden->Paint(renderer);
+        CHECK(test, ghost != nullptr && PaintRecordFor(renderer, ghost->Bounds()) == nullptr);
+    }
+
+    // The cursor of a group belongs to the whole group, so a child without one still shows it.
+    std::unique_ptr<Element> pointerGroup = Layout(
+        "<window width=\"200\" height=\"100\"><frame width=\"200\" height=\"100\">"
+        "<group id=\"hand\" cursor=\"pointer\"><frame id=\"quietChild\" x=\"0\" y=\"0\" width=\"40\" height=\"40\"/></group>"
+        "</frame></window>",
+        200.0f, 100.0f);
+    std::unique_ptr<Element> plainGroup = Layout(
+        "<window width=\"200\" height=\"100\"><frame width=\"200\" height=\"100\">"
+        "<group id=\"plain\"><frame id=\"plainChild\" x=\"0\" y=\"0\" width=\"40\" height=\"40\"/></group>"
+        "</frame></window>",
+        200.0f, 100.0f);
+    CHECK(test, pointerGroup != nullptr && plainGroup != nullptr);
+    if (pointerGroup != nullptr && plainGroup != nullptr) {
+        PointerInput pointer;
+        pointer.OnMove(*pointerGroup, Point{20.0f, 20.0f});
+        CHECK(test, pointer.Hovered() != nullptr && pointer.Hovered()->Id() == "quietChild");
+        CHECK(test, pointer.HoverWantsHand());
+        PointerInput plain;
+        plain.OnMove(*plainGroup, Point{20.0f, 20.0f});
+        CHECK(test, !plain.HoverWantsHand());
+    }
+
+    // The group takes every property it can hand to a child, and the compiler refuses the
+    // ones that belong to layout instead of accepting them and ignoring them.
+    CHECK(test, CompileUi(Source(
+                  "<window><group transform=\"scale(2)\" rotation=\"5\" scaleX=\"1.5\" translateY=\"3\" visibility=\"visible\" "
+                  "clip=\"true\" cursor=\"pointer\" display=\"normal\" locked=\"true\" zIndex=\"2\" grow=\"1\" minWidth=\"10\" "
+                  "maxWidth=\"20\" minHeight=\"4\" maxHeight=\"8\" margin=\"4\" centerX=\"parent.50%\"/>"
+                  "</window>"))
+                  .Ok());
+    CHECK(test, !CompileUi(Source("<window><group layout=\"horizontal\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><group padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><group gap=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><group background=\"#000000\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><group overflow=\"scroll\"/></window>")).Ok());
+
+    Finish(test, "group", before);
 }
 
 void TestBoards(TestContext& test) {
@@ -986,6 +1424,7 @@ int RunUnitTests() {
     TestFrameProperties(test);
     TestFrameLayout(test);
     TestPrimitives(test);
+    TestGroup(test);
     TestBoards(test);
     TestDesignDocumentEditsXml(test);
     TestCompilerSurface(test);

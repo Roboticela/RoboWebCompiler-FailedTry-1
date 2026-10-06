@@ -4114,10 +4114,16 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     std::vector<int> inserted;
                     const char* scrollbarXml =
                         "<frame name=\"Scrollbar\" component=\"Scrollbar\" role=\"scrollbar\" orientation=\"vertical\" position=\"absolute\" "
-                        "width=\"14\" height=\"fill\" background=\"#E8E8ED\" radius=\"7\">"
-                        "<frame name=\"Decrement\" role=\"decrement\" width=\"fill\" height=\"14\" background=\"#D2D2D7\" radius=\"4\"/>"
-                        "<frame name=\"Thumb\" role=\"thumb\" width=\"fill\" height=\"48\" background=\"#86868B\" radius=\"7\"/>"
-                        "<frame name=\"Increment\" role=\"increment\" width=\"fill\" height=\"14\" background=\"#D2D2D7\" radius=\"4\"/>"
+                        "width=\"8\" height=\"fill\" background=\"transparent\" radius=\"980\">"
+                        "<frame name=\"Decrement\" role=\"decrement\" layout=\"horizontal\" align=\"center\" justify=\"center\" width=\"fill\" height=\"12\" background=\"transparent\" radius=\"980\">"
+                        "<vector name=\"CaretUp\" width=\"8\" height=\"8\" viewBox=\"0 0 16 16\">"
+                        "<path d=\"m7.247 4.86-4.796 5.481c-.566.647-.106 1.659.753 1.659h9.592a1 1 0 0 0 .753-1.659l-4.796-5.48a1 1 0 0 0-1.506 0z\" width=\"8\" height=\"8\" viewBox=\"0 0 16 16\" fill=\"#86868B\"/>"
+                        "</vector></frame>"
+                        "<frame name=\"Thumb\" role=\"thumb\" width=\"fill\" height=\"48\" background=\"#B8B8BD\" radius=\"980\"/>"
+                        "<frame name=\"Increment\" role=\"increment\" layout=\"horizontal\" align=\"center\" justify=\"center\" width=\"fill\" height=\"12\" background=\"transparent\" radius=\"980\">"
+                        "<vector name=\"CaretDown\" width=\"8\" height=\"8\" viewBox=\"0 0 16 16\">"
+                        "<path d=\"M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z\" width=\"8\" height=\"8\" viewBox=\"0 0 16 16\" fill=\"#86868B\"/>"
+                        "</vector></frame>"
                         "</frame>";
                     if (document.PasteXml(parentForInsert(), scrollbarXml, inserted)) {
                         selectOnly(inserted);
@@ -4844,8 +4850,25 @@ int DesignerApp::Run(const DesignerOptions& options) {
         dragStart = point;
     });
     window.SetMiddleUp([&](Point) { drag = DragKind::NONE; });
-    window.SetMouseWheel([&](Point point, int delta) {
+    window.SetMouseWheel([&](Point point, int delta, int axis) {
         layoutChrome(clientWidth, clientHeight);
+        if (axis != 0) {
+            // Horizontal wheel or a two-finger trackpad swipe: scroll a preview sideways,
+            // otherwise pan the canvas. A sideways gesture never zooms.
+            if ((GetKeyState(VK_CONTROL) & 0x8000) == 0 && preview != nullptr && ContainsPoint(artboardScreen(), point)) {
+                const Point horizontalLocal = toArtboard(point);
+                Element* horizontalHit = preview->HitTest(horizontalLocal);
+                for (Element* node = horizontalHit; node != nullptr; node = node->Parent()) {
+                    if (node->OnWheel(delta, false, 1)) {
+                        paintDirty = true;
+                        return;
+                    }
+                }
+                panX -= delta * 0.5f;
+                paintDirty = true;
+            }
+            return;
+        }
         if (ContainsPoint(xmlPanel, point)) {
             xmlScroll = std::max(0, xmlScroll - (delta > 0 ? 1 : -1) * 3);
             paintDirty = true;
@@ -4898,7 +4921,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             Element* hit = preview->HitTest(local);
             for (Element* node = hit; node != nullptr; node = node->Parent()) {
-                if (node->OnWheel(delta, shift)) {
+                if (node->OnWheel(delta, shift, 0)) {
                     paintDirty = true;
                     return;
                 }

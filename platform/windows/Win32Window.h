@@ -34,7 +34,8 @@ public:
 
     bool Create(const std::wstring& title, int dipWidth, int dipHeight);
     void Pump(bool& running);
-    void WaitForMessage();
+    // milliseconds < 0 waits indefinitely; otherwise returns when a message arrives or the time elapses.
+    void WaitForMessage(int milliseconds = -1);
 
     HWND Hwnd() const;
     float Dpi() const;
@@ -53,7 +54,8 @@ public:
     void SetMouseLeave(std::function<void()> callback);
     void SetMiddleDown(std::function<void(Point point)> callback);
     void SetMiddleUp(std::function<void(Point point)> callback);
-    void SetMouseWheel(std::function<void(Point point, int delta)> callback);
+    // axis: 0 = vertical wheel, 1 = horizontal wheel (tilt wheel or trackpad swipe).
+    void SetMouseWheel(std::function<void(Point point, int delta, int axis)> callback);
     void SetKeyDown(std::function<bool(unsigned key)> callback);
     void SetChar(std::function<void(wchar_t character)> callback);
 
@@ -79,7 +81,7 @@ private:
     std::function<void()> onMouseLeave;
     std::function<void(Point)> onMiddleDown;
     std::function<void(Point)> onMiddleUp;
-    std::function<void(Point, int)> onMouseWheel;
+    std::function<void(Point, int, int)> onMouseWheel;
     std::function<bool(unsigned)> onKeyDown;
     std::function<void(wchar_t)> onChar;
 };

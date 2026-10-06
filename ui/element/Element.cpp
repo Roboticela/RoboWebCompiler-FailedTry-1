@@ -112,7 +112,7 @@ bool Element::OnDrag(Point) {
     return false;
 }
 
-bool Element::OnWheel(int, bool) {
+bool Element::OnWheel(int, bool, int) {
     return false;
 }
 
@@ -157,7 +157,7 @@ bool Element::OnChar(wchar_t) {
     return false;
 }
 
-bool Element::OnKeyDown(unsigned) {
+bool Element::OnKeyDown(unsigned, bool) {
     return false;
 }
 

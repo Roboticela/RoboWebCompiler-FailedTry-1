@@ -57,6 +57,8 @@ add_library(RuntimeUi STATIC
     ui/factory/UiFactory.h
     components/frame/Frame.cpp
     components/frame/Frame.h
+    components/group/GroupElement.cpp
+    components/group/GroupElement.h
     components/primitive/PrimitiveElement.cpp
     components/primitive/PrimitiveElement.h
     components/layout/WindowElement.cpp

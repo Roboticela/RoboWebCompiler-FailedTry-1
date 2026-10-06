@@ -25,10 +25,10 @@ public:
     bool PaintsOwnBorder() const override { return true; }
     Element* HitTest(Point point) override;
     void ApplyBound(const std::string& property, const std::string& value) override;
-    bool OnWheel(int delta, bool shift = false) override;
+    bool OnWheel(int delta, bool shift = false, int axis = 0) override;
     bool OnPointerDown(Point point) override;
     bool OnDrag(Point point) override;
-    bool OnKeyDown(unsigned key) override;
+    bool OnKeyDown(unsigned key, bool shift = false) override;
     bool Tick(float seconds) override;
     bool SetPointerHover(bool hovered) override;
     bool WantsHandCursor() const override;
@@ -135,6 +135,9 @@ private:
     bool ScrollbarHot() const;
     std::vector<Element*> PaintOrder() const;
     void PaintScrollArrow(Renderer& renderer);
+    void PaintScrollThumb(Renderer& renderer);
+    void PaintAutoScrollbar(Renderer& renderer);
+    void PaintThumbPill(Renderer& renderer, const Rect& track, const Color& color);
 
     std::string name;
     std::string className;
@@ -212,6 +215,10 @@ private:
     Point panOrigin{};
     float panScrollX = 0.0f;
     float panScrollY = 0.0f;
+    float panVelX = 0.0f;
+    float panVelY = 0.0f;
+    float inertiaVelX = 0.0f;
+    float inertiaVelY = 0.0f;
 };
 
 }  // namespace Runtime

@@ -20,6 +20,23 @@ inline constexpr Color COLOR_BG_TERTIARY{237.0f / 255.0f, 237.0f / 255.0f, 239.0
 inline constexpr Color COLOR_BORDER_DEFAULT{210.0f / 255.0f, 210.0f / 255.0f, 215.0f / 255.0f, 1.0f};
 inline constexpr Color COLOR_BORDER_STRONG{184.0f / 255.0f, 184.0f / 255.0f, 189.0f / 255.0f, 1.0f};
 
+// Scrollbar: a thin, transparent-track pill. The visible thumb is inset from the
+// track so it reads as a light overlay rather than a solid rail. Idle, hover, and
+// drag shades match the design reference (border-strong, text-tertiary, text-secondary).
+inline constexpr Color COLOR_SCROLLBAR_THUMB = COLOR_BORDER_STRONG;
+inline constexpr float SCROLLBAR_THICKNESS = 8.0f;
+inline constexpr float SCROLLBAR_THICKNESS_THIN = 6.0f;
+inline constexpr float SCROLLBAR_THUMB_INSET = 2.0f;
+inline constexpr float SCROLLBAR_MIN_THUMB = 28.0f;
+inline constexpr float SCROLLBAR_ARROW_SIZE = 12.0f;
+inline constexpr float SCROLLBAR_HOVER_SCALE = 0.73f;
+inline constexpr float SCROLLBAR_ACTIVE_SCALE = 0.60f;
+inline constexpr float SCROLL_WHEEL_DELTA = 120.0f;
+inline constexpr float SCROLL_WHEEL_MIN_STEP = 2.0f;
+inline constexpr float SCROLL_INERTIA_FLOOR = 0.4f;
+inline constexpr float SCROLL_INERTIA_DECAY = 0.002f;
+inline constexpr float SCROLL_FLICK_MIN = 1.5f;
+
 inline constexpr float TYPE_DISPLAY = 80.0f;
 inline constexpr float TYPE_H1 = 56.0f;
 inline constexpr float TYPE_H2 = 40.0f;

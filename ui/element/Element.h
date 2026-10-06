@@ -60,13 +60,13 @@ public:
     virtual void OnFocus();
     virtual void OnBlur();
     virtual bool OnDrag(Point point);
-    virtual bool OnWheel(int delta, bool shift = false);
+    virtual bool OnWheel(int delta, bool shift = false, int axis = 0);
     virtual void Activate();
     virtual bool WantsHandCursor() const;
     virtual bool TakesTextFocus() const;
     virtual void SetFocused(bool focused);
     virtual bool OnChar(wchar_t character);
-    virtual bool OnKeyDown(unsigned key);
+    virtual bool OnKeyDown(unsigned key, bool shift = false);
     virtual bool OnKeyEvent(const KeyEvent& event);
     bool PointerHover() const { return pointerHover; }
     bool PointerPressed() const { return pointerPressed; }

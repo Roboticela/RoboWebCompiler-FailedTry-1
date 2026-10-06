@@ -86,8 +86,12 @@ void Win32Window::Pump(bool& running) {
     }
 }
 
-void Win32Window::WaitForMessage() {
-    WaitMessage();
+void Win32Window::WaitForMessage(int milliseconds) {
+    if (milliseconds < 0) {
+        WaitMessage();
+        return;
+    }
+    MsgWaitForMultipleObjectsEx(0, nullptr, static_cast<DWORD>(milliseconds), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 }
 
 HWND Win32Window::Hwnd() const {
@@ -196,7 +200,7 @@ void Win32Window::SetMiddleUp(std::function<void(Point)> callback) {
     onMiddleUp = std::move(callback);
 }
 
-void Win32Window::SetMouseWheel(std::function<void(Point, int)> callback) {
+void Win32Window::SetMouseWheel(std::function<void(Point, int, int)> callback) {
     onMouseWheel = std::move(callback);
 }
 
@@ -308,14 +312,16 @@ LRESULT Win32Window::Handle(UINT message, WPARAM wparam, LPARAM lparam) {
             onMiddleUp(ToDip(lparam));
         }
         return 0;
-    case WM_MOUSEWHEEL: {
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL: {
         POINT cursor{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
         ScreenToClient(hwnd, &cursor);
         const float scale = dpi / 96.0f;
         const float divider = scale > 0.0f ? scale : 1.0f;
         if (onMouseWheel) {
+            const int axis = message == WM_MOUSEHWHEEL ? 1 : 0;
             onMouseWheel(Point{static_cast<float>(cursor.x) / divider, static_cast<float>(cursor.y) / divider},
-                         GET_WHEEL_DELTA_WPARAM(wparam));
+                         static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)), axis);
         }
         return 0;
     }

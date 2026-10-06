@@ -25,6 +25,7 @@ Node
 ├── Instance
 ├── Boolean
 └── Section
+Scrollbar [Done]
 ```
 
 Every node should have common properties.
@@ -1059,3 +1060,39 @@ Image
 If **this** works beautifully, you have the foundation for the rest.
 
 ---
+
+
+1.  Page
+2.  Section
+3.  Frame [Done]
+4.  Group
+
+5.  Rectangle
+6.  Rounded Rectangle
+7.  Ellipse / Circle
+8.  Line
+9.  Arrow
+10. Polygon
+11. Star
+
+12. Vector
+13. SVG
+14. Boolean Group
+    - Union
+    - Subtract
+    - Intersect
+    - Exclude
+
+15. Text
+16. Rich Text
+17. Image
+18. Video
+19. GIF
+
+20. Component
+21. Component Set
+22. Instance
+23. Slot
+
+24. Embed
+25. Link

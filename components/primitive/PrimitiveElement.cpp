@@ -145,7 +145,7 @@ void ShapeElement::SetCornerRadius(float value) {
 }
 
 bool ShapeElement::PlacesChildren() const {
-    return nodeKind == NodeKind::GROUP || nodeKind == NodeKind::VECTOR || nodeKind == NodeKind::COMPONENT || nodeKind == NodeKind::INSTANCE || nodeKind == NodeKind::SLOT;
+    return nodeKind == NodeKind::VECTOR || nodeKind == NodeKind::COMPONENT || nodeKind == NodeKind::INSTANCE || nodeKind == NodeKind::SLOT;
 }
 
 Size ShapeElement::Measure(TextMeasurer& measurer, float availableWidth, float availableHeight, bool) {

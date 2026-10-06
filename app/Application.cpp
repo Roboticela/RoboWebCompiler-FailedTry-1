@@ -182,14 +182,28 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
             }
             view->paintDirty = true;
         });
-        view->window.SetMouseWheel([view](Point point, int delta) {
+        view->window.SetMiddleDown([view](Point point) {
+            if (view->root != nullptr) {
+                view->input.OnDown(*view->root, point);
+                view->paintDirty = true;
+            }
+        });
+        view->window.SetMiddleUp([view](Point point) {
+            if (view->root != nullptr && view->input.OnUp(*view->root, point, false)) {
+                view->paintDirty = true;
+            }
+        });
+        view->window.SetMouseWheel([view](Point point, int delta, int axis) {
             if (view->root == nullptr) {
                 return;
             }
             const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             Element* hit = view->root->HitTest(point);
+            if (hit == nullptr) {
+                hit = view->root.get();
+            }
             for (Element* node = hit; node != nullptr; node = node->Parent()) {
-                if (node->OnWheel(delta, shift)) {
+                if (node->OnWheel(delta, shift, axis)) {
                     view->layoutDirty = true;
                     view->paintDirty = true;
                     break;
@@ -227,7 +241,7 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
                 view->paintDirty = true;
                 return true;
             }
-            if (view->focused != nullptr && view->focused->OnKeyDown(key)) {
+            if (view->focused != nullptr && view->focused->OnKeyDown(key, event.shift)) {
                 view->paintDirty = true;
                 return true;
             }
@@ -235,8 +249,11 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
             if (start == nullptr) {
                 start = view->focused;
             }
+            if (start == nullptr) {
+                start = view->root.get();
+            }
             for (Element* node = start; node != nullptr; node = node->Parent()) {
-                if (node->OnKeyDown(key)) {
+                if (node->OnKeyDown(key, event.shift)) {
                     view->layoutDirty = true;
                     view->paintDirty = true;
                     return true;
@@ -266,6 +283,7 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
         }
         bool anyOpen = false;
         bool paintWaiting = true;
+        bool animating = false;
         for (const std::unique_ptr<LiveSurface>& surface : surfaces) {
             if (surface->window.Hwnd() == nullptr || surface->root == nullptr) {
                 continue;
@@ -285,6 +303,7 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
             }
             if (surface->root->Tick(1.0f / 60.0f)) {
                 surface->paintDirty = true;
+                animating = true;
             }
             if (surface->layoutDirty) {
                 surface->root->SetViewport(surface->clientWidth, surface->clientHeight);
@@ -326,7 +345,14 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
         if (options.selfTest && selfTestClicked) {
             return 0;
         }
-        if (paintWaiting && !options.selfTest) {
+        if (options.selfTest) {
+            continue;
+        }
+        if (animating) {
+            // Keep advancing an in-flight scroll or motion at about 60 frames a second
+            // even while no input arrives, instead of spinning or stalling.
+            surfaces.front()->window.WaitForMessage(16);
+        } else if (paintWaiting) {
             surfaces.front()->window.WaitForMessage();
         }
     }

@@ -359,7 +359,11 @@ bool Frame::DragPan(Point point) {
     if (!panActive || !Scrolls()) {
         return false;
     }
+    const float beforeX = scrollX;
+    const float beforeY = scrollY;
     ScrollTo(panScrollX + (panOrigin.x - point.x), panScrollY + (panOrigin.y - point.y));
+    panVelX = scrollX - beforeX;
+    panVelY = scrollY - beforeY;
     return true;
 }
 
@@ -396,17 +400,28 @@ bool Frame::OnDrag(Point point) {
     if (role == "thumb") {
         return DragThumb(point);
     }
-    if (panActive && Scrolls()) {
-        return DragPan(point);
+    if (IsScrollChrome(role)) {
+        // The track and arrows respond to clicks, not drags; keep a drag here from panning.
+        return true;
     }
-    return false;
+    if (!Scrolls()) {
+        return false;
+    }
+    if (!panActive) {
+        // A drag that reached us from any child pans the content, so touch and mouse
+        // drags work even when the pointer started on an item instead of empty space.
+        BeginPan(point);
+        return true;
+    }
+    return DragPan(point);
 }
 
-bool Frame::OnKeyDown(unsigned key) {
+bool Frame::OnKeyDown(unsigned key, bool shift) {
     if (!Scrolls()) {
         return false;
     }
     const float pageY = std::max(24.0f, bounds.height * 0.85f);
+    const float pageX = std::max(24.0f, bounds.width * 0.85f);
     switch (key) {
     case KEY_UP:
         ScrollBy(0.0f, -scrollStep);
@@ -421,11 +436,21 @@ bool Frame::OnKeyDown(unsigned key) {
         ScrollBy(scrollStep, 0.0f);
         return true;
     case KEY_PRIOR:
-        ScrollBy(0.0f, -pageY);
+        if (shift && MaxScrollX() > 0.5f) {
+            ScrollBy(-pageX, 0.0f);
+        } else {
+            ScrollBy(0.0f, -pageY);
+        }
         return true;
     case KEY_NEXT:
+        if (shift && MaxScrollX() > 0.5f) {
+            ScrollBy(pageX, 0.0f);
+        } else {
+            ScrollBy(0.0f, pageY);
+        }
+        return true;
     case KEY_SPACE:
-        ScrollBy(0.0f, pageY);
+        ScrollBy(0.0f, shift ? -pageY : pageY);
         return true;
     case KEY_HOME:
         ScrollTo(0.0f, 0.0f);
@@ -501,6 +526,27 @@ bool Frame::Tick(float seconds) {
     }
     if (panActive && !DescendantPressed(*this) && !PointerPressed()) {
         panActive = false;
+        // Only a real flick glides; a slow drag stops where it is released.
+        if (std::hypot(panVelX, panVelY) > SCROLL_FLICK_MIN) {
+            inertiaVelX = panVelX;
+            inertiaVelY = panVelY;
+        }
+        panVelX = 0.0f;
+        panVelY = 0.0f;
+    }
+    if (!panActive && (std::fabs(inertiaVelX) > SCROLL_INERTIA_FLOOR || std::fabs(inertiaVelY) > SCROLL_INERTIA_FLOOR)) {
+        const float decay = std::pow(SCROLL_INERTIA_DECAY, seconds);
+        const float beforeX = scrollX;
+        const float beforeY = scrollY;
+        scrollX = std::clamp(scrollX + inertiaVelX, 0.0f, MaxScrollX());
+        scrollY = std::clamp(scrollY + inertiaVelY, 0.0f, MaxScrollY());
+        scrollTargetX = scrollX;
+        scrollTargetY = scrollY;
+        inertiaVelX = scrollX == beforeX ? 0.0f : inertiaVelX * decay;
+        inertiaVelY = scrollY == beforeY ? 0.0f : inertiaVelY * decay;
+        RevealScrollbars();
+        InvalidateLayout();
+        changed = true;
     }
     return changed;
 }
@@ -673,13 +719,21 @@ Size Frame::Measure(TextMeasurer& measurer, float availableWidth, float availabl
     measured.height = ResolveDefinite(heightLength, heightSpace, fitHeight, heightDefinite || heightMode == SizeMode::FILL || heightMode == SizeMode::PERCENT || heightMode == SizeMode::FIXED);
     contentWidth = fitWidth;
     contentHeight = fitHeight;
-    const float maxX = std::max(0.0f, contentWidth - measured.width);
-    const float maxY = std::max(0.0f, contentHeight - measured.height);
+    const Size settled = FinishMeasure(availableWidth, availableHeight);
+    // Min, max, and margin only land in FinishMeasure, so the scroll range has to be
+    // limited against the box that actually gets arranged. Using the unclamped size here
+    // (a fill width before maxWidth caps it) reported no room to scroll while the
+    // scrollbar, which measures against the arranged box, still drew a thumb - so every
+    // layout pass silently reset the scroll position to zero.
+    const float boxWidth = std::max(0.0f, settled.width - margin.SpanX(settled.width));
+    const float boxHeight = std::max(0.0f, settled.height - margin.SpanY(settled.height));
+    const float maxX = std::max(0.0f, contentWidth - boxWidth);
+    const float maxY = std::max(0.0f, contentHeight - boxHeight);
     scrollX = std::clamp(scrollX, 0.0f, maxX);
     scrollY = std::clamp(scrollY, 0.0f, maxY);
     scrollTargetX = std::clamp(scrollTargetX, 0.0f, maxX);
     scrollTargetY = std::clamp(scrollTargetY, 0.0f, maxY);
-    return FinishMeasure(availableWidth, availableHeight);
+    return settled;
 }
 
 void Frame::Arrange(const Rect& rect) {
@@ -862,8 +916,8 @@ void Frame::Arrange(const Rect& rect) {
 }
 
 void Frame::PlaceOneScrollbar(Frame& track, bool horizontal, bool both) {
-    const float inset = 4.0f;
-    const float thickness = horizontal ? std::max(10.0f, track.Measured().height) : std::max(10.0f, track.Measured().width);
+    const float inset = 2.0f;
+    const float thickness = horizontal ? std::max(SCROLLBAR_THICKNESS_THIN, track.Measured().height) : std::max(SCROLLBAR_THICKNESS_THIN, track.Measured().width);
     const float endGap = both ? thickness + inset : inset;
     Rect trackRect{};
     if (horizontal) {
@@ -884,7 +938,7 @@ void Frame::PlaceOneScrollbar(Frame& track, bool horizontal, bool both) {
     Frame* decrement = DirectRole(track, "decrement");
     Frame* increment = DirectRole(track, "increment");
     Frame* thumb = DirectRole(track, "thumb");
-    const float arrow = horizontal ? std::max(12.0f, thickness) : std::max(12.0f, thickness);
+    const float arrow = std::max(SCROLLBAR_ARROW_SIZE, thickness);
     float lead = 0.0f;
     float trail = 0.0f;
     if (decrement != nullptr) {
@@ -974,18 +1028,69 @@ void Frame::PaintScrollArrow(Renderer& renderer) {
     if (role != "decrement" && role != "increment") {
         return;
     }
+    if (!children.empty()) {
+        // The arrow carries an icon child, for example a vector from the asset library.
+        return;
+    }
     Frame* track = Parent() != nullptr ? AsFrame(*Parent()) : nullptr;
     const bool horizontal = track != nullptr && track->BarHorizontal();
     const bool increase = role == "increment";
+    const bool hot = PointerHover() || PointerPressed() || (track != nullptr && DescendantHovered(*track));
     TextStyle style;
-    style.fontSize = std::max(9.0f, std::min(bounds.width, bounds.height) * 0.7f);
-    style.fontWeight = 600;
-    style.color = COLOR_TEXT_SECONDARY;
+    style.fontSize = std::clamp(std::min(bounds.width, bounds.height) * 0.95f, 6.0f, 13.0f);
+    style.fontWeight = WEIGHT_SEMIBOLD;
+    style.color = hot ? COLOR_TEXT_SECONDARY : COLOR_TEXT_TERTIARY;
     style.horizontal = TextAlign::CENTER;
     style.vertical = TextAlign::CENTER;
     style.wrap = false;
     const char* glyph = horizontal ? (increase ? ">" : "<") : (increase ? "v" : "^");
     renderer.DrawString(glyph, bounds, style);
+}
+
+void Frame::PaintThumbPill(Renderer& renderer, const Rect& track, const Color& color) {
+    const Rect pill{track.x + SCROLLBAR_THUMB_INSET, track.y + SCROLLBAR_THUMB_INSET,
+                    std::max(0.0f, track.width - SCROLLBAR_THUMB_INSET * 2.0f),
+                    std::max(0.0f, track.height - SCROLLBAR_THUMB_INSET * 2.0f)};
+    if (pill.width <= 0.0f || pill.height <= 0.0f) {
+        return;
+    }
+    renderer.FillRectangle(pill, color, std::min(pill.width, pill.height) * 0.5f);
+}
+
+void Frame::PaintScrollThumb(Renderer& renderer) {
+    if (role != "thumb") {
+        return;
+    }
+    Frame* track = Parent() != nullptr ? AsFrame(*Parent()) : nullptr;
+    const bool hot = PointerHover() || (track != nullptr && DescendantHovered(*track));
+    const Color base = hasBackground ? backgroundColor : COLOR_SCROLLBAR_THUMB;
+    const Color color = PointerPressed() ? ScaleColor(base, SCROLLBAR_ACTIVE_SCALE)
+                                         : (hot ? ScaleColor(base, SCROLLBAR_HOVER_SCALE) : base);
+    PaintThumbPill(renderer, bounds, color);
+}
+
+void Frame::PaintAutoScrollbar(Renderer& renderer) {
+    const Color color = ScrollbarHot() ? ScaleColor(COLOR_SCROLLBAR_THUMB, SCROLLBAR_HOVER_SCALE) : COLOR_SCROLLBAR_THUMB;
+    const float thickness = SCROLLBAR_THICKNESS;
+    const float inset = SCROLLBAR_THUMB_INSET;
+    renderer.PushOpacity(scrollBarOpacity);
+    if (MaxScrollY() > 0.5f) {
+        const bool both = MaxScrollX() > 0.5f;
+        const float rail = std::max(0.0f, bounds.height - inset * 2.0f - (both ? thickness : 0.0f));
+        const float thumbHeight = std::clamp(rail * (bounds.height / std::max(bounds.height, contentHeight)), std::min(SCROLLBAR_MIN_THUMB, rail), rail);
+        const float travel = std::max(0.0f, rail - thumbHeight);
+        const float y = bounds.y + inset + (MaxScrollY() <= 0.0f ? 0.0f : travel * (scrollY / MaxScrollY()));
+        PaintThumbPill(renderer, Rect{bounds.x + bounds.width - thickness - inset, y, thickness, thumbHeight}, color);
+    }
+    if (MaxScrollX() > 0.5f) {
+        const bool both = MaxScrollY() > 0.5f;
+        const float rail = std::max(0.0f, bounds.width - inset * 2.0f - (both ? thickness : 0.0f));
+        const float thumbWidth = std::clamp(rail * (bounds.width / std::max(bounds.width, contentWidth)), std::min(SCROLLBAR_MIN_THUMB, rail), rail);
+        const float travel = std::max(0.0f, rail - thumbWidth);
+        const float x = bounds.x + inset + (MaxScrollX() <= 0.0f ? 0.0f : travel * (scrollX / MaxScrollX()));
+        PaintThumbPill(renderer, Rect{x, bounds.y + bounds.height - thickness - inset, thumbWidth, thickness}, color);
+    }
+    renderer.PopOpacity();
 }
 
 void Frame::OnPaint(Renderer& renderer) {
@@ -997,7 +1102,8 @@ void Frame::OnPaint(Renderer& renderer) {
         renderer.PushRotation(rotationZ, bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f);
     }
     const float radius = std::max(std::max(cornerRadius[0], cornerRadius[1]), std::max(cornerRadius[2], cornerRadius[3]));
-    if (hasBackground && bounds.width > 0.0f && bounds.height > 0.0f) {
+    const bool scrollThumb = role == "thumb";
+    if (!scrollThumb && hasBackground && bounds.width > 0.0f && bounds.height > 0.0f) {
         renderer.FillRectangle(bounds, backgroundColor, radius);
     }
     if (borderStyle != "none") {
@@ -1022,6 +1128,7 @@ void Frame::OnPaint(Renderer& renderer) {
         }
     }
     PaintScrollArrow(renderer);
+    PaintScrollThumb(renderer);
     const bool clipChildren = Clips() || !clipPath.empty();
     if (clipChildren) {
         renderer.PushClip(bounds);
@@ -1033,38 +1140,7 @@ void Frame::OnPaint(Renderer& renderer) {
         renderer.PopClip();
     }
     if (Scrolls() && DirectRoles(*this, "scrollbar").empty() && scrollbarVisibility != "hidden" && scrollBarOpacity > 0.02f) {
-        renderer.PushOpacity(scrollBarOpacity);
-        if (MaxScrollY() > 0.5f) {
-            const float thickness = 10.0f;
-            const bool both = MaxScrollX() > 0.5f;
-            const Rect track{bounds.x + bounds.width - thickness - 4.0f, bounds.y + 4.0f, thickness,
-                             std::max(0.0f, bounds.height - 8.0f - (both ? thickness : 0.0f))};
-            const float arrow = thickness;
-            const float rail = std::max(0.0f, track.height - arrow * 2.0f);
-            const float thumbHeight = std::clamp(rail * (bounds.height / std::max(bounds.height, contentHeight)), std::min(28.0f, rail), rail);
-            const float travel = std::max(0.0f, rail - thumbHeight);
-            const float y = track.y + arrow + (MaxScrollY() <= 0.0f ? 0.0f : travel * (scrollY / MaxScrollY()));
-            renderer.FillRectangle(track, COLOR_BORDER_DEFAULT, 4.0f);
-            renderer.FillRectangle(Rect{track.x, track.y, track.width, arrow}, COLOR_BG_TERTIARY, 4.0f);
-            renderer.FillRectangle(Rect{track.x, track.y + track.height - arrow, track.width, arrow}, COLOR_BG_TERTIARY, 4.0f);
-            renderer.FillRectangle(Rect{track.x, y, track.width, thumbHeight}, COLOR_TEXT_SECONDARY, 4.0f);
-        }
-        if (MaxScrollX() > 0.5f) {
-            const float thickness = 10.0f;
-            const bool both = MaxScrollY() > 0.5f;
-            const Rect track{bounds.x + 4.0f, bounds.y + bounds.height - thickness - 4.0f, std::max(0.0f, bounds.width - 8.0f - (both ? thickness : 0.0f)),
-                             thickness};
-            const float arrow = thickness;
-            const float rail = std::max(0.0f, track.width - arrow * 2.0f);
-            const float thumbWidth = std::clamp(rail * (bounds.width / std::max(bounds.width, contentWidth)), std::min(28.0f, rail), rail);
-            const float travel = std::max(0.0f, rail - thumbWidth);
-            const float x = track.x + arrow + (MaxScrollX() <= 0.0f ? 0.0f : travel * (scrollX / MaxScrollX()));
-            renderer.FillRectangle(track, COLOR_BORDER_DEFAULT, 4.0f);
-            renderer.FillRectangle(Rect{track.x, track.y, arrow, track.height}, COLOR_BG_TERTIARY, 4.0f);
-            renderer.FillRectangle(Rect{track.x + track.width - arrow, track.y, arrow, track.height}, COLOR_BG_TERTIARY, 4.0f);
-            renderer.FillRectangle(Rect{x, track.y, thumbWidth, track.height}, COLOR_TEXT_SECONDARY, 4.0f);
-        }
-        renderer.PopOpacity();
+        PaintAutoScrollbar(renderer);
     }
     if (turned) {
         renderer.PopTransform();
@@ -1087,20 +1163,39 @@ Element* Frame::HitTest(Point point) {
     return this;
 }
 
-bool Frame::OnWheel(int delta, bool shift) {
-    if (!Scrolls()) {
+bool Frame::OnWheel(int delta, bool shift, int axis) {
+    if (!Scrolls() || delta == 0) {
         return false;
     }
-    const float step = delta > 0 ? -scrollStep : scrollStep;
+    // A horizontal wheel or a shifted vertical wheel moves the X axis.
+    const bool sideways = axis != 0;
+    bool useX = sideways;
+    if (shift) {
+        useX = !useX;
+    }
+    // Fall back to the axis that can actually move so a vertical-only scroller
+    // still responds to a sideways gesture and vice versa.
+    if (useX && MaxScrollX() <= 0.5f) {
+        useX = false;
+    } else if (!useX && MaxScrollY() <= 0.5f) {
+        useX = MaxScrollX() > 0.5f;
+    }
+    if (useX ? MaxScrollX() <= 0.5f : MaxScrollY() <= 0.5f) {
+        return false;
+    }
+    // Scale by the raw delta so precision touchpads and high-resolution wheels
+    // scroll a fraction of a notch instead of jumping a whole step.
+    float distance = scrollStep * static_cast<float>(delta) / SCROLL_WHEEL_DELTA;
+    // A real event must always move a visible amount; sub-pixel steps look broken.
+    if (distance != 0.0f && std::fabs(distance) < SCROLL_WHEEL_MIN_STEP) {
+        distance = distance < 0.0f ? -SCROLL_WHEEL_MIN_STEP : SCROLL_WHEEL_MIN_STEP;
+    }
     const float beforeX = scrollX;
     const float beforeY = scrollY;
-    if (shift || (MaxScrollY() <= 0.5f && MaxScrollX() > 0.5f)) {
-        ScrollBy(step, 0.0f);
+    if (useX) {
+        ScrollBy(sideways ? distance : -distance, 0.0f);
     } else {
-        ScrollBy(0.0f, step);
-        if (scrollY == beforeY && MaxScrollX() > 0.5f) {
-            ScrollBy(step, 0.0f);
-        }
+        ScrollBy(0.0f, -distance);
     }
     return scrollX != beforeX || scrollY != beforeY || smoothScrolling;
 }

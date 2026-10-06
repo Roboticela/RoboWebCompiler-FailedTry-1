@@ -333,52 +333,100 @@
                     <frame width="fill" height="48" background="#FF9F0A" radius="6"/>
                     <frame width="fill" height="48" background="#FF3B30" radius="6"/>
                     <frame width="fill" height="48" background="#0E7AFF" radius="6"/>
-                    <frame name="Scrollbar" component="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="14" height="fill" background="#E8E8ED" radius="7">
-                        <frame name="Decrement" role="decrement" width="fill" height="14" background="#D2D2D7" radius="4"/>
-                        <frame name="Thumb" role="thumb" width="fill" height="48" background="#86868B" radius="7"/>
-                        <frame name="Increment" role="increment" width="fill" height="14" background="#D2D2D7" radius="4"/>
+                    <frame name="Scrollbar" component="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="8" height="fill" background="transparent" radius="980">
+                        <frame name="Decrement" role="decrement" layout="horizontal" align="center" justify="center" width="fill" height="12" background="transparent" radius="980">
+                            <vector name="CaretUp" width="8" height="8" viewBox="0 0 16 16">
+                                <path d="m7.247 4.86-4.796 5.481c-.566.647-.106 1.659.753 1.659h9.592a1 1 0 0 0 .753-1.659l-4.796-5.48a1 1 0 0 0-1.506 0z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+                            </vector>
+                        </frame>
+                        <frame name="Thumb" role="thumb" width="fill" height="48" background="#B8B8BD" radius="980"/>
+                        <frame name="Increment" role="increment" layout="horizontal" align="center" justify="center" width="fill" height="12" background="transparent" radius="980">
+                            <vector name="CaretDown" width="8" height="8" viewBox="0 0 16 16">
+                                <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+                            </vector>
+                        </frame>
                     </frame>
                 </frame>
             </frame>
             <frame layout="vertical" gap="6" width="fill" heightMode="hug">
                 <text text="horizontal + visible" fontSize="12" textColor="#86868B"/>
-                <frame overflow="scroll" clip="true" scrollbarVisibility="visible" layout="horizontal" gap="8" width="fill" height="96" padding="12" background="#F5F5F7" radius="8">
+                <frame overflow="scroll" clip="true" scrollbarVisibility="visible" layout="horizontal" gap="8" width="fill" maxWidth="460" height="96" padding="12" background="#F5F5F7" radius="8">
                     <frame width="120" height="fill" background="#0E7AFF" radius="6"/>
                     <frame width="120" height="fill" background="#1D1D1F" radius="6"/>
                     <frame width="120" height="fill" background="#30D158" radius="6"/>
                     <frame width="120" height="fill" background="#FF9F0A" radius="6"/>
                     <frame width="120" height="fill" background="#FF3B30" radius="6"/>
-                    <frame name="ScrollbarX" component="ScrollbarX" role="scrollbar" orientation="horizontal" position="absolute" width="fill" height="14" background="#E8E8ED" radius="7">
-                        <frame name="Decrement" role="decrement" width="14" height="fill" background="#D2D2D7" radius="4"/>
-                        <frame name="Thumb" role="thumb" width="48" height="fill" background="#86868B" radius="7"/>
-                        <frame name="Increment" role="increment" width="14" height="fill" background="#D2D2D7" radius="4"/>
+                    <frame name="ScrollbarX" component="ScrollbarX" role="scrollbar" orientation="horizontal" position="absolute" width="fill" height="8" background="transparent" radius="980">
+                        <frame name="Decrement" role="decrement" layout="horizontal" align="center" justify="center" width="12" height="fill" background="transparent" radius="980">
+                            <vector name="CaretLeft" width="8" height="8" viewBox="0 0 16 16">
+                                <path d="m3.86 8.753 5.482 4.796c.646.566 1.658.106 1.658-.753V3.204a1 1 0 0 0-1.659-.753l-5.48 4.796a1 1 0 0 0 0 1.506z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+                            </vector>
+                        </frame>
+                        <frame name="Thumb" role="thumb" width="48" height="fill" background="#B8B8BD" radius="980"/>
+                        <frame name="Increment" role="increment" layout="horizontal" align="center" justify="center" width="12" height="fill" background="transparent" radius="980">
+                            <vector name="CaretRight" width="8" height="8" viewBox="0 0 16 16">
+                                <path d="m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+                            </vector>
+                        </frame>
                     </frame>
                 </frame>
             </frame>
         </frame>
     </frame>
-    <frame name="Scrollbar" component="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="14" height="fill" background="#E8E8ED" radius="7">
-        <frame name="Decrement" role="decrement" width="fill" height="14" background="#D2D2D7" radius="4"/>
-        <frame name="Thumb" role="thumb" width="fill" height="48" background="#86868B" radius="7"/>
-        <frame name="Increment" role="increment" width="fill" height="14" background="#D2D2D7" radius="4"/>
+    <frame name="Scrollbar" component="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="8" height="fill" background="transparent" radius="980">
+        <frame name="Decrement" role="decrement" layout="horizontal" align="center" justify="center" width="fill" height="12" background="transparent" radius="980">
+            <vector name="CaretUp" width="8" height="8" viewBox="0 0 16 16">
+                <path d="m7.247 4.86-4.796 5.481c-.566.647-.106 1.659.753 1.659h9.592a1 1 0 0 0 .753-1.659l-4.796-5.48a1 1 0 0 0-1.506 0z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+            </vector>
+        </frame>
+        <frame name="Thumb" role="thumb" width="fill" height="48" background="#B8B8BD" radius="980"/>
+        <frame name="Increment" role="increment" layout="horizontal" align="center" justify="center" width="fill" height="12" background="transparent" radius="980">
+            <vector name="CaretDown" width="8" height="8" viewBox="0 0 16 16">
+                <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+            </vector>
+        </frame>
     </frame>
-    <frame name="ScrollbarX" component="ScrollbarX" role="scrollbar" orientation="horizontal" position="absolute" width="fill" height="14" background="#E8E8ED" radius="7">
-        <frame name="Decrement" role="decrement" width="14" height="fill" background="#D2D2D7" radius="4"/>
-        <frame name="Thumb" role="thumb" width="48" height="fill" background="#86868B" radius="7"/>
-        <frame name="Increment" role="increment" width="14" height="fill" background="#D2D2D7" radius="4"/>
+    <frame name="ScrollbarX" component="ScrollbarX" role="scrollbar" orientation="horizontal" position="absolute" width="fill" height="8" background="transparent" radius="980">
+        <frame name="Decrement" role="decrement" layout="horizontal" align="center" justify="center" width="12" height="fill" background="transparent" radius="980">
+            <vector name="CaretLeft" width="8" height="8" viewBox="0 0 16 16">
+                <path d="m3.86 8.753 5.482 4.796c.646.566 1.658.106 1.658-.753V3.204a1 1 0 0 0-1.659-.753l-5.48 4.796a1 1 0 0 0 0 1.506z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+            </vector>
+        </frame>
+        <frame name="Thumb" role="thumb" width="48" height="fill" background="#B8B8BD" radius="980"/>
+        <frame name="Increment" role="increment" layout="horizontal" align="center" justify="center" width="12" height="fill" background="transparent" radius="980">
+            <vector name="CaretRight" width="8" height="8" viewBox="0 0 16 16">
+                <path d="m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+            </vector>
+        </frame>
     </frame>
 </window>
 <component name="Scrollbar">
-    <frame name="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="14" height="fill" background="#E8E8ED" radius="7">
-        <frame name="Decrement" role="decrement" width="fill" height="14" background="#D2D2D7" radius="4"/>
-        <frame name="Thumb" role="thumb" width="fill" height="48" background="#86868B" radius="7"/>
-        <frame name="Increment" role="increment" width="fill" height="14" background="#D2D2D7" radius="4"/>
+    <frame name="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="8" height="fill" background="transparent" radius="980">
+        <frame name="Decrement" role="decrement" layout="horizontal" align="center" justify="center" width="fill" height="12" background="transparent" radius="980">
+            <vector name="CaretUp" width="8" height="8" viewBox="0 0 16 16">
+                <path d="m7.247 4.86-4.796 5.481c-.566.647-.106 1.659.753 1.659h9.592a1 1 0 0 0 .753-1.659l-4.796-5.48a1 1 0 0 0-1.506 0z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+            </vector>
+        </frame>
+        <frame name="Thumb" role="thumb" width="fill" height="48" background="#B8B8BD" radius="980"/>
+        <frame name="Increment" role="increment" layout="horizontal" align="center" justify="center" width="fill" height="12" background="transparent" radius="980">
+            <vector name="CaretDown" width="8" height="8" viewBox="0 0 16 16">
+                <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+            </vector>
+        </frame>
     </frame>
 </component>
 <component name="ScrollbarX">
-    <frame name="ScrollbarX" role="scrollbar" orientation="horizontal" position="absolute" width="fill" height="14" background="#E8E8ED" radius="7">
-        <frame name="Decrement" role="decrement" width="14" height="fill" background="#D2D2D7" radius="4"/>
-        <frame name="Thumb" role="thumb" width="48" height="fill" background="#86868B" radius="7"/>
-        <frame name="Increment" role="increment" width="14" height="fill" background="#D2D2D7" radius="4"/>
+    <frame name="ScrollbarX" role="scrollbar" orientation="horizontal" position="absolute" width="fill" height="8" background="transparent" radius="980">
+        <frame name="Decrement" role="decrement" layout="horizontal" align="center" justify="center" width="12" height="fill" background="transparent" radius="980">
+            <vector name="CaretLeft" width="8" height="8" viewBox="0 0 16 16">
+                <path d="m3.86 8.753 5.482 4.796c.646.566 1.658.106 1.658-.753V3.204a1 1 0 0 0-1.659-.753l-5.48 4.796a1 1 0 0 0 0 1.506z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+            </vector>
+        </frame>
+        <frame name="Thumb" role="thumb" width="48" height="fill" background="#B8B8BD" radius="980"/>
+        <frame name="Increment" role="increment" layout="horizontal" align="center" justify="center" width="12" height="fill" background="transparent" radius="980">
+            <vector name="CaretRight" width="8" height="8" viewBox="0 0 16 16">
+                <path d="m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z" width="8" height="8" viewBox="0 0 16 16" fill="#86868B"/>
+            </vector>
+        </frame>
     </frame>
 </component>

@@ -1,6 +1,7 @@
 #include "ui/factory/UiFactory.h"
 
 #include "components/frame/Frame.h"
+#include "components/group/GroupElement.h"
 #include "components/layout/BoardElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
@@ -443,6 +444,62 @@ void ApplyCommon(Element& element, const IrNode& node) {
     }
 }
 
+void ApplyGroup(GroupElement& group, const IrNode& node) {
+    ApplyCommon(group, node);
+    if (const UiValue* value = FindProperty(node, "name")) group.SetName(value->text);
+    if (const UiValue* value = FindProperty(node, "minWidth")) group.SetMinWidth(value->length);
+    if (const UiValue* value = FindProperty(node, "maxWidth")) group.SetMaxWidth(value->length);
+    if (const UiValue* value = FindProperty(node, "minHeight")) group.SetMinHeight(value->length);
+    if (const UiValue* value = FindProperty(node, "maxHeight")) group.SetMaxHeight(value->length);
+    Edges margin{};
+    bool hasMargin = false;
+    if (const UiValue* value = FindProperty(node, "margin")) {
+        margin = value->edges;
+        hasMargin = true;
+    }
+    const auto marginSide = [&](const char* name, Length& edge) {
+        if (const UiValue* value = FindProperty(node, name)) {
+            edge = value->length;
+            hasMargin = true;
+        }
+    };
+    marginSide("marginTop", margin.top);
+    marginSide("marginRight", margin.right);
+    marginSide("marginBottom", margin.bottom);
+    marginSide("marginLeft", margin.left);
+    if (hasMargin) {
+        group.SetMargin(margin);
+    }
+    if (const UiValue* value = FindProperty(node, "grow")) group.SetGrow(static_cast<float>(value->number));
+    if (const UiValue* value = FindProperty(node, "zIndex")) group.SetZIndex(static_cast<int>(value->number));
+    if (const UiValue* value = FindProperty(node, "cursor")) group.SetCursor(value->text);
+    // The transform shorthand lands first, then the explicit properties have the last word.
+    if (const UiValue* value = FindProperty(node, "transform")) {
+        group.SetTransform(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "rotation")) group.SetRotation(static_cast<float>(value->number));
+    if (const UiValue* value = FindProperty(node, "rotationZ")) group.SetRotation(static_cast<float>(value->number));
+    const UiValue* translateX = FindProperty(node, "translateX");
+    const UiValue* translateY = FindProperty(node, "translateY");
+    if (translateX != nullptr || translateY != nullptr) {
+        group.SetTranslate(translateX != nullptr ? static_cast<float>(translateX->number) : 0.0f,
+                           translateY != nullptr ? static_cast<float>(translateY->number) : 0.0f);
+    }
+    const UiValue* uniformScale = FindProperty(node, "scale");
+    const UiValue* scaleX = FindProperty(node, "scaleX");
+    const UiValue* scaleY = FindProperty(node, "scaleY");
+    if (uniformScale != nullptr || scaleX != nullptr || scaleY != nullptr) {
+        const float base = uniformScale != nullptr ? static_cast<float>(uniformScale->number) : 1.0f;
+        group.SetScale(scaleX != nullptr ? static_cast<float>(scaleX->number) : base,
+                       scaleY != nullptr ? static_cast<float>(scaleY->number) : base);
+    }
+    if (const UiValue* value = FindProperty(node, "clip")) group.SetClip(value->boolean);
+    if (const UiValue* value = FindProperty(node, "display")) group.SetDisplay(value->text);
+    if (const UiValue* value = FindProperty(node, "visibility")) group.SetDisplay(value->text);
+    // Locking is a document concern: the designer reads the attribute from the document and
+    // treats a locked ancestor as locked, so a locked group already protects every child.
+}
+
 void ApplyShape(ShapeElement& shape, const IrNode& node) {
     ApplyCommon(shape, node);
     if (const UiValue* value = FindProperty(node, "text")) {
@@ -783,11 +840,12 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return nullptr;
     case NodeKind::TEXT:
         return std::make_unique<TextElement>();
+    case NodeKind::GROUP:
+        return std::make_unique<GroupElement>();
     case NodeKind::IMAGE:
     case NodeKind::VECTOR:
     case NodeKind::PATH:
     case NodeKind::LINE:
-    case NodeKind::GROUP:
     case NodeKind::COMPONENT:
     case NodeKind::INSTANCE:
     case NodeKind::SLOT:
@@ -814,6 +872,8 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         if (node.kind == NodeKind::SCROLL) {
             frame->SetOverflow(OverflowMode::SCROLL);
         }
+    } else if (GroupElement* group = dynamic_cast<GroupElement*>(&element)) {
+        ApplyGroup(*group, node);
     } else if (ShapeElement* shape = dynamic_cast<ShapeElement*>(&element)) {
         ApplyShape(*shape, node);
     } else {

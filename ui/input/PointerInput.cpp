@@ -40,10 +40,10 @@ bool PointerInput::OnDown(Element& root, Point point) {
     return false;
 }
 
-bool PointerInput::OnUp(Element& root, Point point) {
+bool PointerInput::OnUp(Element& root, Point point, bool activate) {
     Element* released = root.HitTest(point);
     bool activated = false;
-    if (pressed != nullptr && pressed == released) {
+    if (activate && pressed != nullptr && pressed == released) {
         pressed->Activate();
         activated = true;
     }
@@ -71,7 +71,15 @@ bool PointerInput::OnLeave() {
 }
 
 bool PointerInput::HoverWantsHand() const {
-    return hovered != nullptr && hovered->WantsHandCursor();
+    // A cursor belongs to the node that asks for it and to everything inside that node, so
+    // a group, a frame, or any other container hands its cursor to its children the way a
+    // group hands down every other property it carries.
+    for (Element* node = hovered; node != nullptr; node = node->Parent()) {
+        if (node->WantsHandCursor()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 Element* PointerInput::Pressed() const {

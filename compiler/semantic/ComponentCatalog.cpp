@@ -193,6 +193,52 @@ std::vector<PropertySpec> With(std::vector<PropertySpec> base, std::vector<Prope
     return base;
 }
 
+// A group combines its children into one node. It takes everything that a single node
+// can carry and hand to its children, and nothing that belongs to layout: no padding,
+// no gap, no direction, no background. Properties outside this list are rejected by the
+// compiler instead of being accepted and ignored.
+std::vector<PropertySpec> GroupProperties() {
+    return With(IdentityProperties(), {{"class", TypeKind::STRING},
+                                       {"tag", TypeKind::STRING},
+                                       {"role", TypeKind::STRING},
+                                       {"minWidth", TypeKind::LENGTH},
+                                       {"maxWidth", TypeKind::LENGTH},
+                                       {"minHeight", TypeKind::LENGTH},
+                                       {"maxHeight", TypeKind::LENGTH},
+                                       {"margin", TypeKind::EDGES},
+                                       {"marginTop", TypeKind::LENGTH},
+                                       {"marginRight", TypeKind::LENGTH},
+                                       {"marginBottom", TypeKind::LENGTH},
+                                       {"marginLeft", TypeKind::LENGTH},
+                                       {"grow", TypeKind::FLOAT},
+                                       {"zIndex", TypeKind::INT},
+                                       {"transform", TypeKind::STRING},
+                                       {"rotation", TypeKind::FLOAT},
+                                       {"rotationZ", TypeKind::FLOAT},
+                                       {"translateX", TypeKind::FLOAT},
+                                       {"translateY", TypeKind::FLOAT},
+                                       {"scale", TypeKind::FLOAT},
+                                       {"scaleX", TypeKind::FLOAT},
+                                       {"scaleY", TypeKind::FLOAT},
+                                       {"clip", TypeKind::BOOL},
+                                       {"cursor", TypeKind::STRING},
+                                       {"display", TypeKind::STRING},
+                                       {"visibility", TypeKind::STRING},
+                                       {"locked", TypeKind::BOOL},
+                                       {"left", TypeKind::STRING},
+                                       {"right", TypeKind::STRING},
+                                       {"top", TypeKind::STRING},
+                                       {"bottom", TypeKind::STRING},
+                                       {"centerX", TypeKind::STRING},
+                                       {"centerY", TypeKind::STRING},
+                                       {"horizontal", TypeKind::STRING},
+                                       {"vertical", TypeKind::STRING},
+                                       {"minScreen", TypeKind::FLOAT},
+                                       {"maxScreen", TypeKind::FLOAT},
+                                       {"orientation", TypeKind::STRING},
+                                       {"minContainer", TypeKind::FLOAT}});
+}
+
 std::vector<PropertySpec> TextProperties() {
     return With(IdentityProperties(), {{"text", TypeKind::STRING},
                                        {"value", TypeKind::STRING},
@@ -348,7 +394,7 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"vector", NodeKind::VECTOR, true, VectorProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},
         {"line", NodeKind::LINE, false, LineProperties()},
-        {"group", NodeKind::GROUP, true, With(IdentityProperties(), {{"transform", TypeKind::STRING}, {"rotation", TypeKind::FLOAT}, {"scale", TypeKind::FLOAT}, {"visibility", TypeKind::STRING}})},
+        {"group", NodeKind::GROUP, true, GroupProperties()},
         {"component", NodeKind::COMPONENT, true, With(IdentityProperties(), {{"variant", TypeKind::STRING}})},
         {"instance", NodeKind::INSTANCE, true, With(IdentityProperties(), {{"component", TypeKind::STRING}, {"variant", TypeKind::STRING}})},
         {"slot", NodeKind::SLOT, true, With(IdentityProperties(), {{"text", TypeKind::STRING}})},

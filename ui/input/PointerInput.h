@@ -10,7 +10,7 @@ class PointerInput {
 public:
     bool OnMove(Element& root, Point point);
     bool OnDown(Element& root, Point point);
-    bool OnUp(Element& root, Point point);
+    bool OnUp(Element& root, Point point, bool activate = true);
     bool OnLeave();
     bool HoverWantsHand() const;
     Element* Pressed() const;
