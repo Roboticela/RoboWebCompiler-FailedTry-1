@@ -1,16 +1,27 @@
 #include "ui/factory/UiFactory.h"
 
 #include "components/frame/Frame.h"
+#include "components/layout/BoardElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
 #include "components/text/TextElement.h"
-#include "t/button/Button.h"
-
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 
 namespace Runtime {
 namespace {
+
+std::string FoldToken(const std::string& text) {
+    std::string folded;
+    for (unsigned char character : text) {
+        if (character == '_' || character == '-' || character == ' ') {
+            continue;
+        }
+        folded.push_back(static_cast<char>(std::tolower(character)));
+    }
+    return folded;
+}
 
 float NumberOf(const IrNode& node, const char* name, float fallback) {
     const UiValue* value = FindProperty(node, name);
@@ -18,16 +29,17 @@ float NumberOf(const IrNode& node, const char* name, float fallback) {
 }
 
 SizeMode ParseSizeMode(const std::string& text) {
-    if (text == "fixed") {
+    const std::string folded = FoldToken(text);
+    if (folded == "fixed") {
         return SizeMode::FIXED;
     }
-    if (text == "fill") {
+    if (folded == "fill") {
         return SizeMode::FILL;
     }
-    if (text == "fit") {
+    if (folded == "fit" || folded == "hug") {
         return SizeMode::FIT;
     }
-    if (text == "percent") {
+    if (folded == "percent") {
         return SizeMode::PERCENT;
     }
     return SizeMode::UNSET;
@@ -61,6 +73,9 @@ FrameLayout ParseLayout(const std::string& text) {
     }
     if (text == "stack") {
         return FrameLayout::STACK;
+    }
+    if (text == "inline") {
+        return FrameLayout::HORIZONTAL;
     }
     return FrameLayout::NONE;
 }
@@ -119,6 +134,23 @@ void ApplyFrame(Frame& frame, const IrNode& node) {
     if (const UiValue* value = FindProperty(node, "role")) frame.SetRole(value->text);
     if (const UiValue* value = FindProperty(node, "width")) frame.SetWidth(value->length);
     if (const UiValue* value = FindProperty(node, "height")) frame.SetHeight(value->length);
+    bool hug = true;
+    if (const UiValue* value = FindProperty(node, "auto")) {
+        hug = value->kind == TypeKind::BOOL ? value->boolean : value->text == "true";
+    } else {
+        const UiValue* width = FindProperty(node, "width");
+        const UiValue* height = FindProperty(node, "height");
+        const bool fixedWidth = width != nullptr && width->length.unit != LengthUnit::FIT;
+        const bool fixedHeight = height != nullptr && height->length.unit != LengthUnit::FIT;
+        hug = !fixedWidth && !fixedHeight;
+    }
+    frame.SetAutoSize(hug);
+    if (hug && node.name != "button" && node.name != "iconButton" && node.name != "switch" && node.name != "segmentedControl" &&
+        node.name != "segment" && node.name != "confirmAction") {
+        frame.SetHugFallback(frame.Width(), frame.Height());
+        frame.SetWidth(Length::Fit());
+        frame.SetHeight(Length::Fit());
+    }
     if (const UiValue* value = FindProperty(node, "minWidth")) frame.SetMinWidth(value->length);
     if (const UiValue* value = FindProperty(node, "maxWidth")) frame.SetMaxWidth(value->length);
     if (const UiValue* value = FindProperty(node, "minHeight")) frame.SetMinHeight(value->length);
@@ -179,6 +211,10 @@ void ApplyFrame(Frame& frame, const IrNode& node) {
                                                                  : value->text == "stretch" ? Alignment::STRETCH
                                                                                             : Alignment::START);
     }
+    if (const UiValue* value = FindProperty(node, "alignItems")) {
+        const std::string text = FoldToken(value->text);
+        frame.SetAlign(text == "center" ? Alignment::CENTER : text == "end" ? Alignment::END : text == "stretch" ? Alignment::STRETCH : Alignment::START);
+    }
     if (const UiValue* value = FindProperty(node, "distribution")) {
         if (value->text == "spaceBetween") {
             frame.SetJustifyBetween(true);
@@ -206,7 +242,22 @@ void ApplyFrame(Frame& frame, const IrNode& node) {
             frame.SetJustify(Alignment::STRETCH);
         }
     }
-    if (const UiValue* value = FindProperty(node, "wrap")) frame.SetWrap(value->text == "wrap");
+    if (const UiValue* value = FindProperty(node, "justifyContent")) {
+        const std::string text = FoldToken(value->text);
+        if (text == "spacebetween") {
+            frame.SetJustifyBetween(true);
+        } else if (text == "center") {
+            frame.SetJustify(Alignment::CENTER);
+            frame.SetJustifyBetween(false);
+        } else if (text == "end") {
+            frame.SetJustify(Alignment::END);
+            frame.SetJustifyBetween(false);
+        } else {
+            frame.SetJustify(Alignment::START);
+            frame.SetJustifyBetween(false);
+        }
+    }
+    if (const UiValue* value = FindProperty(node, "wrap")) frame.SetWrap(value->text == "wrap" || value->text == "true");
     if (const UiValue* value = FindProperty(node, "columns")) frame.SetColumns(static_cast<int>(value->number));
     if (const UiValue* value = FindProperty(node, "rows")) frame.SetRows(static_cast<int>(value->number));
     if (const UiValue* value = FindProperty(node, "column")) frame.SetColumn(static_cast<int>(value->number));
@@ -215,9 +266,14 @@ void ApplyFrame(Frame& frame, const IrNode& node) {
     if (const UiValue* value = FindProperty(node, "rowSpan")) frame.SetRowSpan(static_cast<int>(value->number));
     if (const UiValue* value = FindProperty(node, "background")) frame.SetBackgroundColor(value->color);
     if (const UiValue* value = FindProperty(node, "backgroundColor")) frame.SetBackgroundColor(value->color);
+    if (const UiValue* value = FindProperty(node, "fill")) frame.SetBackgroundColor(value->color);
     if (const UiValue* value = FindProperty(node, "gradient")) frame.SetGradient(value->text);
     if (const UiValue* value = FindProperty(node, "image")) frame.SetBackgroundImage(value->text);
     if (const UiValue* value = FindProperty(node, "opacity")) frame.SetOpacity(static_cast<float>(value->number));
+    if (const UiValue* stroke = FindProperty(node, "stroke")) {
+        const float width = FindProperty(node, "strokeWidth") != nullptr ? FindProperty(node, "strokeWidth")->length.value : 1.0f;
+        frame.SetBorder(width, stroke->color);
+    }
     if (const UiValue* width = FindProperty(node, "borderWidth")) {
         Color color = COLOR_BORDER_DEFAULT;
         if (const UiValue* borderColor = FindProperty(node, "borderColor")) {
@@ -315,6 +371,41 @@ void ApplyCommon(Element& element, const IrNode& node) {
     pin("bottom", BoxEdge::BOTTOM);
     pin("centerX", BoxEdge::CENTER_X);
     pin("centerY", BoxEdge::CENTER_Y);
+    const auto pixelOf = [&](const char* name, float fallback) {
+        const UiValue* value = FindProperty(node, name);
+        if (value == nullptr || value->length.unit != LengthUnit::PIXELS) {
+            return fallback;
+        }
+        return value->length.value;
+    };
+    if (const UiValue* value = FindProperty(node, "horizontal")) {
+        const std::string text = FoldToken(value->text);
+        const float inset = pixelOf("x", 16.0f);
+        if (text == "left") {
+            element.SetEdgePin(BoxEdge::LEFT, pixelOf("x", 0.0f));
+        } else if (text == "right") {
+            element.SetEdgePin(BoxEdge::RIGHT, inset);
+        } else if (text == "leftright") {
+            element.SetEdgePin(BoxEdge::LEFT, inset);
+            element.SetEdgePin(BoxEdge::RIGHT, inset);
+        } else if (text == "center") {
+            element.SetEdgePin(BoxEdge::CENTER_X, pixelOf("x", 0.0f));
+        }
+    }
+    if (const UiValue* value = FindProperty(node, "vertical")) {
+        const std::string text = FoldToken(value->text);
+        const float inset = pixelOf("y", 16.0f);
+        if (text == "top") {
+            element.SetEdgePin(BoxEdge::TOP, pixelOf("y", 0.0f));
+        } else if (text == "bottom") {
+            element.SetEdgePin(BoxEdge::BOTTOM, inset);
+        } else if (text == "topbottom") {
+            element.SetEdgePin(BoxEdge::TOP, inset);
+            element.SetEdgePin(BoxEdge::BOTTOM, inset);
+        } else if (text == "center") {
+            element.SetEdgePin(BoxEdge::CENTER_Y, pixelOf("y", 0.0f));
+        }
+    }
     if (const UiValue* value = FindProperty(node, "minScreen")) {
         element.SetHiddenBelow(static_cast<float>(value->number));
     }
@@ -472,62 +563,6 @@ bool FlagValue(const UiValue* value) {
         return value->boolean;
     }
     return value->text == "true";
-}
-
-ButtonVariant ParseButtonVariant(const std::string& text) {
-    if (text == "secondary") {
-        return ButtonVariant::SECONDARY;
-    }
-    if (text == "tertiary") {
-        return ButtonVariant::TERTIARY;
-    }
-    if (text == "destructive") {
-        return ButtonVariant::DESTRUCTIVE;
-    }
-    if (text == "destructiveSecondary") {
-        return ButtonVariant::DESTRUCTIVE_SECONDARY;
-    }
-    if (text == "link") {
-        return ButtonVariant::LINK;
-    }
-    return ButtonVariant::PRIMARY;
-}
-
-ButtonSize ParseButtonSize(const std::string& text) {
-    if (text == "controlLarge") {
-        return ButtonSize::CONTROL_LARGE;
-    }
-    if (text == "controlSmall") {
-        return ButtonSize::CONTROL_SMALL;
-    }
-    return ButtonSize::CONTROL_MEDIUM;
-}
-
-void ApplyButton(Button& button, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks) {
-    if (const UiValue* value = FindProperty(node, "variant")) {
-        button.SetVariant(ParseButtonVariant(value->text));
-    }
-    if (const UiValue* value = FindProperty(node, "size")) {
-        button.SetSize(ParseButtonSize(value->text));
-    }
-    if (const UiValue* value = FindProperty(node, "label")) {
-        button.SetLabel(value->text);
-    }
-    if (const UiValue* value = FindProperty(node, "disabled")) {
-        button.SetDisabled(FlagValue(value));
-    }
-    if (const UiValue* value = FindProperty(node, "loading")) {
-        button.SetLoading(FlagValue(value));
-    }
-    if (const UiValue* value = FindProperty(node, "fullWidth")) {
-        button.SetFullWidth(FlagValue(value));
-    }
-    if (const UiValue* value = FindProperty(node, "onClick")) {
-        const auto found = clicks.find(value->text);
-        if (found != clicks.end()) {
-            button.SetOnClick(found->second);
-        }
-    }
 }
 
 Color ToneColor(const std::string& tone, Color fallback) {
@@ -726,16 +761,11 @@ void ApplyTypography(TextElement& text, const IrNode& node) {
 }
 
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
-    if (node.kind == NodeKind::INSTANCE) {
-        if (const UiValue* value = FindProperty(node, "component")) {
-            if (value->text == "Button") {
-                return std::make_unique<Button>();
-            }
-        }
-    }
     switch (node.kind) {
     case NodeKind::WINDOW:
         return std::make_unique<WindowElement>();
+    case NodeKind::BOARD:
+        return std::make_unique<BoardElement>();
     case NodeKind::FRAME:
         return std::make_unique<Frame>();
     case NodeKind::SHADOW:
@@ -758,26 +788,6 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
 }
 
 void Populate(Element& element, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks, const IrNode& root) {
-    if (Button* button = dynamic_cast<Button*>(&element)) {
-        ApplyCommon(*button, node);
-        ApplyButton(*button, node, clicks);
-        for (const IrNode& child : node.children) {
-            if (child.kind != NodeKind::SLOT) {
-                continue;
-            }
-            const UiValue* slotName = FindProperty(child, "name");
-            const std::string name = slotName == nullptr ? std::string{} : slotName->text;
-            for (const IrNode& nested : child.children) {
-                std::unique_ptr<Element> created = CreateElement(nested);
-                if (created == nullptr) {
-                    continue;
-                }
-                Populate(*created, nested, clicks, root);
-                button->AddSlotContent(name, std::move(created));
-            }
-        }
-        return;
-    }
     if (TextElement* text = dynamic_cast<TextElement*>(&element)) {
         ApplyFrame(*text, node);
         ApplyCommon(*text, node);
@@ -785,6 +795,11 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
     } else if (Frame* frame = dynamic_cast<Frame*>(&element)) {
         ApplyFrame(*frame, node);
         ApplyCommon(*frame, node);
+        if (WindowElement* window = dynamic_cast<WindowElement*>(frame)) {
+            if (const UiValue* value = FindProperty(node, "title")) {
+                window->SetTitle(value->text);
+            }
+        }
         if (node.kind == NodeKind::SCROLL) {
             frame->SetOverflow(OverflowMode::SCROLL);
         }

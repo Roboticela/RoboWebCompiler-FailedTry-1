@@ -32,6 +32,7 @@ enum class NodeKind : std::uint8_t {
     INSTANCE,
     SLOT,
     SCROLL,
+    BOARD,
 };
 
 enum class FrameLayout : std::uint8_t {
@@ -300,6 +301,8 @@ inline const char* NodeKindName(NodeKind kind) {
         return "slot";
     case NodeKind::SCROLL:
         return "scroll";
+    case NodeKind::BOARD:
+        return "board";
     }
     return "unknown";
 }

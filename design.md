@@ -3,17 +3,17 @@
 A component is one visual object with one PascalCase name. That name is the XML file, the header, and the source file.
 
 ```text
-components/Button/Button.xml
-components/Button/Button.h
-components/Button/Button.cpp
+components/Name/Name.xml
+components/Name/Name.h
+components/Name/Name.cpp
 ```
 
-`Button.xml` is the source of truth for structure, layout, and simple interaction. `Button.h` and `Button.cpp` are the typed object the runtime measures, arranges, paints, and connects to events. Application logic stays outside the component and is called by those events.
+`Name.xml` is the source of truth for structure, layout, and simple interaction. `Name.h` and `Name.cpp` are the typed object the runtime measures, arranges, paints, and connects to events. Application logic stays outside the component and is called by those events.
 
 Open a component folder with:
 
 ```bat
-OpenComponent.bat components\Button
+OpenComponent.bat components\Name
 ```
 
 The folder name must match the three files. **Run** in the designer saves the open XML and starts it.
@@ -211,7 +211,7 @@ A handler that is only an identifier stays a C++ call. Use an action when the wo
 
 ## Elements
 
-`window` is the app root. The others may be nested where children are allowed. `text`, `image`, `vector`, `path`, `line`, and `shadow` take no children.
+Each `window` and each `board` is its own root. A file can contain several, written one after another. The others may be nested where children are allowed. `text`, `image`, `vector`, `path`, `line`, and `shadow` take no children. A board is not nested in a window, and a window is not nested in a board.
 
 ### Shared identity
 
@@ -229,13 +229,19 @@ They also accept every event in the event list.
 
 ### `window`
 
-Children: yes.
+Children: yes. A window is a board on the canvas. It uses the same properties as `frame`, plus `title`. Each window is a root, so the file is `<window></window>` beside `<window></window>`. A window does not contain another window. On the canvas each one is a board with no operating-system title bar, and its name is shown above the board.
 
 | Property | Type |
 | --- | --- |
-| `id` `title` | string |
-| `width` `height` | length, pixels |
-| `background` | color |
+| `title` | string |
+| `mobile` `tablet` `desktop` | bool | `true` launches on that device. Omitted means `true`. |
+| every `frame` property | see `frame` |
+
+On run, each root window opens as its own window. A window with `mobile="false"` does not open while the target is a phone. The same applies to `tablet` and `desktop`. From the designer, the target is the selected device. From `myui run`, pass `mobile`, `tablet`, or `desktop`; otherwise the monitor width is used (phone up to 734, tablet through 1068, desktop from 1069). A board does not open on run.
+
+### `board`
+
+Children: yes. A board is a canvas surface with the same properties as `frame`. It is not a window: it stays beside the windows, and it does not launch. Its children can be copied into a window with **Add to Window**. The board itself remains, so the same content can be added to another window later.
 
 ### `frame`
 
@@ -245,6 +251,7 @@ Children: yes. This is the container. Use it for layout, fill, border, radius, a
 | --- | --- | --- |
 | `id` `name` `class` `component` `instance` `tag` `role` | string | free text |
 | `width` `height` `minWidth` `maxWidth` `minHeight` `maxHeight` `x` `y` | length | see Values |
+| `auto` | bool | `true` hugs the content. `false` keeps `width` and `height`. Canvas resize sets `false` |
 | `widthMode` `heightMode` | string | `fixed` `fill` `fit` `percent` |
 | `aspectRatio` `grow` `shrink` `opacity` | float | number |
 | `zIndex` | int | integer or a z name |
@@ -487,7 +494,7 @@ These attributes are on `frame`, `scroll`, and every element that has the identi
 
 ## C++
 
-`Button.h` declares the class. `Button.cpp` defines it. Both live in `namespace Runtime`.
+The header declares the class. The source file defines it. Both live in `namespace Runtime`.
 
 ```cpp
 #pragma once

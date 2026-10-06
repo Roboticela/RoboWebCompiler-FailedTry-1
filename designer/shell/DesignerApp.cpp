@@ -256,6 +256,37 @@ float ContentSpan(Element* element, bool vertical) {
     return vertical ? element->Bounds().width : element->Bounds().height;
 }
 
+const XmlNode* PrimaryWindow(const DesignDocument& document) {
+    const XmlNode* root = document.Root();
+    if (root == nullptr) {
+        return nullptr;
+    }
+    if (root->name == "screens") {
+        for (const XmlNode& child : root->children) {
+            if (child.name == "window") {
+                return &child;
+            }
+        }
+    }
+    return root;
+}
+
+float PixelAttribute(const XmlNode* node, const char* name, float fallback) {
+    if (node == nullptr) {
+        return fallback;
+    }
+    for (const XmlAttribute& attribute : node->attributes) {
+        if (attribute.name != name) {
+            continue;
+        }
+        const std::optional<Length> length = ParseLength(attribute.value);
+        if (length.has_value() && length->unit == LengthUnit::PIXELS && length->value >= 1.0f) {
+            return length->value;
+        }
+    }
+    return fallback;
+}
+
 Element* ElementAt(Element* node, const std::vector<int>& path) {
     for (const int index : path) {
         if (node == nullptr || index < 0 || index >= static_cast<int>(node->Children().size())) {
@@ -968,6 +999,9 @@ void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& n
         renderer.FillRectangle(Rect{x + size - 1.5f, y, 1.5f, size * 0.28f}, ink, 0.0f);
         renderer.FillRectangle(Rect{x, y + size * 0.72f, 1.5f, size * 0.28f}, ink, 0.0f);
         renderer.FillRectangle(Rect{x + size - 1.5f, y + size * 0.72f, 1.5f, size * 0.28f}, ink, 0.0f);
+    } else if (name == "window" || name == "board") {
+        renderer.StrokeRectangle(Rect{x, y, size, size * 0.72f}, ink, 1.5f, 3.0f);
+        renderer.FillRectangle(Rect{x + 3.0f, y + 3.0f, size - 6.0f, 2.0f}, name == "board" ? quiet : ink, 1.0f);
     } else if (name == "shadow") {
         renderer.StrokeRectangle(Rect{x + 4.0f, y + 4.0f, size - 4.0f, size - 4.0f}, quiet, 1.5f, 3.0f);
         renderer.StrokeRectangle(Rect{x, y, size - 4.0f, size - 4.0f}, ink, 1.5f, 3.0f);
@@ -1242,7 +1276,7 @@ std::filesystem::path PickXmlFile(HWND owner, bool save, const std::wstring& sug
     return std::filesystem::path(wide);
 }
 
-void LaunchRuntime(HWND owner, const std::filesystem::path& xmlPath) {
+void LaunchRuntime(HWND owner, const std::filesystem::path& xmlPath, const char* device) {
     wchar_t modulePath[MAX_PATH] = {};
     if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0) {
         return;
@@ -1257,7 +1291,8 @@ void LaunchRuntime(HWND owner, const std::filesystem::path& xmlPath) {
     command += runner.wstring();
     command += L"\" run \"";
     command += xmlPath.wstring();
-    command += L"\"";
+    command += L"\" ";
+    command += ToWide(device);
     std::vector<wchar_t> buffer(command.begin(), command.end());
     buffer.push_back(L'\0');
     const std::wstring directory = xmlPath.parent_path().wstring();
@@ -1311,18 +1346,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
         return 1;
     }
 
-    float deviceWidth = static_cast<float>(DEFAULT_WINDOW_WIDTH);
-    float deviceHeight = static_cast<float>(DEFAULT_WINDOW_HEIGHT);
-    if (const std::optional<Length> width = ParseLength(document.Attribute({}, "width"))) {
-        if (width->unit == LengthUnit::PIXELS && width->value >= 1.0f) {
-            deviceWidth = width->value;
-        }
-    }
-    if (const std::optional<Length> height = ParseLength(document.Attribute({}, "height"))) {
-        if (height->unit == LengthUnit::PIXELS && height->value >= 1.0f) {
-            deviceHeight = height->value;
-        }
-    }
+    float deviceWidth = PixelAttribute(PrimaryWindow(document), "width", static_cast<float>(DEFAULT_WINDOW_WIDTH));
+    float deviceHeight = PixelAttribute(PrimaryWindow(document), "height", static_cast<float>(DEFAULT_WINDOW_HEIGHT));
     int deviceIndex = 0;
 
     std::vector<int> selection;
@@ -1429,6 +1454,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
             return;
         }
         preview = Instantiate(*compiled.root, {});
+        if (preview != nullptr && (preview->Kind() == NodeKind::WINDOW || preview->Kind() == NodeKind::BOARD)) {
+            auto host = std::make_unique<Frame>();
+            host->AddChild(std::move(preview));
+            preview = std::move(host);
+        }
     };
     rebuildPreview();
     if (document.Root() != nullptr && document.Root()->name == "component") {
@@ -1465,6 +1495,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
     Rect openProjectRect{};
     bool openProjectHover = false;
     std::vector<HitRow> menuTitles;
+    Rect runButton{};
+    bool runHover = false;
     int openMenu = -1;
     int menuTitleHover = -1;
     bool appMenuOpen = false;
@@ -1879,16 +1911,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             panY = 0.0f;
             fitted = false;
             historyOpen = false;
-            if (const std::optional<Length> width = ParseLength(document.Attribute({}, "width"))) {
-                if (width->unit == LengthUnit::PIXELS && width->value >= 1.0f) {
-                    deviceWidth = width->value;
-                }
-            }
-            if (const std::optional<Length> height = ParseLength(document.Attribute({}, "height"))) {
-                if (height->unit == LengthUnit::PIXELS && height->value >= 1.0f) {
-                    deviceHeight = height->value;
-                }
-            }
+            deviceWidth = PixelAttribute(PrimaryWindow(document), "width", static_cast<float>(DEFAULT_WINDOW_WIDTH));
+            deviceHeight = PixelAttribute(PrimaryWindow(document), "height", static_cast<float>(DEFAULT_WINDOW_HEIGHT));
             if (document.Root() != nullptr && document.Root()->name == "component") {
                 for (int index = 0; index < static_cast<int>(document.Root()->children.size()); ++index) {
                     const std::string& childName = document.Root()->children[static_cast<std::size_t>(index)].name;
@@ -2111,15 +2135,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 const char* category;
                 const char* name;
             };
-            const LibraryItem items[] = {
-                {"Core", "frame"},       {"Core", "text"},       {"Core", "image"},
-                {"Typography", "heading"}, {"Typography", "subhead"}, {"Typography", "body"},
-                {"Typography", "caption"}, {"Typography", "eyebrow"}, {"Typography", "label"},
-                {"Shape", "vector"},     {"Shape", "path"},      {"Shape", "line"},
-                {"Layout", "group"},     {"Layout", "scroll"},
-                {"Composition", "component"}, {"Composition", "instance"}, {"Composition", "slot"},
-                {"Effect", "shadow"},
-            };
+            const std::vector<LibraryItem> items = {{"Window", "window"}, {"Board", "board"}, {"Frame", "frame"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;
@@ -2249,7 +2265,16 @@ int DesignerApp::Run(const DesignerOptions& options) {
             };
             std::vector<StoredToken> stored;
             if (const XmlNode* root = document.Root()) {
-                for (const XmlNode& child : root->children) {
+                std::vector<const XmlNode*> tokenHosts;
+                if (root->name == "screens") {
+                    for (const XmlNode& child : root->children) {
+                        tokenHosts.push_back(&child);
+                    }
+                } else {
+                    tokenHosts.push_back(root);
+                }
+                for (const XmlNode* host : tokenHosts) {
+                for (const XmlNode& child : host->children) {
                     if (child.name != "tokens") {
                         continue;
                     }
@@ -2269,6 +2294,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                             stored.push_back(std::move(item));
                         }
                     }
+                }
                 }
             }
             auto storedFor = [&](const std::string& group, const std::string& name) -> const StoredToken* {
@@ -2427,7 +2453,15 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     ++childIndex;
                 }
             };
-            walk(walk, *root, {}, 0);
+            if (root->name == "screens") {
+                int childIndex = 0;
+                for (const XmlNode& child : root->children) {
+                    walk(walk, child, {childIndex}, 0);
+                    ++childIndex;
+                }
+            } else {
+                walk(walk, *root, {}, 0);
+            }
         }
         propertyRows.clear();
         if (const XmlNode* selected = document.NodeAt(selection)) {
@@ -2527,6 +2561,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             menuTitles.push_back(std::move(row));
             titleX += titleWidth;
         }
+        runButton = Rect{std::max(titleX + 8.0f, width - 92.0f), 6.0f, 80.0f, 24.0f};
         if (!fitted && canvas.width > 64.0f && canvas.height > 64.0f) {
             const float fitX = (canvas.width - 64.0f) / deviceWidth;
             const float fitY = (canvas.height - 64.0f) / deviceHeight;
@@ -2628,7 +2663,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Save", "Ctrl+S", 15);
                 addCommand("Save As...", "Ctrl+Shift+S", 16);
                 addRule();
-                addCommand("Run", "", 54);
+                addCommand("Run", "F5", 54);
                 addRule();
                 addCommand("Close Folder", "", 17, false, folderOpen);
                 addCommand("Close Window", "", 18);
@@ -2673,22 +2708,25 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
                 addCommand("Hand", "H", 47, activeTool == EditorTool::HAND);
                 addCommand("Zoom", "Z", 48, activeTool == EditorTool::ZOOM);
-                addRule();
-                addCommand("Add Frame", "", 70);
-                addCommand("Add Text", "", 71);
-                addCommand("Add Image", "", 72);
-                addCommand("Add Vector", "", 73);
-                addCommand("Add Path", "", 74);
-                addCommand("Add Line", "", 75);
-                addCommand("Add Group", "", 76);
-                addCommand("Add Scroll", "", 77);
                 break;
-            case 5:
+            case 5: {
                 addCommand("Bring Forward", "", 50, false, !selection.empty());
                 addCommand("Send Backward", "", 51, false, !selection.empty());
                 addRule();
+                const bool boardNode = selectedNode != nullptr && selectedNode->name == "board";
+                bool hasWindow = false;
+                if (const XmlNode* root = document.Root()) {
+                    for (const XmlNode& child : root->children) {
+                        if (child.name == "window") {
+                            hasWindow = true;
+                            break;
+                        }
+                    }
+                }
                 addCommand("Add Board", "", 52);
+                addCommand("Add to Window", "", 55, false, boardNode && hasWindow);
                 break;
+            }
             case 6:
                 addCommand("Align Left", "", 80, textAlign.empty() || textAlign == "left", textNode);
                 addCommand("Align Center", "", 81, textAlign == "center", textNode);
@@ -2831,6 +2869,9 @@ int DesignerApp::Run(const DesignerOptions& options) {
         } else {
             document.SetAttribute(selection, propertyName, propertyDraft);
         }
+        if (propertyName == "width" || propertyName == "height") {
+            document.SetAttribute(selection, "auto", "false");
+        }
         rebuildPreview();
     };
 
@@ -2863,13 +2904,22 @@ int DesignerApp::Run(const DesignerOptions& options) {
 
     auto parentForInsert = [&]() {
         std::vector<int> parent = selection;
-        const XmlNode* node = document.NodeAt(parent);
-        const ComponentSpec* spec = node == nullptr ? nullptr : FindComponent(node->name);
-        if (spec != nullptr && spec->acceptsChildren) {
-            return parent;
-        }
-        if (!parent.empty()) {
+        while (true) {
+            const XmlNode* node = document.NodeAt(parent);
+            if (node != nullptr && (node->name == "window" || node->name == "board")) {
+                return parent;
+            }
+            const ComponentSpec* spec = node == nullptr ? nullptr : FindComponent(node->name);
+            if (spec != nullptr && spec->acceptsChildren && node->name != "screens") {
+                return parent;
+            }
+            if (parent.empty()) {
+                break;
+            }
             parent.pop_back();
+        }
+        if (document.Root() != nullptr && document.Root()->name == "screens" && !document.Root()->children.empty()) {
+            return std::vector<int>{0};
         }
         return parent;
     };
@@ -2952,15 +3002,18 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
         return bestBoard - originAxis;
     };
-    auto placeSelection = [&](float x, float y, float width, float height) {
+    auto placeSelection = [&](float x, float y, float width, float height, bool lockSize) {
         if (selection.empty()) {
             return;
         }
         document.SetAttribute(selection, "position", "absolute");
         document.SetAttribute(selection, "x", pixels(x));
         document.SetAttribute(selection, "y", pixels(y));
-        document.SetAttribute(selection, "width", pixels(std::max(16.0f, width)));
-        document.SetAttribute(selection, "height", pixels(std::max(16.0f, height)));
+        if (lockSize) {
+            document.SetAttribute(selection, "auto", "false");
+            document.SetAttribute(selection, "width", pixels(std::max(16.0f, width)));
+            document.SetAttribute(selection, "height", pixels(std::max(16.0f, height)));
+        }
         rebuildPreview();
     };
     auto captureDragNodes = [&]() {
@@ -3088,7 +3141,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
         rebuildPreview();
     };
-    auto addBoard = [&]() {
+    auto addCanvasNode = [&](const char* componentName, const char* label, const std::vector<int>& parentPath) {
         remember();
         solidifyBoards();
         const float boardWidth = std::max(16.0f, deviceWidth);
@@ -3114,18 +3167,23 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
         }
         std::vector<int> inserted;
-        if (!document.InsertChild({}, "frame", inserted)) {
+        if (!document.InsertChild(parentPath, componentName, inserted)) {
             historyOpen = false;
             return;
         }
         const int boardNumber = static_cast<int>(inserted.empty() ? 1 : inserted.back() + 1);
-        document.SetAttribute(inserted, "name", "Board " + std::to_string(boardNumber));
+        const std::string boardName = std::string(label) + std::to_string(boardNumber);
+        document.SetAttribute(inserted, "name", boardName);
         document.SetAttribute(inserted, "position", "absolute");
         document.SetAttribute(inserted, "x", pixels(nextX));
         document.SetAttribute(inserted, "y", pixels(nextY));
         document.SetAttribute(inserted, "width", pixels(boardWidth));
         document.SetAttribute(inserted, "height", pixels(boardHeight));
         document.SetAttribute(inserted, "background", "#FFFFFF");
+        document.SetAttribute(inserted, "auto", "false");
+        if (std::string(componentName) == "window") {
+            document.SetAttribute(inserted, "title", boardName);
+        }
         selectOnly(inserted);
         rebuildPreview();
         finishEdit();
@@ -3135,6 +3193,43 @@ int DesignerApp::Run(const DesignerOptions& options) {
         panY = (deviceHeight * 0.5f - centerY) * zoom;
         paintDirty = true;
     };
+    auto addBoard = [&]() { addCanvasNode("board", "Board ", {}); };
+    auto addBoardToWindow = [&]() {
+        const XmlNode* selected = document.NodeAt(selection);
+        if (selected == nullptr || selected->name != "board" || document.Root() == nullptr) {
+            return;
+        }
+        std::vector<int> windowPath;
+        for (const std::vector<int>& path : selections) {
+            const XmlNode* node = document.NodeAt(path);
+            if (node != nullptr && node->name == "window") {
+                windowPath = path;
+                break;
+            }
+        }
+        if (windowPath.empty()) {
+            int index = 0;
+            for (const XmlNode& child : document.Root()->children) {
+                if (child.name == "window") {
+                    windowPath = {index};
+                    break;
+                }
+                ++index;
+            }
+        }
+        if (windowPath.empty()) {
+            return;
+        }
+        remember();
+        if (!document.AddBoardContent(selection, windowPath)) {
+            historyOpen = false;
+            return;
+        }
+        rebuildPreview();
+        finishEdit();
+        paintDirty = true;
+    };
+    auto addWindow = [&]() { addCanvasNode("window", "Window ", {}); };
     auto resizeHandleAt = [&](Point point) {
         const Rect selectedRect = selectedScreen();
         if (selectedRect.width < 1.0f || activeTool != EditorTool::SELECT) {
@@ -3171,7 +3266,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
     auto pathLocked = [&](const std::vector<int>& path) {
         for (std::size_t count = 1; count <= path.size(); ++count) {
             const std::vector<int> prefix(path.begin(), path.begin() + static_cast<std::ptrdiff_t>(count));
-            if (std::find(lockedPaths.begin(), lockedPaths.end(), prefix) != lockedPaths.end()) {
+            if (std::find(lockedPaths.begin(), lockedPaths.end(), prefix) != lockedPaths.end() || document.Attribute(prefix, "locked") == "true") {
                 return true;
             }
         }
@@ -3432,6 +3527,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             moveSelection(-1);
         } else if (action == 52) {
             addBoard();
+        } else if (action == 55) {
+            addBoardToWindow();
         } else if (action == 53) {
             std::vector<int> duplicateParent = selection;
             if (!duplicateParent.empty()) {
@@ -3448,13 +3545,14 @@ int DesignerApp::Run(const DesignerOptions& options) {
             if (document.FilePath().empty() || !document.Save()) {
                 MessageBoxW(window.Hwnd(), L"Save the document before running it.", L"RoboUIDesigner", MB_OK | MB_ICONWARNING);
             } else {
-                LaunchRuntime(window.Hwnd(), document.FilePath());
+                const char* device = deviceIndex == 1 ? "tablet" : deviceIndex == 2 ? "mobile" : "desktop";
+                LaunchRuntime(window.Hwnd(), document.FilePath(), device);
             }
         } else if (action == 60) {
             MessageBoxW(window.Hwnd(), L"RoboUIDesigner\nA visual editor for Runtime XML.", L"About RoboUIDesigner", MB_OK);
         } else if (action == 61) {
             MessageBoxW(window.Hwnd(),
-                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   T Text\nI Image   L Line   H Hand   Z Zoom",
+                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nF5  Run\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   T Text\nI Image   L Line   H Hand   Z Zoom",
                         L"Keyboard Shortcuts", MB_OK);
         } else if (action >= 70 && action <= 77) {
             const char* names[] = {"frame", "text", "image", "vector", "path", "line", "group", "scroll"};
@@ -3488,6 +3586,13 @@ int DesignerApp::Run(const DesignerOptions& options) {
     };
     window.SetMouseDown([&](Point point) {
         layoutChrome(clientWidth, clientHeight);
+        if (ContainsPoint(runButton, point)) {
+            closeAppMenu();
+            closeFileMenu();
+            applyAppAction(54);
+            paintDirty = true;
+            return;
+        }
         const int chosenMenu = menuTitleAt(point);
         if (appMenuOpen) {
             for (const HitRow& row : appMenuRows) {
@@ -3887,6 +3992,16 @@ int DesignerApp::Run(const DesignerOptions& options) {
         for (const HitRow& row : libraryRows) {
             if (row.depth >= 0 && ContainsPoint(row.rect, point) && row.rect.y >= fullSidebar.y + 76.0f &&
                 row.rect.y < fullSidebar.y + fullSidebar.height) {
+                if (row.name == "window") {
+                    addWindow();
+                    paintDirty = true;
+                    return;
+                }
+                if (row.name == "board") {
+                    addBoard();
+                    paintDirty = true;
+                    return;
+                }
                 std::vector<int> inserted;
                 if (document.InsertChild(parentForInsert(), row.name, inserted)) {
                     remember();
@@ -4253,6 +4368,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
             menuTitleHover = nextTitle;
             paintDirty = true;
         }
+        const bool nextRun = drag == DragKind::NONE && ContainsPoint(runButton, point);
+        if (nextRun != runHover) {
+            runHover = nextRun;
+            paintDirty = true;
+        }
         if (appMenuOpen && nextTitle >= 0 && nextTitle != openMenu) {
             openMenu = nextTitle;
             appMenuHover = -1;
@@ -4388,8 +4508,6 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 document.SetAttribute(node.path, "position", "absolute");
                 document.SetAttribute(node.path, "x", pixels(node.localX + applyX));
                 document.SetAttribute(node.path, "y", pixels(node.localY + applyY));
-                document.SetAttribute(node.path, "width", pixels(std::max(16.0f, node.width)));
-                document.SetAttribute(node.path, "height", pixels(std::max(16.0f, node.height)));
             }
             rebuildPreview();
             paintDirty = true;
@@ -4424,6 +4542,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 const float nextBoardY = top + (node.boardY - dragUnion.y) * scaleY;
                 const float parentX = node.boardX - node.localX;
                 const float parentY = node.boardY - node.localY;
+                document.SetAttribute(node.path, "auto", "false");
                 document.SetAttribute(node.path, "position", "absolute");
                 document.SetAttribute(node.path, "x", pixels(nextBoardX - parentX));
                 document.SetAttribute(node.path, "y", pixels(nextBoardY - parentY));
@@ -4483,7 +4602,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     width = nextWidth;
                 }
             }
-            placeSelection(x, y, width, height);
+            placeSelection(x, y, width, height, true);
             paintDirty = true;
             return;
         }
@@ -4658,6 +4777,13 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if ((fileMenuOpen || appMenuOpen) && key == VK_ESCAPE) {
             closeFileMenu();
             closeAppMenu();
+            paintDirty = true;
+            return true;
+        }
+        if (key == VK_F5) {
+            closeFileMenu();
+            closeAppMenu();
+            applyAppAction(54);
             paintDirty = true;
             return true;
         }
@@ -5062,23 +5188,23 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     const float parentHeight = parent == nullptr ? height : parent->Bounds().height;
                     remember();
                     if (alt && key == VK_LEFT) {
-                        placeSelection(0.0f, y, width, height);
+                        placeSelection(0.0f, y, width, height, false);
                     } else if (alt && key == VK_RIGHT) {
-                        placeSelection(parentWidth - width, y, width, height);
+                        placeSelection(parentWidth - width, y, width, height, false);
                     } else if (alt && key == VK_UP) {
-                        placeSelection(x, 0.0f, width, height);
+                        placeSelection(x, 0.0f, width, height, false);
                     } else if (alt && key == VK_DOWN) {
-                        placeSelection(x, parentHeight - height, width, height);
+                        placeSelection(x, parentHeight - height, width, height, false);
                     } else if (key == VK_LEFT) {
-                        placeSelection(x - step, y, width, height);
+                        placeSelection(x - step, y, width, height, false);
                     } else if (key == VK_RIGHT) {
-                        placeSelection(x + step, y, width, height);
+                        placeSelection(x + step, y, width, height, false);
                     } else if (key == VK_UP) {
-                        placeSelection(x, y - step, width, height);
+                        placeSelection(x, y - step, width, height, false);
                     } else if (key == VK_DOWN) {
-                        placeSelection(x, y + step, width, height);
+                        placeSelection(x, y + step, width, height, false);
                     } else if (key == 'C') {
-                        placeSelection((parentWidth - width) * 0.5f, (parentHeight - height) * 0.5f, width, height);
+                        placeSelection((parentWidth - width) * 0.5f, (parentHeight - height) * 0.5f, width, height, false);
                     } else {
                         width = -1.0f;
                     }
@@ -5372,6 +5498,9 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
             DrawLabel(renderer, title.name, title.rect, COLOR_INK, 13.0f, TextAlign::CENTER);
         }
+        renderer.FillRectangle(runButton, runHover ? COLOR_NAV_HOVER : COLOR_NAV, 6.0f);
+        FillTriangle(renderer, runButton.x + 12.0f, runButton.y + 6.0f, runButton.x + 12.0f, runButton.y + 18.0f, runButton.x + 22.0f, runButton.y + 12.0f, COLOR_INK);
+        DrawLabel(renderer, "Run", Rect{runButton.x + 24.0f, runButton.y, runButton.width - 28.0f, runButton.height}, COLOR_INK, 13.0f, TextAlign::START);
 
         renderer.FillRectangle(iconSidebar, COLOR_PANEL, 0.0f);
         renderer.FillRectangle(fullSidebar, COLOR_PANEL, 0.0f);
@@ -6090,18 +6219,32 @@ int DesignerApp::Run(const DesignerOptions& options) {
         return 0;
     }
 
-    LogInfo("RoboUIDesigner is open. Ctrl+S saves. Esc clears the editor focus.");
+    LogInfo("RoboUIDesigner is open. Ctrl+S saves. F5 runs the document. Esc clears the editor focus.");
     bool running = true;
+    unsigned long long lastFrame = GetTickCount64();
     while (running) {
         window.Pump(running);
         if (!running) {
             break;
+        }
+        const unsigned long long now = GetTickCount64();
+        float seconds = static_cast<float>(now - lastFrame) / 1000.0f;
+        lastFrame = now;
+        if (seconds <= 0.0f || seconds > 0.1f) {
+            seconds = 1.0f / 60.0f;
+        }
+        const bool animated = preview != nullptr && preview->Tick(seconds);
+        if (animated) {
+            paintDirty = true;
         }
         if (paintDirty) {
             if (!paint()) {
                 return 1;
             }
             paintDirty = false;
+        }
+        if (animated) {
+            Sleep(12);
         } else {
             window.WaitForMessage();
         }

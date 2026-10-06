@@ -38,10 +38,108 @@ void AddAttribute(XmlNode& node, std::string name, std::string value) {
     node.attributes.push_back(std::move(attribute));
 }
 
+bool IsDocumentMeta(const std::string& name) {
+    return name == "tokens" || name == "style" || name == "state" || name == "animate" || name == "animation" || name == "property" ||
+           name == "event";
+}
+
+bool ContainsWindow(const XmlNode& node) {
+    for (const XmlNode& child : node.children) {
+        if (child.name == "window" || ContainsWindow(child)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void LiftWindows(XmlNode node, std::vector<XmlNode>& forest) {
+    if (node.name != "window") {
+        forest.push_back(std::move(node));
+        return;
+    }
+    std::vector<XmlNode> kept;
+    std::vector<XmlNode> lifted;
+    for (XmlNode& child : node.children) {
+        if (child.name == "window") {
+            LiftWindows(std::move(child), lifted);
+        } else {
+            kept.push_back(std::move(child));
+        }
+    }
+    node.children = std::move(kept);
+    bool visual = false;
+    for (const XmlNode& child : node.children) {
+        if (!IsDocumentMeta(child.name)) {
+            visual = true;
+        }
+    }
+    if (!lifted.empty() && !visual) {
+        if (!node.children.empty()) {
+            lifted.front().children.insert(lifted.front().children.begin(), node.children.begin(), node.children.end());
+        }
+        forest.insert(forest.end(), std::make_move_iterator(lifted.begin()), std::make_move_iterator(lifted.end()));
+        return;
+    }
+    forest.push_back(std::move(node));
+    forest.insert(forest.end(), std::make_move_iterator(lifted.begin()), std::make_move_iterator(lifted.end()));
+}
+
+void NormalizeRoots(std::optional<XmlNode>& root) {
+    if (!root.has_value() || root->name == "component") {
+        return;
+    }
+    std::vector<XmlNode> nodes;
+    if (root->name == "screens") {
+        for (XmlNode& child : root->children) {
+            LiftWindows(std::move(child), nodes);
+        }
+    } else {
+        LiftWindows(std::move(*root), nodes);
+    }
+    XmlNode screens;
+    screens.name = "screens";
+    screens.children = std::move(nodes);
+    root = std::move(screens);
+}
+
+XmlNode* TokenHost(XmlNode& root) {
+    if (root.name == "screens") {
+        for (XmlNode& child : root.children) {
+            if (child.name == "window") {
+                return &child;
+            }
+        }
+    }
+    return &root;
+}
+
 XmlNode MakeComponent(std::string_view name) {
     XmlNode node;
     node.name = std::string(name);
-    if (name == "frame") {
+    if (name == "window") {
+        AddAttribute(node, "auto", "false");
+        AddAttribute(node, "name", "Window");
+        AddAttribute(node, "title", "Window");
+        AddAttribute(node, "width", "800");
+        AddAttribute(node, "height", "600");
+        AddAttribute(node, "background", "#FFFFFF");
+        AddAttribute(node, "mobile", "true");
+        AddAttribute(node, "tablet", "true");
+        AddAttribute(node, "desktop", "true");
+        AddAttribute(node, "position", "absolute");
+        AddAttribute(node, "x", "0");
+        AddAttribute(node, "y", "0");
+    } else if (name == "board") {
+        AddAttribute(node, "auto", "false");
+        AddAttribute(node, "name", "Board");
+        AddAttribute(node, "width", "800");
+        AddAttribute(node, "height", "600");
+        AddAttribute(node, "background", "#FFFFFF");
+        AddAttribute(node, "position", "absolute");
+        AddAttribute(node, "x", "0");
+        AddAttribute(node, "y", "0");
+    } else if (name == "frame") {
+        AddAttribute(node, "auto", "true");
         AddAttribute(node, "width", "160");
         AddAttribute(node, "height", "80");
         AddAttribute(node, "background", "#0E7AFF");
@@ -51,39 +149,44 @@ XmlNode MakeComponent(std::string_view name) {
         AddAttribute(node, "shadowY", "4");
         AddAttribute(node, "shadowColor", "#1D1D1F");
     } else if (name == "text") {
+        AddAttribute(node, "auto", "true");
         AddAttribute(node, "text", "Text");
         AddAttribute(node, "fontSize", "16");
         AddAttribute(node, "textColor", "#18181A");
-        AddAttribute(node, "width", "80");
-        AddAttribute(node, "height", "24");
     } else if (name == "image") {
+        AddAttribute(node, "auto", "true");
         AddAttribute(node, "source", "image.png");
         AddAttribute(node, "width", "120");
         AddAttribute(node, "height", "80");
     } else if (name == "vector") {
+        AddAttribute(node, "auto", "true");
         AddAttribute(node, "shape", "ellipse");
         AddAttribute(node, "width", "64");
         AddAttribute(node, "height", "64");
         AddAttribute(node, "fill", "#7EFFF5");
     } else if (name == "path") {
+        AddAttribute(node, "auto", "true");
         AddAttribute(node, "d", "M0 40 L80 0 L80 40 Z");
         AddAttribute(node, "width", "80");
         AddAttribute(node, "height", "40");
         AddAttribute(node, "stroke", "#18181A");
         AddAttribute(node, "strokeWidth", "2");
     } else if (name == "line") {
+        AddAttribute(node, "auto", "true");
         AddAttribute(node, "x2", "80");
         AddAttribute(node, "stroke", "#18181A");
         AddAttribute(node, "strokeWidth", "2");
         AddAttribute(node, "width", "80");
         AddAttribute(node, "height", "8");
     } else if (name == "group" || name == "component" || name == "slot" || name == "scroll") {
+        AddAttribute(node, "auto", "true");
         AddAttribute(node, "width", "160");
         AddAttribute(node, "height", "80");
         if (name == "component" || name == "slot") {
             AddAttribute(node, "name", std::string(name));
         }
     } else if (name == "instance") {
+        AddAttribute(node, "auto", "true");
         AddAttribute(node, "component", "component");
         AddAttribute(node, "width", "160");
         AddAttribute(node, "height", "80");
@@ -245,6 +348,9 @@ void DesignDocument::SyncTextFromRoot() {
 }
 
 bool DesignDocument::AcceptsChildren(const XmlNode& node) const {
+    if (node.name == "screens") {
+        return true;
+    }
     const ComponentSpec* spec = FindComponent(node.name);
     return spec != nullptr && spec->acceptsChildren;
 }
@@ -289,6 +395,13 @@ bool DesignDocument::InsertChild(const std::vector<int>& parentPath, std::string
     if (parent == nullptr || !AcceptsChildren(*parent)) {
         return false;
     }
+    const bool rootComponent = componentName == "window" || componentName == "board";
+    if (parent->name == "screens" && !rootComponent) {
+        return false;
+    }
+    if (rootComponent && parent->name != "screens") {
+        return false;
+    }
     parent->children.push_back(MakeComponent(componentName));
     insertedPath = parentPath;
     insertedPath.push_back(static_cast<int>(parent->children.size()) - 1);
@@ -306,6 +419,17 @@ bool DesignDocument::DeleteNode(const std::vector<int>& path) {
     XmlNode* parent = MutableNode(parentPath);
     if (parent == nullptr || childIndex < 0 || childIndex >= static_cast<int>(parent->children.size())) {
         return false;
+    }
+    if (parent->name == "screens" && parent->children[static_cast<std::size_t>(childIndex)].name == "window") {
+        int windows = 0;
+        for (const XmlNode& child : parent->children) {
+            if (child.name == "window") {
+                ++windows;
+            }
+        }
+        if (windows <= 1) {
+            return false;
+        }
     }
     parent->children.erase(parent->children.begin() + childIndex);
     SyncTextFromRoot();
@@ -344,8 +468,14 @@ bool DesignDocument::ReplaceText(std::string xmlText) {
         textSynced = false;
         return false;
     }
+    const bool reshape = parsed.root->name == "screens" || (parsed.root->name == "window" && ContainsWindow(*parsed.root));
     root = std::move(*parsed.root);
-    textSynced = true;
+    NormalizeRoots(root);
+    if (reshape) {
+        SyncTextFromRoot();
+    } else {
+        textSynced = true;
+    }
     return true;
 }
 
@@ -372,9 +502,32 @@ bool DesignDocument::PasteXml(const std::vector<int>& parentPath, const std::str
     if (!parsed.root.has_value()) {
         return false;
     }
+    const bool rootComponent = parsed.root->name == "window" || parsed.root->name == "board";
+    if (rootComponent && parent->name != "screens") {
+        return false;
+    }
+    if (parent->name == "screens" && !rootComponent) {
+        return false;
+    }
     parent->children.push_back(std::move(*parsed.root));
     insertedPath = parentPath;
     insertedPath.push_back(static_cast<int>(parent->children.size()) - 1);
+    SyncTextFromRoot();
+    return true;
+}
+
+bool DesignDocument::AddBoardContent(const std::vector<int>& boardPath, const std::vector<int>& windowPath) {
+    if (!textSynced) {
+        return false;
+    }
+    XmlNode* board = MutableNode(boardPath);
+    XmlNode* window = MutableNode(windowPath);
+    if (board == nullptr || window == nullptr || board->name != "board" || window->name != "window" || board->children.empty()) {
+        return false;
+    }
+    for (const XmlNode& child : board->children) {
+        window->children.push_back(child);
+    }
     SyncTextFromRoot();
     return true;
 }
@@ -417,7 +570,7 @@ bool DesignDocument::SetToken(std::string_view group, std::string_view name, std
     if (!textSynced || !root.has_value() || group.empty() || name.empty() || value.empty()) {
         return false;
     }
-    XmlNode* tokens = EnsureTokens(*root);
+    XmlNode* tokens = EnsureTokens(*TokenHost(*root));
     XmlNode* token = FindToken(*tokens, group, name);
     if (token == nullptr) {
         XmlNode child;
@@ -437,7 +590,7 @@ bool DesignDocument::RemoveToken(std::string_view group, std::string_view name, 
     if (!textSynced || !root.has_value() || group.empty() || name.empty()) {
         return false;
     }
-    XmlNode* tokens = EnsureTokens(*root);
+    XmlNode* tokens = EnsureTokens(*TokenHost(*root));
     XmlNode* token = FindToken(*tokens, group, name);
     if (!builtin) {
         if (token == nullptr) {

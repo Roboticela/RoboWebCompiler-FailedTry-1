@@ -21,21 +21,30 @@ public:
             Fail(result, current.text, current.location, current.spanLength);
             return result;
         }
-        auto root = ParseElement(result);
-        if (!root.has_value()) {
-            return result;
+        std::vector<XmlNode> nodes;
+        while (current.kind != XmlTokenKind::END_OF_FILE && current.kind != XmlTokenKind::FAILURE) {
+            auto element = ParseElement(result);
+            if (!element.has_value()) {
+                return result;
+            }
+            nodes.push_back(std::move(*element));
         }
         if (current.kind == XmlTokenKind::FAILURE) {
             Fail(result, current.text, current.location, current.spanLength);
             return result;
         }
-        if (current.kind != XmlTokenKind::END_OF_FILE) {
-            Fail(result, "Unexpected content after the root element.", current.location, current.spanLength);
+        if (nodes.empty() || HasFailure(result.diagnostics)) {
             return result;
         }
-        if (!HasFailure(result.diagnostics)) {
-            result.root = std::move(*root);
+        if (nodes.size() == 1) {
+            result.root = std::move(nodes.front());
+            return result;
         }
+        XmlNode screens;
+        screens.name = "screens";
+        screens.location = nodes.front().location;
+        screens.children = std::move(nodes);
+        result.root = std::move(screens);
         return result;
     }
 

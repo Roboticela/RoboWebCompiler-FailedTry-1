@@ -48,6 +48,25 @@ struct CompileResult {
     }
 };
 
+enum class DeviceClass {
+    MOBILE,
+    TABLET,
+    DESKTOP,
+};
+
+inline constexpr float DEVICE_MOBILE_MAX = 734.0f;
+inline constexpr float DEVICE_TABLET_MAX = 1068.0f;
+
+inline DeviceClass DeviceClassForWidth(float width) {
+    if (width <= DEVICE_MOBILE_MAX) {
+        return DeviceClass::MOBILE;
+    }
+    if (width <= DEVICE_TABLET_MAX) {
+        return DeviceClass::TABLET;
+    }
+    return DeviceClass::DESKTOP;
+}
+
 inline const UiValue* FindProperty(const IrNode& node, std::string_view name) {
     for (const auto& property : node.properties) {
         if (property.first == name) {
@@ -55,6 +74,23 @@ inline const UiValue* FindProperty(const IrNode& node, std::string_view name) {
         }
     }
     return nullptr;
+}
+
+inline bool WindowLaunchesOn(const IrNode& node, DeviceClass device) {
+    const char* name = "desktop";
+    if (device == DeviceClass::MOBILE) {
+        name = "mobile";
+    } else if (device == DeviceClass::TABLET) {
+        name = "tablet";
+    }
+    const UiValue* value = FindProperty(node, name);
+    if (value == nullptr) {
+        return true;
+    }
+    if (value->kind == TypeKind::BOOL) {
+        return value->boolean;
+    }
+    return value->text != "false";
 }
 
 std::string FormatValue(const UiValue& value);

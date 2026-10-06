@@ -34,6 +34,7 @@ public:
     bool ReplaceText(std::string xmlText);
     std::string NodeXml(const std::vector<int>& path) const;
     bool PasteXml(const std::vector<int>& parentPath, const std::string& xml, std::vector<int>& insertedPath);
+    bool AddBoardContent(const std::vector<int>& boardPath, const std::vector<int>& windowPath);
     bool SetToken(std::string_view group, std::string_view name, std::string value);
     bool RemoveToken(std::string_view group, std::string_view name, bool builtin);
 

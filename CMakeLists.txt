@@ -61,10 +61,10 @@ add_library(RuntimeUi STATIC
     components/primitive/PrimitiveElement.h
     components/layout/WindowElement.cpp
     components/layout/WindowElement.h
+    components/layout/BoardElement.cpp
+    components/layout/BoardElement.h
     components/text/TextElement.cpp
     components/text/TextElement.h
-    t/button/Button.cpp
-    t/button/Button.h
     rendering/renderer/Renderer.h
     rendering/text/TextMeasurer.h
     rendering/text/TextLayout.cpp

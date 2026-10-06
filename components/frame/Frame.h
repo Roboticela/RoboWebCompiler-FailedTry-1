@@ -22,6 +22,7 @@ public:
     Size Measure(TextMeasurer& measurer, float availableWidth, float availableHeight, bool heightDefinite) override;
     void Arrange(const Rect& rect) override;
     void OnPaint(Renderer& renderer) override;
+    bool PaintsOwnBorder() const override { return true; }
     Element* HitTest(Point point) override;
     void ApplyBound(const std::string& property, const std::string& value) override;
     bool OnWheel(int delta) override;

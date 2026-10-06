@@ -61,21 +61,37 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
         const char* const* choices = nullptr;
         int choiceCount = 0;
         if (attribute.name == "layout") {
-            static const char* options[] = {"none", "horizontal", "vertical", "grid", "wrap", "stack"};
+            static const char* options[] = {"none", "horizontal", "vertical", "grid", "wrap", "stack", "inline"};
             choices = options;
-            choiceCount = 6;
+            choiceCount = 7;
         } else if (attribute.name == "position") {
             static const char* options[] = {"flow", "absolute", "fixed", "sticky"};
             choices = options;
             choiceCount = 4;
         } else if (attribute.name == "widthMode" || attribute.name == "heightMode") {
-            static const char* options[] = {"fixed", "fill", "fit", "percent"};
+            static const char* options[] = {"fixed", "fill", "fit", "hug", "percent", "FIXED", "FILL", "HUG"};
             choices = options;
-            choiceCount = 4;
+            choiceCount = 8;
         } else if (attribute.name == "anchor") {
             static const char* options[] = {"top", "right", "bottom", "left", "center"};
             choices = options;
             choiceCount = 5;
+        } else if (attribute.name == "alignItems") {
+            static const char* options[] = {"start", "center", "end", "stretch", "START", "CENTER", "END", "STRETCH"};
+            choices = options;
+            choiceCount = 8;
+        } else if (attribute.name == "justifyContent") {
+            static const char* options[] = {"start", "center", "end", "spaceBetween", "START", "CENTER", "END", "SPACE_BETWEEN"};
+            choices = options;
+            choiceCount = 8;
+        } else if (attribute.name == "horizontal") {
+            static const char* options[] = {"left", "right", "leftRight", "center", "scale", "LEFT", "RIGHT", "LEFT_RIGHT", "CENTER", "SCALE"};
+            choices = options;
+            choiceCount = 10;
+        } else if (attribute.name == "vertical") {
+            static const char* options[] = {"top", "bottom", "topBottom", "center", "scale", "TOP", "BOTTOM", "TOP_BOTTOM", "CENTER", "SCALE"};
+            choices = options;
+            choiceCount = 10;
         } else if (attribute.name == "justify") {
             static const char* options[] = {"start", "center", "end", "left", "right", "top", "bottom", "stretch", "spaceBetween"};
             choices = options;
@@ -390,7 +406,7 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
             continue;
         }
         std::string canonical = propertyName;
-        if (canonical == "value") {
+        if (canonical == "value" && spec->kind == NodeKind::TEXT) {
             canonical = "text";
         }
         if (!seen.insert(canonical).second) {
@@ -401,13 +417,6 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
         }
         UiValue value;
         if (!ParseProperty(*property, attribute, value, diagnostics)) {
-            continue;
-        }
-        if (spec->kind == NodeKind::WINDOW && (canonical == "width" || canonical == "height") &&
-            value.length.unit != LengthUnit::PIXELS) {
-            AddDiagnostic(diagnostics, DIAGNOSTIC_TYPE_MISMATCH,
-                          "Property '" + canonical + "' on window expects a pixel Length.", attribute.valueLocation,
-                          attribute.valueSpan);
             continue;
         }
         if (canonical == "id") {
@@ -439,6 +448,13 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
         lowered.states = model.states;
     }
 
+    if ((node.name == "window" || node.name == "board") && depth > 1) {
+        const char* message = node.name == "board" ? "A board is independent and cannot be nested."
+                                                    : "A window cannot contain another window.";
+        AddDiagnostic(diagnostics, DIAGNOSTIC_UNEXPECTED_CHILD, message, node.location, static_cast<int>(node.name.size()));
+        return std::nullopt;
+    }
+
     if (!spec->acceptsChildren && !node.children.empty()) {
         AddDiagnostic(diagnostics, DIAGNOSTIC_UNEXPECTED_CHILD,
                       "Component '" + node.name + "' cannot contain child elements.", node.children.front().location,
@@ -464,10 +480,22 @@ CompileResult CompileUi(const SourceFile& source) {
     if (!parsed.root.has_value() || HasFailure(result.diagnostics)) {
         return result;
     }
-    if (parsed.root->name != "window") {
-        AddDiagnostic(result.diagnostics, DIAGNOSTIC_ROOT_WINDOW, "The root element must be 'window'.",
+    const bool forest = parsed.root->name == "screens";
+    if (!forest && parsed.root->name != "window" && parsed.root->name != "board") {
+        AddDiagnostic(result.diagnostics, DIAGNOSTIC_ROOT_WINDOW, "The root element must be 'window' or 'board'.",
                       parsed.root->location, static_cast<int>(parsed.root->name.size()));
         return result;
+    }
+    if (forest) {
+        for (const XmlNode& child : parsed.root->children) {
+            if (child.name == "window" || child.name == "board" || child.name == "tokens" || child.name == "style" ||
+                child.name == "state" || child.name == "animate" || child.name == "animation" || child.name == "component") {
+                continue;
+            }
+            AddDiagnostic(result.diagnostics, DIAGNOSTIC_ROOT_WINDOW, "Each root element must be 'window' or 'board'.",
+                          child.location, static_cast<int>(child.name.size()));
+            return result;
+        }
     }
     DocumentModel model;
     SetSuppressedFoundations(&model.removedTokens);
@@ -478,12 +506,37 @@ CompileResult CompileUi(const SourceFile& source) {
     }
     std::unordered_set<std::string> ids;
     const std::size_t before = result.diagnostics.size();
-    auto lowered = Lower(*parsed.root, result.diagnostics, ids, model, 1);
-    if (result.diagnostics.size() == before && lowered.has_value()) {
-        for (const AnimationSpec& animation : model.animations) {
-            lowered->visual.motions.push_back(MotionFromAnimation(animation));
+    if (!forest) {
+        auto lowered = Lower(*parsed.root, result.diagnostics, ids, model, 1);
+        if (result.diagnostics.size() == before && lowered.has_value()) {
+            for (const AnimationSpec& animation : model.animations) {
+                lowered->visual.motions.push_back(MotionFromAnimation(animation));
+            }
+            result.root = std::move(*lowered);
         }
-        result.root = std::move(*lowered);
+    } else {
+        IrNode host;
+        host.kind = NodeKind::FRAME;
+        host.name = "screens";
+        host.location = parsed.root->location;
+        bool ok = result.diagnostics.size() == before;
+        for (const XmlNode& child : parsed.root->children) {
+            if (child.name != "window" && child.name != "board") {
+                continue;
+            }
+            auto lowered = Lower(child, result.diagnostics, ids, model, 1);
+            if (!lowered.has_value()) {
+                ok = false;
+                continue;
+            }
+            for (const AnimationSpec& animation : model.animations) {
+                lowered->visual.motions.push_back(MotionFromAnimation(animation));
+            }
+            host.children.push_back(std::move(*lowered));
+        }
+        if (ok && !host.children.empty()) {
+            result.root = std::move(host);
+        }
     }
     SetSuppressedFoundations(nullptr);
     return result;

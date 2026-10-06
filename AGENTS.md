@@ -1,1425 +1,1061 @@
 The filenames must be PascalCase. The functions, classes, and structs must be PascalCase. Variable names must be camelCase. Constants must be CAPITAL_CASE.
 
-The key is: **keep the number of primitives small, but make their properties, layout, states, animation, events, and composition capabilities extremely powerful.**
+# 2. Your core component/node system
 
-# 1. Core primitives
+Don't make every visual thing a separate React component.
 
-I recommend these **11**:
+Instead, create a universal **Node** model.
+
+Something like:
 
 ```text
-Frame ✅
-Text ✅
-Image ✅
-Vector ✅
-Path ✅
-Line ✅
-Group ✅
-Component ✅
-Instance ✅
-Slot ✅
-Scroll ✅
+Node
+├── Frame
+├── Group
+├── Rectangle
+├── Ellipse
+├── Line
+├── Polygon
+├── Star
+├── Text
+├── Image
+├── SVG
+├── Vector
+├── Component
+├── Instance
+├── Boolean
+└── Section
 ```
 
-You can build virtually everything else on top of these.
+Every node should have common properties.
+
+### Common properties
+
+```ts
+type Node = {
+  id: string
+  type: NodeType
+
+  name: string
+
+  x: number
+  y: number
+  width: number
+  height: number
+
+  rotation: number
+  opacity: number
+
+  visible: boolean
+  locked: boolean
+
+  parentId?: string
+  children?: string[]
+
+  fills: Fill[]
+  strokes: Stroke[]
+
+  effects: Effect[]
+
+  layout?: LayoutProperties
+  constraints?: Constraints
+
+  style?: StyleReference
+}
+```
+
+But there's an important distinction:
+
+**Don't make `x/y/width/height` the only source of truth.**
+
+Your layout system needs to know **how those values were produced**.
 
 ---
 
-# 2. `Frame`
+# 3. Sizing system — this is where your Figma clone becomes powerful
 
-This is your **most important primitive**.
+I'd support these sizing modes:
 
-Think of it as Figma's Frame + a general-purpose visual container.
-
-```xml
-<frame>
-    ...
-</frame>
-```
-
-### Identity
+### Width
 
 ```text
-id ✅
-name ✅
-class ✅
-component ✅
-instance ✅
-tag ✅
-role ✅
+FIXED
+HUG
+FILL
+MIN/MAX
 ```
 
-### Size
+For example:
+
+```ts
+width: {
+  mode: "FIXED",
+  value: 300
+}
+```
+
+or:
+
+```ts
+width: {
+  mode: "HUG"
+}
+```
+
+or:
+
+```ts
+width: {
+  mode: "FILL"
+}
+```
+
+or:
+
+```ts
+width: {
+  mode: "FILL",
+  min: 200,
+  max: 600
+}
+```
+
+Same for height.
+
+This gives you:
 
 ```text
-width ✅
-height ✅
+Fixed width
+     ↓
+300px
 
-minWidth ✅
-maxWidth ✅
-minHeight ✅
-maxHeight ✅
+Hug contents
+     ↓
+Text + padding
 
-widthMode:
-    fixed ✅
-    fill ✅
-    fit ✅
-    percent ✅
+Fill parent
+     ↓
+available parent width
 
-heightMode:
-    fixed ✅
-    fill ✅
-    fit ✅
-    percent ✅
-
-aspectRatio ✅
+Min/max
+     ↓
+200px ←→ 600px
 ```
 
-### Position
+This should be implemented **before** you build advanced components.
+
+---
+
+# 4. Auto Layout / Flex Layout
+
+Your Frame should have:
+
+```ts
+type LayoutProperties = {
+  mode: "NONE" | "HORIZONTAL" | "VERTICAL"
+
+  gap: number
+
+  paddingTop: number
+  paddingRight: number
+  paddingBottom: number
+  paddingLeft: number
+
+  alignItems:
+    | "START"
+    | "CENTER"
+    | "END"
+    | "STRETCH"
+
+  justifyContent:
+    | "START"
+    | "CENTER"
+    | "END"
+    | "SPACE_BETWEEN"
+
+  wrap: boolean
+
+  widthMode: "FIXED" | "HUG" | "FILL"
+  heightMode: "FIXED" | "HUG" | "FILL"
+}
+```
+
+Example:
 
 ```text
-x ✅
-y ✅
-zIndex ✅
-
-position:
-    flow ✅
-    absolute ✅
-    fixed ✅
-    sticky ✅
-
-anchor:
-    top ✅
-    right ✅
-    bottom ✅
-    left ✅
-    center ✅
+┌─────────────────────────────┐
+│  padding                     │
+│  ┌─────┐   ┌─────┐   ┌─────┐│
+│  │ A   │   │ B   │   │ C   ││
+│  └─────┘   └─────┘   └─────┘│
+│       ← gap →                │
+└─────────────────────────────┘
 ```
 
-### Padding
+Then your editor can provide:
+
+**Auto Layout**
+
+- Horizontal
+- Vertical
+- Gap
+- Padding
+- Alignment
+- Distribution
+- Wrap
+- Absolute positioning
+
+---
+
+# 5. Absolute positioning
+
+You absolutely need this.
+
+Inside an Auto Layout frame, a child should be able to say:
+
+```ts
+position: "ABSOLUTE"
+```
+
+Then:
+
+```ts
+x: 20
+y: 30
+```
+
+instead of participating in the flex layout.
+
+This enables things like:
 
 ```text
-padding ✅
-paddingTop ✅
-paddingRight ✅
-paddingBottom ✅
-paddingLeft ✅
+┌──────────────────────────┐
+│                     🔔   │
+│                          │
+│       CONTENT            │
+│                          │
+│                 [BUTTON] │
+└──────────────────────────┘
 ```
 
-### Margin
+The notification icon can be absolute while the rest uses Auto Layout.
+
+---
+
+# 6. Constraints
+
+For responsive resizing, build constraints separately from Auto Layout.
+
+For example:
+
+```ts
+type Constraints = {
+  horizontal:
+    | "LEFT"
+    | "RIGHT"
+    | "LEFT_RIGHT"
+    | "CENTER"
+    | "SCALE"
+
+  vertical:
+    | "TOP"
+    | "BOTTOM"
+    | "TOP_BOTTOM"
+    | "CENTER"
+    | "SCALE"
+}
+```
+
+Example:
 
 ```text
-margin ✅
-marginTop ✅
-marginRight ✅
-marginBottom ✅
-marginLeft ✅
+Parent
+┌───────────────────────────────┐
+│                               │
+│          ┌─────────┐          │
+│          │ Button  │          │
+│          └─────────┘          │
+│                               │
+└───────────────────────────────┘
 ```
 
-### Layout
+Constraint:
 
 ```text
-layout:
-    none ✅
-    horizontal ✅
-    vertical ✅
-    grid ✅
-    wrap ✅
-    stack ✅
+horizontal = CENTER
+vertical   = CENTER
 ```
 
-### Flex-like properties
+Resize parent:
 
 ```text
-grow ✅
-shrink ✅
-basis ✅
+Before                 After
 
-gap ✅
-rowGap ✅
-columnGap ✅
-
-align ✅
-justify ✅
-
-wrap ✅
+┌────────────┐         ┌────────────────────┐
+│            │         │                    │
+│   Button   │   →     │       Button       │
+│            │         │                    │
+└────────────┘         └────────────────────┘
 ```
 
-### Alignment
+---
+
+# 7. Component list
+
+I'd build these in phases.
+
+### Basic shapes
+
+| Component | Important properties |
+|---|---|
+| Frame | layout, padding, sizing, constraints |
+| Rectangle | radius, fill, stroke |
+| Ellipse | fill, stroke |
+| Line | stroke, endpoints |
+| Polygon | sides, radius |
+| Star | points, inner radius |
+| Vector | paths |
+| Boolean | union/intersect/subtract/exclude |
+
+### Content
+
+| Component | Important properties |
+|---|---|
+| Text | font, size, weight, line-height, letter-spacing |
+| Image | fit, crop, position |
+| Video | fit, controls |
+| SVG | source, fill/stroke |
+
+### Structural
+
+| Component | Important properties |
+|---|---|
+| Group | children |
+| Frame | children + layout |
+| Section | children |
+| Component | master definition |
+| Instance | component reference |
+| Slot | replaceable content |
+
+---
+
+# 8. Text is a major subsystem
+
+Don't treat text as a simple rectangle.
+
+You'll eventually need:
+
+```ts
+type TextProperties = {
+  content: string
+
+  fontFamily: string
+  fontSize: number
+  fontWeight: number
+
+  lineHeight: number | "AUTO"
+  letterSpacing: number
+
+  textAlign: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFY"
+
+  textCase: "ORIGINAL" | "UPPER" | "LOWER"
+
+  textDecoration:
+    | "NONE"
+    | "UNDERLINE"
+    | "STRIKETHROUGH"
+
+  sizing:
+    | "FIXED"
+    | "AUTO_WIDTH"
+    | "AUTO_HEIGHT"
+
+  maxLines?: number
+}
+```
+
+And importantly:
+
+### Text should affect parent sizing.
+
+Example:
 
 ```text
-left ✅
-center ✅
-right ✅
-
-top ✅
-center ✅
-bottom ✅
-
-start ✅
-end ✅
-stretch ✅
+Frame
+ └── Text
+       "Hello World"
 ```
 
-### Grid
+Change:
 
 ```text
-columns ✅
-rows ✅
-
-columnGap ✅
-rowGap ✅
-
-column ✅
-row ✅
-
-columnSpan ✅
-rowSpan ✅
+Hello World
 ```
 
-### Background
+to:
 
 ```text
-background ✅
-backgroundColor ✅
-gradient ✅
-image ✅
-opacity ✅
+Hello World, this is a much longer sentence.
 ```
+
+The parent should potentially resize automatically.
+
+That dependency is fundamental to a good layout engine.
+
+---
+
+# 9. Component system
+
+You need two different concepts:
+
+```text
+Component Definition
+        │
+        ├── Component
+        │
+        └── Instances
+              ├── Instance
+              ├── Instance
+              └── Instance
+```
+
+For example:
+
+```text
+Button Component
+
+┌───────────────────┐
+│      Continue     │
+└───────────────────┘
+```
+
+Instances:
+
+```text
+Login screen
+   ↓
+Button Instance
+
+Checkout screen
+   ↓
+Button Instance
+
+Settings screen
+   ↓
+Button Instance
+```
+
+Changing the master component updates instances.
+
+---
+
+# 10. Variants
+
+You'll want:
+
+```text
+Button
+├── Variant: Primary
+├── Variant: Secondary
+├── Variant: Danger
+└── Variant: Disabled
+```
+
+Model:
+
+```ts
+type VariantProperty = {
+  name: string
+  value: string
+}
+```
+
+Instance:
+
+```ts
+variantProperties: {
+  Type: "Primary",
+  Size: "Large",
+  State: "Hover"
+}
+```
+
+---
+
+# 11. Design variables
+
+This is another major subsystem.
 
 Support:
 
 ```text
-solid ✅
-linearGradient ✅
-radialGradient ✅
-conicGradient ✅
-image ✅
+Color
+Number
+String
+Boolean
+Font
 ```
 
-### Border
+Example:
+
+```ts
+variables = {
+  colorPrimary: "#635BFF",
+  spacingSmall: 8,
+  spacingMedium: 16,
+  spacingLarge: 24,
+  radiusMedium: 8
+}
+```
+
+Then a component doesn't store:
 
 ```text
-borderWidth ✅
-borderColor ✅
-borderStyle ✅
-
-borderTop ✅
-borderRight ✅
-borderBottom ✅
-borderLeft ✅
+padding = 16
 ```
 
-### Corner radius
+It stores:
 
 ```text
-radius ✅
-radiusTopLeft ✅
-radiusTopRight ✅
-radiusBottomRight ✅
-radiusBottomLeft ✅
+padding = $spacingMedium
 ```
 
-### Shadow
+Change the variable → everything updates.
+
+---
+
+# 12. Styles
+
+Create reusable:
+
+### Paint styles
 
 ```text
-shadow ✅
-shadowColor ✅
-shadowX ✅
-shadowY ✅
-shadowBlur ✅
-shadowSpread ✅
+Primary / 500
+Gray / 900
+Danger / 500
 ```
 
-Allow multiple shadows:
-
-```xml
-<shadow .../>
-<shadow .../>
-```
-
-### Clipping
+### Text styles
 
 ```text
-overflow:
-    visible ✅
-    hidden ✅
-    scroll ✅
-    auto ✅
-
-clip ✅
-clipRadius ✅
-clipPath ✅
+Heading / H1
+Heading / H2
+Body / Large
+Body / Medium
+Caption
 ```
 
-### Transform
+### Effect styles
 
 ```text
-translateX ✅
-translateY ✅
-
-scale ✅
-scaleX ✅
-scaleY ✅
-
-rotation ✅
-rotationX ✅
-rotationY ✅
-rotationZ ✅
-
-skewX ✅
-skewY ✅
-
-transformOrigin ✅
+Shadow / Small
+Shadow / Medium
+Shadow / Large
 ```
 
-### Opacity / visibility
+### Grid styles
 
 ```text
-opacity ✅
-
-visible ✅
-hidden ✅
-
-display:
-    normal ✅
-    none ✅
+Desktop Grid
+Tablet Grid
+Mobile Grid
 ```
 
-### Blending
+---
+
+# 13. Responsive breakpoints
+
+For a truly responsive system, I'd add:
+
+```ts
+type Breakpoint = {
+  id: string
+  minWidth?: number
+  maxWidth?: number
+
+  overrides: {
+    [nodeId: string]: Partial<Node>
+  }
+}
+```
+
+Example:
 
 ```text
-blendMode ✅
+Desktop
+> 1024
+
+Tablet
+768–1023
+
+Mobile
+< 768
+```
+
+Then:
+
+```text
+Desktop
+┌─────────────────────────────┐
+│ Logo     Nav Nav Nav Button │
+└─────────────────────────────┘
+
+Mobile
+┌───────────────────┐
+│ Logo          ☰   │
+└───────────────────┘
+```
+
+But **don't rely entirely on breakpoints**.
+
+A good system should primarily use:
+
+**Auto Layout + Fill + Hug + Min/Max + Constraints**
+
+and use breakpoints for intentional design changes.
+
+---
+
+# 14. Your Inspector panel
+
+Once the engine works, your right sidebar can expose:
+
+```text
+DESIGN
+
+Position
+X        120
+Y         80
+
+Size
+W        320
+H        200
+
+Sizing
+Width    [Fixed ▼]
+Height   [Hug ▼]
+
+Layout
+Direction     [Horizontal]
+Gap           16
+Padding       16 16 16 16
+
+Alignment
+[←] [↔] [→]
+
+Constraints
+Horizontal   [Left ▼]
+Vertical     [Top ▼]
+
+Appearance
+Opacity      100%
+Radius       8
+
+Fill
+████████
+
+Stroke
+████████
+
+Effects
+Shadow
+```
+
+---
+
+# 15. Layers panel
+
+Your layer tree should correspond directly to your document tree.
+
+```text
+Page
+│
+├── Header
+│   ├── Logo
+│   ├── Navigation
+│   └── Button
+│
+├── Hero
+│   ├── Heading
+│   ├── Description
+│   └── CTA
+│
+└── Footer
+```
+
+Don't create a separate "layer model."
+
+Your **document tree IS the layer tree**.
+
+---
+
+# 16. The canvas
+
+Your canvas needs:
+
+```text
+Infinite Canvas
+      ↓
+Viewport
+      ↓
+World coordinates
+      ↓
+Nodes
+```
+
+Support:
+
+- Pan
+- Zoom
+- Multi-select
+- Box selection
+- Resize handles
+- Rotation
+- Snap
+- Guides
+- Rulers
+- Alignment
+- Distribution
+- Copy/paste
+- Duplicate
+- Group/ungroup
+- Lock/hide
+- Keyboard shortcuts
+
+---
+
+# 17. Snapping system
+
+Build this separately.
+
+Possible snap targets:
+
+```text
+Node edges
+Node centers
+Parent edges
+Parent center
+Grid
+Guides
+Other nodes
+Spacing
+```
+
+Example:
+
+```text
+┌───────────────┐
+│               │
+│       │       │
+│       │       │
+└───────┼───────┘
+        ↑
+      center
+```
+
+---
+
+# 18. Undo/redo
+
+Don't implement undo by taking screenshots of the entire document.
+
+Use commands/operations.
+
+```ts
+type Command = {
+  execute(): void
+  undo(): void
+}
 ```
 
 Examples:
 
 ```text
-normal ✅
-multiply ✅
-screen ✅
-overlay ✅
-darken ✅
-lighten ✅
-```
-
-### Effects
-
-```text
-blur ✅
-backdropBlur ✅
-brightness ✅
-contrast ✅
-saturation ✅
-grayscale ✅
-hueRotate ✅
-```
-
-### Cursor
-
-```text
-cursor:
-    default ✅
-    pointer ✅
-    text ✅
-    grab ✅
-    grabbing ✅
-    resize ✅
-    crosshair ✅
-    notAllowed ✅
-```
-
----
-
-# 3. `Text`
-
-Your complete text primitive should support:
-
-```text
-text ✅
-```
-
-### Typography
-
-```text
-fontFamily ✅
-fontSize ✅
-fontWeight ✅
-fontStyle ✅
-
-letterSpacing ✅
-wordSpacing ✅
-lineHeight ✅
-
-textColor ✅
-```
-
-### Alignment
-
-```text
-textAlign:
-    left ✅
-    center ✅
-    right ✅
-    justify ✅
-
-verticalAlign:
-    top ✅
-    center ✅
-    bottom ✅
-```
-
-### Wrapping
-
-```text
-wrap ✅
-maxLines ✅
-ellipsis ✅
-overflow ✅
-```
-
-### Decoration
-
-```text
-underline ✅
-lineThrough ✅
-overline ✅
-
-decorationColor ✅
-decorationWidth ✅
-decorationStyle ✅
-```
-
-### Text transform
-
-```text
-none ✅
-uppercase ✅
-lowercase ✅
-capitalize ✅
-```
-
-### Advanced
-
-```text
-fontFeatures ✅
-language ✅
-direction ✅
-writingMode ✅
-```
-
-Support:
-
-- Unicode ✅
-- emoji ✅
-- RTL ✅
-- Arabic ✅
-- complex scripts ✅
-- fallback fonts ✅
-- text shaping ✅
-
----
-
-# 4. `Image`
-
-```xml
-<image source="@assets/photo.png"/>
-```
-
-Properties:
-
-```text
-source ✅
-width ✅
-height ✅
-
-fit:
-    fill ✅
-    contain ✅
-    cover ✅
-    none ✅
-    scaleDown ✅
-
-position ✅
-opacity ✅
-
-radius ✅
-clip ✅
-
-tint ✅
-brightness ✅
-contrast ✅
-saturation ✅
-
-flipX ✅
-flipY ✅
-rotation ✅
-```
-
-Support:
-
-```text
-PNG ✅
-JPEG ✅
-WebP ✅
-AVIF
-SVG ✅
-animated images ✅
-```
-
----
-
-# 5. `Vector`
-
-This is your arbitrary vector shape primitive.
-
-```xml
-<vector>
-    ...
-</vector>
-```
-
-Properties:
-
-```text
-fill ✅
-stroke ✅
-strokeWidth ✅
-strokeOpacity ✅
-
-lineCap ✅
-lineJoin ✅
-
-opacity ✅
-
-fillRule ✅
-
-transform ✅
-```
-
-Support paths:
-
-```text
-M ✅
-L ✅
-H ✅
-V ✅
-C ✅
-S ✅
-Q ✅
-T ✅
-A ✅
-Z ✅
-```
-
-This allows arbitrary icons, logos and shapes.
-
----
-
-# 6. `Path`
-
-You can optionally make `Path` a lower-level primitive than `Vector`.
-
-```xml
-<path
-    d="M10 10 L100 10 L50 80 Z"/>
-```
-
-Properties:
-
-```text
-d ✅
-fill ✅
-stroke ✅
-strokeWidth ✅
-lineCap ✅
-lineJoin ✅
-dash ✅
-dashOffset ✅
-```
-
----
-
-# 7. `Line`
-
-```xml
-<line
-    x1="0"
-    y1="0"
-    x2="100"
-    y2="0"/>
-```
-
-Properties:
-
-```text
-stroke ✅
-strokeWidth ✅
-opacity ✅
-lineCap ✅
-dash ✅
-dashGap ✅
-```
-
----
-
-# 8. `Group`
-
-A group simply organizes objects.
-
-```xml
-<group>
-    <text/>
-    <image/>
-    <vector/>
-</group>
-```
-
-Properties:
-
-```text
-id ✅
-name ✅
-opacity ✅
-transform ✅
-rotation ✅
-scale ✅
-visibility ✅
-```
-
-A group should **not impose layout**.
-
-That's the difference between:
-
-```text
-Group → organization
-Frame → layout/container
-```
-
----
-
-# 9. `Component`
-
-This is the reusable definition.
-
-```xml
-<component name="Button">
-    ...
-</component>
-```
-
-Supports:
-
-```text
-properties ✅
-events ✅
-slots ✅
-states ✅
-animations ✅
-styles ✅
-variants ✅
-bindings ✅
-```
-
-Example:
-
-```xml
-<component name="Button">
-
-    <property name="label" type="string"/>
-    <property name="variant" type="ButtonVariant"/>
-
-    <frame>
-        <slot name="icon"/>
-        <text value="{label}"/>
-    </frame>
-
-</component>
-```
-
----
-
-# 10. `Instance`
-
-Instance of a component:
-
-```xml
-<instance component="Button"/>
-```
-
-Allow overrides:
-
-```text
-properties ✅
-styles ✅
-content ✅
-slots ✅
-states ✅
-```
-
-Example:
-
-```xml
-<instance component="Button"
-          label="Save"
-          variant="primary"/>
-```
-
-This is extremely important for your App Designer.
-
----
-
-# 11. `Slot`
-
-Allows arbitrary content injection.
-
-```xml
-<component name="Card">
-
-    <frame>
-        <slot name="header"/>
-        <slot name="content"/>
-        <slot name="footer"/>
-    </frame>
-
-</component>
+CreateNodeCommand
+DeleteNodeCommand
+MoveNodeCommand
+ResizeNodeCommand
+SetPropertyCommand
+GroupNodesCommand
 ```
 
 Then:
 
-```xml
-<Card>
+```text
+Undo stack
 
-    <slot name="header">
-        <Text value="Profile"/>
-    </slot>
-
-    <slot name="content">
-        ...
-    </slot>
-
-</Card>
+[ Move ]
+[ Resize ]
+[ Change Fill ]
+[ Create ]
 ```
 
-This gives you enormous composability.
+This becomes extremely important later for collaboration.
 
 ---
 
-# 12. `Scroll`
+# 19. Copy/paste format
 
-You can either make scrolling a Frame property or have a dedicated primitive.
+Your internal document could look approximately like:
 
-I'd support:
+```json
+{
+  "version": 1,
+  "pages": [
+    {
+      "id": "page_1",
+      "name": "Home",
+      "children": ["frame_1"]
+    }
+  ],
+  "nodes": {
+    "frame_1": {
+      "type": "FRAME",
+      "name": "Hero",
+      "children": ["text_1", "button_1"],
 
-```text
-scrollX ✅
-scrollY ✅
-scrollBoth ✅
+      "layout": {
+        "mode": "VERTICAL",
+        "gap": 16,
+        "padding": 32
+      },
+
+      "width": {
+        "mode": "FILL"
+      },
+
+      "height": {
+        "mode": "HUG"
+      }
+    }
+  }
+}
 ```
 
-Properties:
-
-```text
-direction ✅
-offset ✅
-contentWidth ✅
-contentHeight ✅
-
-scrollbar ✅
-scrollbarVisibility ✅
-
-overscroll ✅
-scrollPhysics ✅
-
-smoothScrolling ✅
-```
+This gives you a very powerful foundation.
 
 ---
 
-# 13. Layout/constraints
+# 20. Most important: build the layout engine first
 
-This is arguably more important than the primitives themselves.
+I'd implement the project in this order:
 
-Support:
-
-### Auto layout
+### Phase 1 — Document engine
 
 ```text
-direction ✅
-gap ✅
-padding ✅
-alignment ✅
-distribution ✅
-wrap ✅
+Node
+Tree
+Pages
+Serialization
+Selection
+CRUD
 ```
 
-### Constraints
+### Phase 2 — Basic renderer
 
 ```text
-left ✅
-right ✅
-top ✅
-bottom ✅
-centerX ✅
-centerY ✅
-
-minWidth ✅
-maxWidth ✅
-minHeight ✅
-maxHeight ✅
-
-aspectRatio ✅
+Frame
+Rectangle
+Ellipse
+Text
+Image
 ```
 
-### Anchoring
-
-```xml
-<frame
-    left="parent.left"
-    right="parent.right"
-    top="parent.top"/>
-```
-
-### Responsive
+### Phase 3 — Geometry
 
 ```text
-breakpoints ✅
-container queries ✅
-orientation ✅
-screen size ✅
-aspect ratio ✅
+x/y
+width/height
+rotation
+scale
+bounding boxes
+transforms
 ```
 
----
-
-# 14. Styles
-
-Don't put every visual property directly on every element.
-
-Create a style system.
-
-```xml
-<style name="button">
-    <background color="$primary"/>
-    <radius value="8"/>
-    <padding horizontal="16" vertical="10"/>
-</style>
-```
-
-Then:
-
-```xml
-<frame style="button"/>
-```
-
-Styles should support:
+### Phase 4 — Layout engine ⭐
 
 ```text
-inheritance ✅
-variables ✅
-tokens ✅
-states ✅
-variants ✅
-responsive overrides ✅
-animations ✅
+Fixed
+Hug
+Fill
+Min/max
+Padding
+Gap
+Horizontal
+Vertical
+Alignment
+Absolute positioning
 ```
 
----
-
-# 15. Design tokens
-
-Your framework should have:
+### Phase 5 — Constraints
 
 ```text
-colors ✅
-spacing ✅
-typography ✅
-radii ✅
-shadows ✅
-sizes ✅
-durations ✅
-easing ✅
-breakpoints ✅
+Left
+Right
+Center
+Scale
+Top
+Bottom
 ```
 
-Example:
+### Phase 6 — Editor interactions
 
-```xml
-<tokens>
-
-    <color name="primary" value="#2563EB"/>
-    <color name="surface" value="#FFFFFF"/>
-
-    <spacing name="sm" value="8"/>
-    <spacing name="md" value="16"/>
-
-    <radius name="md" value="8"/>
-
-</tokens>
+```text
+Drag
+Resize
+Rotate
+Snap
+Guides
+Multi-select
 ```
 
-Then:
+### Phase 7 — Components
 
-```xml
-background="$primary"
-padding="$spacing.md"
-radius="$radius.md"
+```text
+Component
+Instance
+Variants
+Overrides
+Slots
+```
+
+### Phase 8 — Design system
+
+```text
+Variables
+Styles
+Tokens
+Libraries
+```
+
+### Phase 9 — Responsive system
+
+```text
+Breakpoints
+Overrides
+Responsive preview
+Device presets
+```
+
+### Phase 10 — Collaboration
+
+```text
+Undo/redo
+History
+Multiplayer
+Presence
+Comments
+Versioning
 ```
 
 ---
 
-# 16. States
+# 21. The critical part: don't build your own CSS engine blindly
 
-Every interactive component should support standardized states:
+For your layout engine, I'd seriously consider using **Yoga** as the underlying Flexbox calculation engine, or implementing a compatible layout abstraction around it.
+
+Your architecture could be:
 
 ```text
-normal ✅
-hover ✅
-pressed ✅
-focused ✅
-focusVisible ✅
-disabled ✅
-selected ✅
-checked ✅
-expanded ✅
-collapsed ✅
-loading ✅
-error ✅
-success ✅
-dragging ✅
-dragOver ✅
-readonly ✅
+Your Design Model
+        ↓
+Layout Adapter
+        ↓
+Yoga / Flexbox calculation
+        ↓
+Computed Layout
+        ↓
+Renderer
 ```
 
-Example:
+The important distinction is:
 
-```xml
-<style name="button">
-
-    <state name="normal">
-        ...
-    </state>
-
-    <state name="hover">
-        ...
-    </state>
-
-    <state name="pressed">
-        ...
-    </state>
-
-    <state name="disabled">
-        ...
-    </state>
-
-</style>
+```text
+DESIGN VALUES
+     ↓
+Layout Engine
+     ↓
+COMPUTED VALUES
 ```
-
----
-
-# 17. Animation system
-
-For animations, **don't create an animation system for every component**.
-
-Create one universal animation engine that can animate any animatable property.
 
 For example:
 
-```xml
-<animate
-    target="button"
-    property="scale"
-    from="1"
-    to="1.05"
-    duration="150ms"
-    easing="easeOut"/>
-```
-
-## Properties that should be animatable
-
 ```text
-x ✅
-y ✅
-width ✅
-height ✅
+Design:
 
-opacity ✅
+width = FILL
+padding = 24
+gap = 16
 
-scale ✅
-scaleX ✅
-scaleY ✅
 
-rotation ✅
-rotationX ✅
-rotationY ✅
+Computed at 1440px:
 
-backgroundColor ✅
-color ✅
-borderColor ✅
+width = 1392px
 
-radius ✅
 
-shadow ✅
-blur ✅
+Resize canvas to 800px:
 
-transform ✅
+width = 752px
+
+
+Resize to 390px:
+
+width = 342px
 ```
 
-Eventually:
-
-```text
-path ✅
-gradient ✅
-clip ✅
-filter ✅
-```
+The designer shouldn't be storing all those computed values as permanent properties.
 
 ---
 
-# 18. Animation types
+# 22. Your first MVP
 
-Implement:
+Don't try to clone all of Figma initially.
 
-### Transition
-
-```text
-hover: ✅
-    scale 1 → 1.05 ✅
-```
-
-### Keyframes
-
-```xml
-<animation name="pulse">
-
-    <keyframe time="0%" opacity="1"/>
-    <keyframe time="50%" opacity="0.5"/>
-    <keyframe time="100%" opacity="1"/>
-
-</animation>
-```
-
-### Sequence
+Build this:
 
 ```text
-A → B → C ✅
+             FIGMA-LIKE MVP
+
+┌──────────────────────────────────────────┐
+│ Toolbar                                  │
+├────────────┬─────────────────┬───────────┤
+│            │                 │           │
+│  Layers    │     Canvas      │ Inspector │
+│            │                 │           │
+│  Frame     │                 │ Position  │
+│   ├ Text   │                 │ Size      │
+│   └ Button │                 │ Layout    │
+│            │                 │ Fill      │
+│            │                 │ Stroke    │
+└────────────┴─────────────────┴───────────┘
 ```
 
-### Parallel
+Only support:
 
 ```text
-opacity + scale + rotation ✅
+Frame
+Rectangle
+Text
+Image
+
++ Select
++ Move
++ Resize
+
++ Horizontal Auto Layout
++ Vertical Auto Layout
+
++ Fixed
++ Hug
++ Fill
+
++ Padding
++ Gap
+
++ Basic constraints
 ```
 
-### Stagger
-
-For lists:
-
-```text
-item 1 → 0ms ✅
-item 2 → 50ms ✅
-item 3 → 100ms ✅
-...
-```
-
-### Spring
-
-```text
-mass ✅
-stiffness ✅
-damping ✅
-velocity ✅
-```
-
-### Easing
-
-```text
-linear ✅
-easeIn ✅
-easeOut ✅
-easeInOut ✅
-
-cubicBezier ✅
-
-spring ✅
-```
+If **this** works beautifully, you have the foundation for the rest.
 
 ---
-
-# 19. Animation triggers
-
-Animations should be triggered by:
-
-```text
-onMount ✅
-onUnmount ✅
-onHover ✅
-onPress ✅
-onFocus ✅
-onStateChange ✅
-onPropertyChange ✅
-onScroll ✅
-onDrag ✅
-onLoad ✅
-onComplete ✅
-```
-
-Example:
-
-```xml
-<animation
-    trigger="hover"
-    property="scale"
-    from="1"
-    to="1.05"
-    duration="150ms"/>
-```
-
----
-
-# 20. Complete event system
-
-I would organize events into categories.
-
-### Pointer/mouse
-
-```text
-pointerDown ✅
-pointerUp ✅
-pointerMove ✅
-pointerEnter ✅
-pointerLeave ✅
-pointerOver ✅
-pointerOut ✅
-pointerCancel ✅
-click ✅
-doubleClick ✅
-contextMenu ✅
-```
-
-Use pointer events as the fundamental system rather than creating completely separate mouse/touch systems.
-
----
-
-### Touch
-
-```text
-touchStart ✅
-touchMove ✅
-touchEnd ✅
-touchCancel ✅
-```
-
-### Keyboard
-
-```text
-keyDown ✅
-keyUp ✅
-keyPress ✅
-```
-
-Properties/event data:
-
-```text
-key ✅
-code ✅
-modifiers ✅
-ctrl ✅
-shift ✅
-alt ✅
-meta ✅
-```
-
-### Focus
-
-```text
-focus ✅
-blur ✅
-focusIn ✅
-focusOut ✅
-```
-
-### Input
-
-```text
-input ✅
-change ✅
-beforeInput ✅
-compositionStart ✅
-compositionUpdate ✅
-compositionEnd ✅
-```
-
-### Form
-
-```text
-submit ✅
-reset ✅
-validate ✅
-invalid ✅
-```
-
-### Drag & Drop
-
-```text
-dragStart ✅
-drag ✅
-dragEnter ✅
-dragOver ✅
-dragLeave ✅
-drop ✅
-dragEnd ✅
-```
-
-### Scroll
-
-```text
-scroll ✅
-scrollStart ✅
-scrollEnd ✅
-```
-
-### Lifecycle
-
-```text
-create ✅
-mount ✅
-unmount ✅
-destroy ✅
-load ✅
-unload ✅
-```
-
-### Layout
-
-```text
-resize ✅
-layout ✅
-positionChange ✅
-sizeChange ✅
-```
-
-### Animation
-
-```text
-animationStart ✅
-animationUpdate ✅
-animationComplete ✅
-animationCancel ✅
-```
-
-### Component/state
-
-```text
-stateChange ✅
-propertyChange ✅
-variantChange ✅
-```
-
-### Selection
-
-```text
-select ✅
-deselect ✅
-selectionChange ✅
-```
-
-### Media
-
-```text
-loadStart ✅
-load ✅
-loadError ✅
-play ✅
-pause ✅
-ended ✅
-timeUpdate ✅
-```
-
-### Accessibility
-
-Your runtime should internally handle:
-
-```text
-focus navigation ✅
-screen reader actions ✅
-keyboard activation ✅
-accessibility state changes ✅
-```
-
----
-
-# 21. Events should be strongly typed
-
-Don't make events strings everywhere.
-
-Instead:
-
-```xml
-<Button onClick="save"/>
-```
-
-should compile to something conceptually like:
-
-```cpp
-button.onClick.connect(&App::save);
-```
-
-rather than:
-
-```cpp
-button.on("click", "save");
-```
-
-That keeps your performance goal.
-
----
-
-# 22. Actions
-
-Events tell you **what happened**.
-
-Actions tell you **what to do**.
-
-Your XML can support built-in actions:
-
-```text
-navigate ✅
-back ✅
-forward ✅
-
-open ✅
-close ✅
-toggle ✅
-
-show ✅
-hide ✅
-
-focus ✅
-blur ✅
-
-set ✅
-reset ✅
-
-animate ✅
-
-scrollTo ✅
-
-select ✅
-deselect ✅
-
-submit ✅
-
-copy ✅
-paste ✅
-
-download ✅
-
-openURL ✅
-
-showDialog ✅
-showToast ✅
-
-play ✅
-pause ✅
-stop ✅
-```
-
-Example:
-
-```xml
-<Button
-    onClick="
-        set(user.loggedIn, true);
-        navigate('/dashboard');
-    "/>
-```
-
-For complex logic:
-
-```xml
-<Button onClick="login"/>
-```
-
-and `login()` remains C++.
-
-That gives you the ideal division:
-
-```text
-XML → UI + simple interaction
-C++ → application/business logic
-```
-
----
-
-# 23. Data binding
-
-You also need this for functionality.
-
-```xml
-<Text value="{user.name}"/>
-
-<Input value="{user.email}"/>
-
-<Frame visible="{user.isLoggedIn}"/>
-```
-
-Support:
-
-```text
-oneWay ✅
-twoWay ✅
-oneTime ✅
-computed ✅
-reactive ✅
-async ✅
-```
-
-And changes should be incremental:
-
-```text
-user.name changes
-       ↓
-dependency graph
-       ↓
-Text invalidated
-       ↓
-Text updated
-```
-
-Not:
-
-```text
-user.name changes
-       ↓
-rebuild entire UI
-```
-
----
-
-# 24. What your final primitive model looks like
-
-I'd aim for:
-
-```text
-                 CORE UI
-                    │
-       ┌────────────┼────────────┐
-       │            │            │
-    Visual        Layout       Logic
-       │            │            │
-       ▼            ▼            ▼
-    Frame        Flex/Grid     Events
-    Text         Constraints   Actions
-    Image        Alignment     Binding
-    Vector       Responsive    State
-    Path
-    Line
-    Group
-       │
-       ▼
-   Composition
-       │
- Component
- Instance
- Slot
-```

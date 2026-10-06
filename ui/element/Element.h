@@ -77,6 +77,11 @@ public:
     Length Height() const;
     void SetWidth(Length value);
     void SetHeight(Length value);
+    void SetAutoSize(bool value);
+    bool AutoSize() const;
+    void SetHugFallback(Length width, Length height);
+    Length HugWidth() const;
+    Length HugHeight() const;
     Rect Bounds() const;
     Size Measured() const;
     int ZIndex() const;
@@ -151,6 +156,7 @@ public:
 
 protected:
     virtual void OnPaint(Renderer& renderer);
+    virtual bool PaintsOwnBorder() const { return false; }
     void PaintChildren(Renderer& renderer);
     void PaintChrome(Renderer& renderer);
     Element* HitTestChildren(Point point);
@@ -162,6 +168,9 @@ protected:
     std::string id;
     Length width = Length::Fit();
     Length height = Length::Fit();
+    bool autoSize = true;
+    Length hugWidth = Length::Fit();
+    Length hugHeight = Length::Fit();
     Length minWidth = Length::Fit();
     Length maxWidth = Length::Fit();
     Length minHeight = Length::Fit();

@@ -16,6 +16,7 @@ std::vector<PropertySpec> FrameProperties() {
         {"role", TypeKind::STRING},
         {"width", TypeKind::LENGTH},
         {"height", TypeKind::LENGTH},
+        {"auto", TypeKind::BOOL},
         {"minWidth", TypeKind::LENGTH},
         {"maxWidth", TypeKind::LENGTH},
         {"minHeight", TypeKind::LENGTH},
@@ -46,7 +47,9 @@ std::vector<PropertySpec> FrameProperties() {
         {"rowGap", TypeKind::LENGTH},
         {"columnGap", TypeKind::LENGTH},
         {"align", TypeKind::ALIGNMENT},
+        {"alignItems", TypeKind::STRING},
         {"justify", TypeKind::STRING},
+        {"justifyContent", TypeKind::STRING},
         {"wrap", TypeKind::STRING},
         {"columns", TypeKind::INT},
         {"rows", TypeKind::INT},
@@ -56,11 +59,14 @@ std::vector<PropertySpec> FrameProperties() {
         {"rowSpan", TypeKind::INT},
         {"background", TypeKind::COLOR},
         {"backgroundColor", TypeKind::COLOR},
+        {"fill", TypeKind::COLOR},
         {"gradient", TypeKind::STRING},
         {"image", TypeKind::STRING},
         {"opacity", TypeKind::FLOAT},
         {"borderWidth", TypeKind::LENGTH},
         {"borderColor", TypeKind::COLOR},
+        {"stroke", TypeKind::COLOR},
+        {"strokeWidth", TypeKind::LENGTH},
         {"borderStyle", TypeKind::STRING},
         {"borderTop", TypeKind::LENGTH},
         {"borderRight", TypeKind::LENGTH},
@@ -94,6 +100,7 @@ std::vector<PropertySpec> FrameProperties() {
         {"skewY", TypeKind::FLOAT},
         {"transformOrigin", TypeKind::STRING},
         {"visible", TypeKind::BOOL},
+        {"locked", TypeKind::BOOL},
         {"visibility", TypeKind::STRING},
         {"display", TypeKind::STRING},
         {"blendMode", TypeKind::STRING},
@@ -106,6 +113,8 @@ std::vector<PropertySpec> FrameProperties() {
         {"hueRotate", TypeKind::FLOAT},
         {"cursor", TypeKind::STRING},
         {"style", TypeKind::STRING},
+        {"horizontal", TypeKind::STRING},
+        {"vertical", TypeKind::STRING},
         {"left", TypeKind::STRING},
         {"right", TypeKind::STRING},
         {"top", TypeKind::STRING},
@@ -123,6 +132,15 @@ std::vector<PropertySpec> FrameProperties() {
     };
     const std::vector<PropertySpec> events = EventProperties();
     properties.insert(properties.end(), events.begin(), events.end());
+    return properties;
+}
+
+std::vector<PropertySpec> WindowProperties() {
+    std::vector<PropertySpec> properties = FrameProperties();
+    properties.insert(properties.begin() + 2, {"title", TypeKind::STRING});
+    properties.insert(properties.begin() + 3, {"mobile", TypeKind::BOOL});
+    properties.insert(properties.begin() + 4, {"tablet", TypeKind::BOOL});
+    properties.insert(properties.begin() + 5, {"desktop", TypeKind::BOOL});
     return properties;
 }
 
@@ -315,18 +333,11 @@ std::vector<PropertySpec> ShadowProperties() {
 
 const std::vector<ComponentSpec>& ComponentCatalog() {
     static const std::vector<ComponentSpec> catalog = {
-        {"window", NodeKind::WINDOW, true, {{"id", TypeKind::STRING}, {"title", TypeKind::STRING}, {"width", TypeKind::LENGTH}, {"height", TypeKind::LENGTH}, {"background", TypeKind::COLOR}}},
+        {"window", NodeKind::WINDOW, true, WindowProperties()},
+        {"board", NodeKind::BOARD, true, FrameProperties()},
         {"frame", NodeKind::FRAME, true, FrameProperties()},
         {"shadow", NodeKind::SHADOW, false, ShadowProperties()},
         {"text", NodeKind::TEXT, true, TypographyProperties()},
-        {"heading", NodeKind::TEXT, true, TypographyProperties()},
-        {"display", NodeKind::TEXT, true, TypographyProperties()},
-        {"subhead", NodeKind::TEXT, true, TypographyProperties()},
-        {"body", NodeKind::TEXT, true, TypographyProperties()},
-        {"content", NodeKind::TEXT, true, TypographyProperties()},
-        {"caption", NodeKind::TEXT, true, TypographyProperties()},
-        {"eyebrow", NodeKind::TEXT, true, TypographyProperties()},
-        {"label", NodeKind::TEXT, true, TypographyProperties()},
         {"image", NodeKind::IMAGE, false, ImageProperties()},
         {"vector", NodeKind::VECTOR, true, VectorProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},
@@ -349,20 +360,7 @@ const ComponentSpec* FindComponent(std::string_view name) {
     return nullptr;
 }
 
-const PropertySpec* FindInstanceProperty(std::string_view component, std::string_view property) {
-    if (component != "Button") {
-        return nullptr;
-    }
-    static const PropertySpec buttonProperties[] = {
-        {"variant", TypeKind::STRING}, {"size", TypeKind::STRING},     {"label", TypeKind::STRING},
-        {"disabled", TypeKind::BOOL},  {"loading", TypeKind::BOOL},    {"fullWidth", TypeKind::BOOL},
-        {"onClick", TypeKind::EVENT_HANDLER},
-    };
-    for (const PropertySpec& spec : buttonProperties) {
-        if (property == spec.name) {
-            return &spec;
-        }
-    }
+const PropertySpec* FindInstanceProperty(std::string_view, std::string_view) {
     return nullptr;
 }
 

@@ -10,7 +10,7 @@ namespace {
 
 void PrintUsage() {
     std::cout << "myui check <file>\n"
-              << "myui run <file>\n"
+              << "myui run <file> [mobile|tablet|desktop]\n"
               << "myui inspect <file>\n"
               << "myui new | build | format | test | package | profile\n";
 }
@@ -55,7 +55,22 @@ int main(int argc, char** argv) {
     }
     if (command == "run") {
         Runtime::Application application;
-        return application.Run(path, {}, {});
+        Runtime::RunOptions options;
+        if (argc >= 4) {
+            const std::string device = argv[3];
+            options.hasDevice = true;
+            if (device == "mobile") {
+                options.device = Runtime::DeviceClass::MOBILE;
+            } else if (device == "tablet") {
+                options.device = Runtime::DeviceClass::TABLET;
+            } else if (device == "desktop") {
+                options.device = Runtime::DeviceClass::DESKTOP;
+            } else {
+                PrintUsage();
+                return 2;
+            }
+        }
+        return application.Run(path, {}, options);
     }
     PrintUsage();
     return 2;

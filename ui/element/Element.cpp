@@ -55,7 +55,7 @@ void Element::PaintChrome(Renderer& renderer) {
     }
     const float thickness = patch.border ? patch.borderWidth : borderWidth;
     const Color stroke = patch.border ? patch.borderColor : borderColor;
-    if (thickness > 0.0f && bounds.width > 0.0f && bounds.height > 0.0f) {
+    if (!PaintsOwnBorder() && thickness > 0.0f && bounds.width > 0.0f && bounds.height > 0.0f) {
         renderer.StrokeRectangle(bounds, stroke, thickness, radius);
     }
 }
@@ -195,6 +195,27 @@ void Element::SetWidth(Length value) {
 
 void Element::SetHeight(Length value) {
     height = value;
+}
+
+void Element::SetAutoSize(bool value) {
+    autoSize = value;
+}
+
+bool Element::AutoSize() const {
+    return autoSize;
+}
+
+void Element::SetHugFallback(Length widthValue, Length heightValue) {
+    hugWidth = widthValue;
+    hugHeight = heightValue;
+}
+
+Length Element::HugWidth() const {
+    return hugWidth;
+}
+
+Length Element::HugHeight() const {
+    return hugHeight;
 }
 
 Rect Element::Bounds() const {

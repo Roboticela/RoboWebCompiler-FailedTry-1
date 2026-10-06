@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
+#include <string>
 
 namespace Runtime {
 namespace {
@@ -317,15 +319,43 @@ void ShapeElement::OnPaint(Renderer& renderer) {
         return;
     }
     if (nodeKind == NodeKind::VECTOR && shapeName == "spinnerArc") {
-        const float radius = std::max(2.0f, std::min(area.width, area.height) * 0.5f - strokeWidth);
-        const float centerX = area.x + area.width * 0.5f;
-        const float centerY = area.y + area.height * 0.5f;
-        renderer.StrokeRectangle(Rect{centerX - radius, centerY - radius, radius * 2.0f, radius * 2.0f}, stroke, strokeWidth, radius);
-        const float angle = spin * 0.017453292f;
-        const float mark = std::max(3.0f, strokeWidth + 2.0f);
-        const float markX = centerX + std::cos(angle) * radius - mark * 0.5f;
-        const float markY = centerY + std::sin(angle) * radius - mark * 0.5f;
-        renderer.FillRectangle(Rect{markX, markY, mark, mark}, stroke, mark * 0.5f);
+        const float box = std::min(area.width, area.height);
+        if (box <= 1.0f) {
+            return;
+        }
+        const float viewStroke = std::clamp(strokeWidth * 32.0f / box, 0.75f, 14.0f);
+        const float radius = std::max(1.0f, 16.0f - viewStroke);
+        char buffer[160];
+        std::snprintf(buffer, sizeof(buffer),
+                      "M 16 %.3f A %.3f %.3f 0 1 1 16 %.3f A %.3f %.3f 0 1 1 16 %.3f Z",
+                      16.0f - radius, radius, radius, 16.0f + radius, radius, radius, 16.0f - radius);
+        const std::string trackPath = buffer;
+        const float start = spin * 0.01745329252f;
+        const float end = start + 0.28f * 6.28318530718f;
+        const float x0 = 16.0f + std::cos(start) * radius;
+        const float y0 = 16.0f + std::sin(start) * radius;
+        const float x1 = 16.0f + std::cos(end) * radius;
+        const float y1 = 16.0f + std::sin(end) * radius;
+        std::snprintf(buffer, sizeof(buffer), "M %.3f %.3f A %.3f %.3f 0 0 1 %.3f %.3f", x0, y0, radius, radius, x1, y1);
+        const std::string arcPath = buffer;
+        Color track = fillSpecified ? fill : stroke;
+        if (!fillSpecified) {
+            track.a *= 0.35f;
+        }
+        VectorPaint paint;
+        paint.bounds = area;
+        paint.viewWidth = 32.0f;
+        paint.viewHeight = 32.0f;
+        paint.strokeWidth = viewStroke;
+        paint.fillEnabled = false;
+        paint.data = trackPath;
+        paint.stroke = track;
+        paint.lineCap = 'b';
+        renderer.DrawVector(paint);
+        paint.data = arcPath;
+        paint.stroke = stroke;
+        paint.lineCap = 'r';
+        renderer.DrawVector(paint);
         return;
     }
     if (nodeKind == NodeKind::VECTOR) {

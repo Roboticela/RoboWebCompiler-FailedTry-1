@@ -1,5 +1,7 @@
 #pragma once
 
+#include "compiler/ir/UiIr.h"
+
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -27,6 +29,8 @@ using HandlerMap = std::unordered_map<std::string, ClickHandler>;
 
 struct RunOptions {
     bool selfTest = false;
+    bool hasDevice = false;
+    DeviceClass device = DeviceClass::DESKTOP;
 };
 
 class Application {

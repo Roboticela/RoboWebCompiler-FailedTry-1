@@ -183,10 +183,16 @@ Size Frame::Measure(TextMeasurer& measurer, float availableWidth, float availabl
     const float padX = padding.SpanX(outerWidth);
     const float padY = padding.SpanY(outerWidth);
     const float innerWidth = std::max(0.0f, outerWidth - padX);
-    const float innerLimit = std::max(0.0f, availableHeight - padY);
+    const Length heightLength = ModeLength(Height(), heightMode);
+    float innerLimit = std::max(0.0f, availableHeight - padY);
+    bool childHeightKnown = heightDefinite && heightMode != SizeMode::FIT && Height().unit != LengthUnit::FIT;
+    if (heightLength.unit == LengthUnit::PIXELS || heightMode == SizeMode::FIXED) {
+        innerLimit = std::max(0.0f, heightLength.Resolve(heightSpace, 0.0f) - padY);
+        childHeightKnown = true;
+    }
     const float columnSpace = GapOf(columnGap, gap, outerWidth);
     const float rowSpace = GapOf(rowGap, gap, outerWidth);
-    const bool childHeightDefinite = heightDefinite && heightMode != SizeMode::FIT && Height().unit != LengthUnit::FIT;
+    const bool childHeightDefinite = childHeightKnown;
 
     float flowWidth = 0.0f;
     float flowHeight = 0.0f;
@@ -199,13 +205,52 @@ Size Frame::Measure(TextMeasurer& measurer, float availableWidth, float availabl
                                 ? std::max(0.0f, (innerWidth - columnSpace * static_cast<float>(columnCount - 1)) / static_cast<float>(columnCount))
                                 : innerWidth;
 
+    std::vector<Element*> flowChildren;
     for (const std::unique_ptr<Element>& child : children) {
         if (!child->Visible() || LeavesFlow(*child) || (AsFrame(*child) != nullptr && AsFrame(*child)->Display() == FrameDisplay::NONE)) {
-            child->Measure(measurer, innerWidth, innerLimit, false);
+            child->Measure(measurer, innerWidth, innerLimit, childHeightKnown);
             continue;
         }
-        const float slot = layout == FrameLayout::GRID ? cellWidth * static_cast<float>(std::max(1, child->ColumnSpan())) : innerWidth;
-        const Size childSize = child->Measure(measurer, slot, innerLimit, childHeightDefinite && layout == FrameLayout::VERTICAL);
+        flowChildren.push_back(child.get());
+    }
+    const bool shareWidth = layout == FrameLayout::HORIZONTAL && !wrap;
+    const bool shareHeight = layout == FrameLayout::VERTICAL && childHeightKnown;
+    if (shareWidth || shareHeight) {
+        int fillCount = 0;
+        float fixedMain = 0.0f;
+        for (Element* child : flowChildren) {
+            const bool fills = shareWidth ? child->Width().unit == LengthUnit::FILL : child->Height().unit == LengthUnit::FILL;
+            if (fills) {
+                ++fillCount;
+                continue;
+            }
+            const Size size = child->Measure(measurer, innerWidth, innerLimit, childHeightDefinite);
+            fixedMain += shareWidth ? size.width : size.height;
+        }
+        const float gapSpace = shareWidth ? columnSpace : rowSpace;
+        const float gaps = flowChildren.size() > 1 ? gapSpace * static_cast<float>(flowChildren.size() - 1) : 0.0f;
+        const float limit = shareWidth ? innerWidth : innerLimit;
+        const float free = std::max(0.0f, limit - fixedMain - gaps);
+        const float share = fillCount > 0 ? free / static_cast<float>(fillCount) : limit;
+        for (Element* child : flowChildren) {
+            const bool fills = shareWidth ? child->Width().unit == LengthUnit::FILL : child->Height().unit == LengthUnit::FILL;
+            if (!fills) {
+                continue;
+            }
+            if (shareWidth) {
+                child->Measure(measurer, share, innerLimit, childHeightDefinite);
+            } else {
+                child->Measure(measurer, innerWidth, share, true);
+            }
+        }
+    } else {
+        for (Element* child : flowChildren) {
+            const float slot = layout == FrameLayout::GRID ? cellWidth * static_cast<float>(std::max(1, child->ColumnSpan())) : innerWidth;
+            child->Measure(measurer, slot, innerLimit, childHeightDefinite);
+        }
+    }
+    for (Element* child : flowChildren) {
+        const Size childSize = child->Measured();
         if (layout == FrameLayout::HORIZONTAL || (layout == FrameLayout::WRAP && wrap) || layout == FrameLayout::WRAP) {
             const float next = lineWidth == 0.0f ? childSize.width : lineWidth + columnSpace + childSize.width;
             if ((layout == FrameLayout::WRAP || wrap) && lineWidth > 0.0f && next > innerWidth && innerWidth > 0.0f) {
@@ -258,13 +303,20 @@ Size Frame::Measure(TextMeasurer& measurer, float availableWidth, float availabl
         flowHeight -= rowSpace;
     }
 
-    const float fitWidth = flowWidth + padX;
+    float fitWidth = flowWidth + padX;
     float fitHeight = flowHeight + padY;
+    if (autoSize && flowCount == 0) {
+        if (widthLength.unit == LengthUnit::FIT && hugWidth.unit == LengthUnit::PIXELS) {
+            fitWidth = hugWidth.value;
+        }
+        if (Height().unit == LengthUnit::FIT && hugHeight.unit == LengthUnit::PIXELS) {
+            fitHeight = hugHeight.value;
+        }
+    }
     const float resolvedWidth = widthLength.unit == LengthUnit::FIT ? fitWidth : widthLength.Resolve(widthSpace, fitWidth);
     if (aspectRatio > 0.0f && (Height().unit == LengthUnit::FIT || heightMode == SizeMode::FIT)) {
         fitHeight = resolvedWidth / aspectRatio;
     }
-    const Length heightLength = ModeLength(Height(), heightMode);
     measured.width = widthLength.unit == LengthUnit::FIT ? fitWidth : widthLength.Resolve(widthSpace, fitWidth);
     measured.height = ResolveDefinite(heightLength, heightSpace, fitHeight, heightDefinite || heightMode == SizeMode::FILL || heightMode == SizeMode::PERCENT || heightMode == SizeMode::FIXED);
     contentHeight = fitHeight;
@@ -287,6 +339,7 @@ void Frame::Arrange(const Rect& rect) {
     const float padTop = padding.top.Resolve(bounds.width, 0.0f);
     const float padX = padding.SpanX(bounds.width);
     const float innerWidth = std::max(0.0f, bounds.width - padX);
+    const float innerHeight = std::max(0.0f, bounds.height - padding.SpanY(bounds.width));
     const float columnSpace = GapOf(columnGap, gap, bounds.width);
     const float rowSpace = GapOf(rowGap, gap, bounds.width);
     const float originX = bounds.x + padLeft;
@@ -322,7 +375,7 @@ void Frame::Arrange(const Rect& rect) {
     }
     const float free = std::max(0.0f, innerMain - contentMain);
 
-    if (layout == FrameLayout::HORIZONTAL || layout == FrameLayout::VERTICAL) {
+    if ((layout == FrameLayout::HORIZONTAL && !wrap) || layout == FrameLayout::VERTICAL) {
         for (Element* child : flow) {
             float childWidth = child->Measured().width;
             float childHeight = child->Measured().height;
@@ -336,7 +389,7 @@ void Frame::Arrange(const Rect& rect) {
             float cross = layout == FrameLayout::HORIZONTAL ? originY : originX;
             const float crossSize = layout == FrameLayout::HORIZONTAL ? childHeight : childWidth;
             const float crossLimit = layout == FrameLayout::HORIZONTAL ? std::max(0.0f, bounds.height - padding.SpanY(bounds.width)) : innerWidth;
-            if (align == Alignment::STRETCH) {
+            if (align == Alignment::STRETCH && !child->AutoSize()) {
                 if (layout == FrameLayout::HORIZONTAL && child->Height().unit == LengthUnit::FIT) {
                     childHeight = crossLimit;
                 } else if (layout == FrameLayout::VERTICAL && child->Width().unit == LengthUnit::FIT) {
@@ -410,7 +463,7 @@ void Frame::Arrange(const Rect& rect) {
         }
     } else {
         for (Element* child : flow) {
-            child->Arrange(Rect{originX + child->OffsetX().Resolve(bounds.width, 0.0f, true), originY + child->OffsetY().Resolve(bounds.width, 0.0f, true),
+            child->Arrange(Rect{originX + child->OffsetX().Resolve(innerWidth, 0.0f, true), originY + child->OffsetY().Resolve(innerHeight, 0.0f, true),
                                 child->Measured().width, child->Measured().height});
         }
     }
@@ -421,7 +474,7 @@ void Frame::Arrange(const Rect& rect) {
         }
         Frame* frame = AsFrame(*child);
         float x = originX + child->OffsetX().Resolve(bounds.width, 0.0f, true);
-        float y = originY + child->OffsetY().Resolve(bounds.width, 0.0f, true);
+        float y = originY + child->OffsetY().Resolve(innerHeight, 0.0f, true);
         const float childWidth = child->Measured().width;
         const float childHeight = child->Measured().height;
         if (frame != nullptr && frame->Anchor() == FrameAnchor::CENTER) {
@@ -466,6 +519,10 @@ void Frame::OnPaint(Renderer& renderer) {
     if (display == FrameDisplay::NONE) {
         return;
     }
+    const bool turned = std::fabs(rotationZ) > 0.01f;
+    if (turned) {
+        renderer.PushRotation(rotationZ, bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f);
+    }
     const float radius = std::max(std::max(cornerRadius[0], cornerRadius[1]), std::max(cornerRadius[2], cornerRadius[3]));
     if (hasBackground && bounds.width > 0.0f && bounds.height > 0.0f) {
         renderer.FillRectangle(bounds, backgroundColor, radius);
@@ -508,6 +565,9 @@ void Frame::OnPaint(Renderer& renderer) {
         const float y = track.y + (MaxScroll() <= 0.0f ? 0.0f : travel * (scrollY / MaxScroll()));
         renderer.FillRectangle(track, COLOR_BORDER_DEFAULT, 4.0f);
         renderer.FillRectangle(Rect{track.x, y, track.width, thumbHeight}, COLOR_TEXT_SECONDARY, 4.0f);
+    }
+    if (turned) {
+        renderer.PopTransform();
     }
 }
 

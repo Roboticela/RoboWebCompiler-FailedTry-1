@@ -6,6 +6,7 @@ namespace Runtime {
 namespace {
 
 constexpr wchar_t WINDOW_CLASS_NAME[] = L"RuntimeWindow";
+int openWindowCount = 0;
 
 }  // namespace
 
@@ -69,6 +70,7 @@ bool Win32Window::Create(const std::wstring& title, int dipWidth, int dipHeight)
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
     RefreshClientSize();
+    ++openWindowCount;
     return true;
 }
 
@@ -351,7 +353,12 @@ LRESULT Win32Window::Handle(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     case WM_DESTROY:
         hwnd = nullptr;
-        PostQuitMessage(0);
+        if (openWindowCount > 0) {
+            --openWindowCount;
+        }
+        if (openWindowCount == 0) {
+            PostQuitMessage(0);
+        }
         return 0;
     default:
         break;

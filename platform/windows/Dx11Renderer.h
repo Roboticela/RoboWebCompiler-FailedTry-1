@@ -43,6 +43,8 @@ public:
     void PopClip() override;
     void PushOpacity(float opacity) override;
     void PopOpacity() override;
+    void PushRotation(float degrees, float centerX, float centerY) override;
+    void PopTransform() override;
 
 private:
     bool CreateDevice();
@@ -68,6 +70,7 @@ private:
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<IDWriteTextFormat>> formats;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> imageCache;
     std::vector<float> opacityStack{1.0f};
+    std::vector<D2D1_MATRIX_3X2_F> transformStack;
     float dpi = 96.0f;
     int pixelWidth = 0;
     int pixelHeight = 0;

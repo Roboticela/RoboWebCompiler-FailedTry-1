@@ -69,6 +69,8 @@ public:
     virtual void PopClip() = 0;
     virtual void PushOpacity(float opacity) = 0;
     virtual void PopOpacity() = 0;
+    virtual void PushRotation(float degrees, float centerX, float centerY) = 0;
+    virtual void PopTransform() = 0;
 };
 
 }  // namespace Runtime

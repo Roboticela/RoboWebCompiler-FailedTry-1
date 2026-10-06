@@ -1,6 +1,9 @@
+#include "compiler/ir/UiIr.h"
 #include "compiler/semantic/UiCompiler.h"
 #include "compiler/types/ValueParser.h"
 #include "components/frame/Frame.h"
+#include "components/layout/BoardElement.h"
+#include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
 #include "components/text/TextElement.h"
 #include "designer/model/DesignDocument.h"
@@ -10,7 +13,6 @@
 #include "rendering/text/TextLayout.h"
 #include "rendering/text/TextMeasurer.h"
 #include "tests/TestHarness.h"
-#include "t/button/Button.h"
 #include "ui/element/Element.h"
 #include "ui/factory/UiFactory.h"
 #include "ui/input/PointerInput.h"
@@ -233,6 +235,83 @@ void TestFrameLayout(TestContext& test) {
         "<window width=\"200\" height=\"200\"><frame id=\"ratio\" width=\"100\" aspectRatio=\"2\"/></window>", 200.0f, 200.0f);
     CHECK(test, ratio != nullptr);
     CHECK(test, std::fabs(ratio->FindById("ratio")->Bounds().height - 50.0f) < 0.01f);
+    std::unique_ptr<Element> packed = Layout(
+        "<window width=\"200\" height=\"40\"><frame layout=\"horizontal\" justifyContent=\"spaceBetween\" width=\"200\" height=\"40\">"
+        "<frame id=\"a\" width=\"20\" height=\"20\"/><frame id=\"b\" width=\"20\" height=\"20\"/><frame id=\"c\" width=\"20\" height=\"20\"/>"
+        "</frame></window>",
+        200.0f, 40.0f);
+    CHECK(test, packed != nullptr);
+    CHECK(test, std::fabs(packed->FindById("a")->Bounds().x) < 0.01f);
+    CHECK(test, std::fabs(packed->FindById("b")->Bounds().x - 90.0f) < 0.01f);
+    CHECK(test, std::fabs(packed->FindById("c")->Bounds().x - 180.0f) < 0.01f);
+
+    std::unique_ptr<Element> ended = Layout(
+        "<window width=\"200\" height=\"80\"><frame layout=\"horizontal\" alignItems=\"end\" width=\"200\" height=\"80\">"
+        "<frame id=\"low\" width=\"40\" height=\"20\"/></frame></window>",
+        200.0f, 80.0f);
+    CHECK(test, ended != nullptr);
+    CHECK(test, std::fabs(ended->FindById("low")->Bounds().y - 60.0f) < 0.01f);
+
+    std::unique_ptr<Element> stretched = Layout(
+        "<window width=\"200\" height=\"80\"><frame width=\"200\" height=\"80\">"
+        "<frame id=\"bar\" position=\"absolute\" x=\"16\" y=\"20\" width=\"40\" height=\"20\" horizontal=\"leftRight\"/>"
+        "</frame></window>",
+        200.0f, 80.0f);
+    CHECK(test, stretched != nullptr);
+    CHECK(test, std::fabs(stretched->FindById("bar")->Bounds().x - 16.0f) < 0.01f);
+    CHECK(test, std::fabs(stretched->FindById("bar")->Bounds().width - 168.0f) < 0.01f);
+
+    std::unique_ptr<Element> wrapped = Layout(
+        "<window width=\"200\" height=\"120\"><frame id=\"row\" layout=\"horizontal\" wrap=\"true\" gap=\"8\" width=\"160\" height=\"96\" padding=\"8\">"
+        "<frame id=\"a\" width=\"40\" height=\"28\"/><frame id=\"b\" width=\"40\" height=\"28\"/><frame id=\"c\" width=\"40\" height=\"28\"/>"
+        "<frame id=\"d\" width=\"40\" height=\"28\"/><frame id=\"e\" width=\"40\" height=\"28\"/></frame></window>",
+        200.0f, 120.0f);
+    CHECK(test, wrapped != nullptr);
+    CHECK(test, std::fabs(wrapped->FindById("c")->Bounds().y - wrapped->FindById("a")->Bounds().y) < 0.01f);
+    CHECK(test, wrapped->FindById("d")->Bounds().y > wrapped->FindById("a")->Bounds().y);
+    CHECK(test, std::fabs(wrapped->FindById("d")->Bounds().x - wrapped->FindById("a")->Bounds().x) < 0.01f);
+    CHECK(test, wrapped->FindById("e")->Bounds().x > wrapped->FindById("d")->Bounds().x);
+
+    std::unique_ptr<Element> scaled = Layout(
+        "<window width=\"200\" height=\"200\"><frame width=\"120\" height=\"120\">"
+        "<frame id=\"bar\" position=\"absolute\" vertical=\"scale\" x=\"36\" y=\"20%\" width=\"48\" height=\"40%\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    CHECK(test, scaled != nullptr);
+    CHECK(test, std::fabs(scaled->FindById("bar")->Bounds().height - 48.0f) < 0.01f);
+    CHECK(test, std::fabs(scaled->FindById("bar")->Bounds().y - 24.0f) < 0.01f);
+
+    std::unique_ptr<Element> paddedFill = Layout(
+        "<window width=\"400\" height=\"200\">"
+        "<frame id=\"even\" layout=\"horizontal\" padding=\"8\" width=\"140\" height=\"72\">"
+        "<frame id=\"evenInner\" width=\"fill\" height=\"fill\"/></frame>"
+        "<frame id=\"uneven\" layout=\"horizontal\" paddingTop=\"24\" paddingRight=\"8\" paddingBottom=\"8\" paddingLeft=\"40\" width=\"180\" height=\"88\">"
+        "<frame id=\"unevenInner\" width=\"fill\" height=\"fill\"/></frame>"
+        "</window>",
+        400.0f, 200.0f);
+    CHECK(test, paddedFill != nullptr);
+    CHECK(test, std::fabs(paddedFill->FindById("evenInner")->Bounds().x - 8.0f) < 0.01f);
+    CHECK(test, std::fabs(paddedFill->FindById("evenInner")->Bounds().y - 8.0f) < 0.01f);
+    CHECK(test, std::fabs(paddedFill->FindById("evenInner")->Bounds().width - 124.0f) < 0.01f);
+    CHECK(test, std::fabs(paddedFill->FindById("evenInner")->Bounds().height - 56.0f) < 0.01f);
+    CHECK(test, std::fabs(paddedFill->FindById("unevenInner")->Bounds().x - (paddedFill->FindById("uneven")->Bounds().x + 40.0f)) < 0.01f);
+    CHECK(test, std::fabs(paddedFill->FindById("unevenInner")->Bounds().y - (paddedFill->FindById("uneven")->Bounds().y + 24.0f)) < 0.01f);
+    CHECK(test, std::fabs(paddedFill->FindById("unevenInner")->Bounds().width - 132.0f) < 0.01f);
+    CHECK(test, std::fabs(paddedFill->FindById("unevenInner")->Bounds().height - 56.0f) < 0.01f);
+
+    std::unique_ptr<Element> filled = Layout(
+        "<window width=\"800\" height=\"400\" layout=\"vertical\" padding=\"24\">"
+        "<frame id=\"card\" layout=\"vertical\" width=\"fill\" heightMode=\"hug\" padding=\"16\">"
+        "<frame id=\"row\" layout=\"horizontal\" width=\"fill\" gap=\"16\">"
+        "<frame id=\"a\" width=\"fill\" height=\"40\"/><frame id=\"b\" width=\"fill\" height=\"40\"/><frame id=\"c\" width=\"fill\" height=\"40\"/>"
+        "</frame></frame></window>",
+        800.0f, 400.0f);
+    CHECK(test, filled != nullptr);
+    CHECK(test, std::fabs(filled->FindById("card")->Bounds().width - 752.0f) < 0.01f);
+    CHECK(test, std::fabs(filled->FindById("row")->Bounds().width - 720.0f) < 0.01f);
+    CHECK(test, std::fabs(filled->FindById("a")->Bounds().width - 229.333f) < 0.5f);
+    CHECK(test, std::fabs(filled->FindById("b")->Bounds().x - (filled->FindById("a")->Bounds().x + filled->FindById("a")->Bounds().width + 16.0f)) < 0.5f);
+    CHECK(test, std::fabs(filled->FindById("c")->Bounds().width - filled->FindById("a")->Bounds().width) < 0.5f);
     Finish(test, "frame layout", before);
 }
 
@@ -283,11 +362,13 @@ void TestDesignDocumentEditsXml(TestContext& test) {
     DesignDocument document;
     CHECK(test, document.LoadText("<window width=\"800\" height=\"600\"><frame name=\"Hello\"/></window>", "memory.xml"));
     CHECK(test, document.TextSynced());
-    std::vector<int> path{0};
+    CHECK(test, document.Root() != nullptr && document.Root()->name == "screens");
+    std::vector<int> path{0, 0};
     CHECK(test, document.SetAttribute(path, "name", "Designed"));
     CHECK(test, document.Text().find("Designed") != std::string::npos);
+    CHECK(test, document.Text().find("<screens") == std::string::npos);
     std::vector<int> inserted;
-    CHECK(test, document.InsertChild({}, "frame", inserted));
+    CHECK(test, document.InsertChild({0}, "frame", inserted));
     CHECK(test, document.NodeAt(inserted) != nullptr);
     CHECK(test, document.NodeAt(inserted)->name == "frame");
     CHECK(test, document.DeleteNode(inserted));
@@ -688,117 +769,106 @@ bool NearColor(Color color, Color expected) {
            std::fabs(color.a - expected.a) < 0.02f;
 }
 
-void TestButton(TestContext& test) {
+void TestTypography(TestContext& test) {
     const int before = test.failed;
-    const std::filesystem::path path = std::filesystem::path(RUNTIME_SOURCE_DIR) / "tests" / "Button.test.xml";
-    const CompileResult compiled = CompileUiFile(path);
+    const CompileResult compiled = CompileUi(Source(
+        "<window>"
+        "<text id=\"wide\" text=\"Fill\" width=\"fill\"/>"
+        "<text id=\"screen\" text=\"Screen\" width=\"screen\"/>"
+        "<text id=\"note\" text=\"Meta\" fontFamily=\"Segoe UI\" fontSize=\"14\"/>"
+        "</window>"));
     CHECK(test, compiled.Ok());
-    if (!compiled.root.has_value()) {
-        Finish(test, "button", before);
-        return;
+    if (compiled.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*compiled.root, {});
+        root->SetViewport(1200.0f, 800.0f);
+        FakeMeasurer measurer;
+        root->Measure(measurer, 400.0f, 800.0f, true);
+        auto* wide = dynamic_cast<TextElement*>(root->FindById("wide"));
+        auto* screen = dynamic_cast<TextElement*>(root->FindById("screen"));
+        auto* note = dynamic_cast<TextElement*>(root->FindById("note"));
+        CHECK(test, wide != nullptr && std::fabs(wide->Measured().width - 400.0f) < 1.0f);
+        CHECK(test, screen != nullptr && std::fabs(screen->Measured().width - 1200.0f) < 1.0f);
+        CHECK(test, note != nullptr && note->FontFamily() == "Segoe UI" && std::fabs(note->FontSize() - 14.0f) < 0.1f);
     }
-    int clicks = 0;
-    std::unique_ptr<Element> root = Instantiate(*compiled.root, {{"handleClick", [&] { ++clicks; }}});
-    CHECK(test, root != nullptr);
-    if (root == nullptr) {
-        Finish(test, "button", before);
-        return;
-    }
-    FakeMeasurer measurer;
-    root->SetViewport(400.0f, 1400.0f);
-    root->Measure(measurer, 400.0f, 1400.0f, true);
-    root->Arrange(Rect{0.0f, 0.0f, 400.0f, 1400.0f});
+    Finish(test, "typography", before);
+}
 
-    const char* largeIds[] = {"primaryLarge", "secondaryLarge", "tertiaryLarge", "destructiveLarge", "destructiveSecondaryLarge", "linkLarge"};
-    const char* mediumIds[] = {"primaryMedium", "secondaryMedium", "tertiaryMedium", "destructiveMedium", "destructiveSecondaryMedium", "linkMedium"};
-    const char* smallIds[] = {"primarySmall", "secondarySmall", "tertiarySmall", "destructiveSmall", "destructiveSecondarySmall", "linkSmall"};
-    for (const char* id : largeIds) {
-        Element* button = root->FindById(id);
-        CHECK(test, button != nullptr && std::fabs(button->Measured().height - 50.0f) < 0.5f);
+void TestWindow(TestContext& test) {
+    const int before = test.failed;
+    const std::string source =
+        "<window id=\"one\" name=\"Window 1\" title=\"Window 1\" position=\"absolute\" x=\"0\" y=\"0\" width=\"800\" height=\"600\" background=\"#FFFFFF\"/>"
+        "<window id=\"two\" name=\"Window 2\" title=\"Window 2\" position=\"absolute\" x=\"880\" y=\"0\" width=\"400\" height=\"300\" background=\"#F5F5F7\"/>";
+    const ParseResult parsed = ParseXml(Source(source));
+    CHECK(test, parsed.root.has_value() && parsed.root->name == "screens" && parsed.root->children.size() == 2);
+    if (parsed.root.has_value()) {
+        const std::string serialized = SerializeXml(*parsed.root);
+        CHECK(test, serialized.find("<screens") == std::string::npos);
+        CHECK(test, serialized.find("<window") != std::string::npos && serialized.find("</window>") == std::string::npos);
     }
-    for (const char* id : mediumIds) {
-        Element* button = root->FindById(id);
-        CHECK(test, button != nullptr && std::fabs(button->Measured().height - 44.0f) < 0.5f);
+    const CompileResult nested = CompileUi(Source("<window><window id=\"inner\"/></window>"));
+    CHECK(test, !nested.Ok());
+    const CompileResult compiled = CompileUi(Source(source));
+    CHECK(test, compiled.Ok() && compiled.root.has_value() && compiled.root->name == "screens" && compiled.root->children.size() == 2);
+    if (compiled.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*compiled.root, {});
+        FakeMeasurer measurer;
+        root->SetViewport(800.0f, 600.0f);
+        root->Measure(measurer, 1600.0f, 600.0f, true);
+        root->Arrange(Rect{0.0f, 0.0f, 1600.0f, 600.0f});
+        auto* one = dynamic_cast<WindowElement*>(root->FindById("one"));
+        auto* two = dynamic_cast<WindowElement*>(root->FindById("two"));
+        CHECK(test, one != nullptr && one->Kind() == NodeKind::WINDOW && one->Title() == "Window 1");
+        CHECK(test, one != nullptr && std::fabs(one->Bounds().width - 800.0f) < 0.5f && std::fabs(one->Bounds().height - 600.0f) < 0.5f);
+        CHECK(test, two != nullptr && two->Title() == "Window 2" && std::fabs(two->Bounds().x - 880.0f) < 0.5f);
+        CHECK(test, two != nullptr && std::fabs(two->Bounds().width - 400.0f) < 0.5f && NearColor(two->BackgroundColor(), *ParseColor("#F5F5F7")));
     }
-    for (const char* id : smallIds) {
-        Element* button = root->FindById(id);
-        CHECK(test, button != nullptr && std::fabs(button->Measured().height - 32.0f) < 0.5f);
+    const CompileResult limited = CompileUi(Source(
+        "<window id=\"phone\" mobile=\"true\" tablet=\"false\" desktop=\"false\" width=\"390\" height=\"800\"/>"
+        "<window id=\"desk\" mobile=\"false\" tablet=\"false\" desktop=\"true\" width=\"1280\" height=\"800\"/>"));
+    CHECK(test, limited.Ok() && limited.root.has_value() && limited.root->children.size() == 2);
+    if (limited.root.has_value() && limited.root->children.size() == 2) {
+        const IrNode& phone = limited.root->children[0];
+        const IrNode& desk = limited.root->children[1];
+        CHECK(test, WindowLaunchesOn(phone, DeviceClass::MOBILE) && !WindowLaunchesOn(phone, DeviceClass::TABLET) &&
+                        !WindowLaunchesOn(phone, DeviceClass::DESKTOP));
+        CHECK(test, WindowLaunchesOn(desk, DeviceClass::DESKTOP) && !WindowLaunchesOn(desk, DeviceClass::MOBILE));
+        CHECK(test, compiled.root.has_value() && !compiled.root->children.empty() &&
+                        WindowLaunchesOn(compiled.root->children[0], DeviceClass::MOBILE));
     }
+    CHECK(test, DeviceClassForWidth(390.0f) == DeviceClass::MOBILE);
+    CHECK(test, DeviceClassForWidth(800.0f) == DeviceClass::TABLET);
+    CHECK(test, DeviceClassForWidth(1280.0f) == DeviceClass::DESKTOP);
+    Finish(test, "window", before);
+}
 
-    auto* primary = dynamic_cast<Button*>(root->FindById("primaryMedium"));
-    CHECK(test, primary != nullptr && primary->Variant() == ButtonVariant::PRIMARY && primary->Label() == "Primary");
-    if (primary != nullptr) {
-        auto* face = dynamic_cast<Frame*>(primary->FindById("root"));
-        CHECK(test, face != nullptr && NearColor(face->BackgroundColor(), *ParseColor("$color.primary")));
-        const Rect box = primary->Bounds();
-        PointerInput input;
-        input.OnMove(*root, Point{box.x + 4.0f, box.y + 4.0f});
-        CHECK(test, face != nullptr && NearColor(face->BackgroundColor(), *ParseColor("$color.primaryHover")));
-        input.OnDown(*root, Point{box.x + 4.0f, box.y + 4.0f});
-        CHECK(test, face != nullptr && NearColor(face->BackgroundColor(), *ParseColor("$color.primaryActive")));
-        input.OnUp(*root, Point{box.x + 4.0f, box.y + 4.0f});
+void TestBoard(TestContext& test) {
+    const int before = test.failed;
+    const CompileResult nested = CompileUi(Source("<window><board id=\"inside\"/></window>"));
+    CHECK(test, !nested.Ok());
+    const CompileResult compiled = CompileUi(Source(
+        "<window id=\"home\" width=\"800\" height=\"600\"/>"
+        "<board id=\"card\" name=\"Card\" width=\"320\" height=\"180\" background=\"#FFFFFF\">"
+        "<text id=\"label\" text=\"Hello\"/>"
+        "</board>"));
+    CHECK(test, compiled.Ok() && compiled.root.has_value() && compiled.root->name == "screens" && compiled.root->children.size() == 2);
+    if (compiled.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*compiled.root, {});
+        FakeMeasurer measurer;
+        root->Measure(measurer, 1600.0f, 600.0f, true);
+        root->Arrange(Rect{0.0f, 0.0f, 1600.0f, 600.0f});
+        auto* board = dynamic_cast<BoardElement*>(root->FindById("card"));
+        CHECK(test, board != nullptr && board->Kind() == NodeKind::BOARD);
+        CHECK(test, board != nullptr && std::fabs(board->Bounds().width - 320.0f) < 0.5f && board->FindById("label") != nullptr);
+        CHECK(test, root->FindById("home") != nullptr && root->FindById("home")->Kind() == NodeKind::WINDOW);
     }
-
-    auto* secondary = dynamic_cast<Button*>(root->FindById("secondaryMedium"));
-    if (secondary != nullptr) {
-        auto* face = dynamic_cast<Frame*>(secondary->FindById("root"));
-        CHECK(test, face != nullptr && face->BackgroundColor().a < 0.05f);
-    }
-
-    Element* live = root->FindById("live");
-    CHECK(test, live != nullptr);
-    if (live != nullptr) {
-        const Rect box = live->Bounds();
-        PointerInput input;
-        input.OnDown(*root, Point{box.x + 4.0f, box.y + 4.0f});
-        input.OnUp(*root, Point{box.x + 4.0f, box.y + 4.0f});
-        CHECK(test, clicks == 1);
-    }
-    Element* disabled = root->FindById("disabled");
-    Element* busy = root->FindById("busy");
-    if (disabled != nullptr) {
-        const Rect box = disabled->Bounds();
-        PointerInput input;
-        input.OnDown(*root, Point{box.x + 4.0f, box.y + 4.0f});
-        input.OnUp(*root, Point{box.x + 4.0f, box.y + 4.0f});
-    }
-    if (busy != nullptr) {
-        const Rect box = busy->Bounds();
-        PointerInput input;
-        input.OnDown(*root, Point{box.x + 4.0f, box.y + 4.0f});
-        input.OnUp(*root, Point{box.x + 4.0f, box.y + 4.0f});
-    }
-    CHECK(test, clicks == 1);
-
-    Element* wide = root->FindById("wide");
-    CHECK(test, wide != nullptr && std::fabs(wide->Measured().width - 400.0f) < 1.0f);
-    Element* icon = root->FindById("iconOnly");
-    CHECK(test, icon != nullptr && std::fabs(icon->Measured().width - 32.0f) < 0.5f && std::fabs(icon->Measured().height - 32.0f) < 0.5f);
-    DesignDocument componentFile;
-    const std::filesystem::path componentPath = std::filesystem::path(RUNTIME_SOURCE_DIR) / "t" / "button" / "Button.xml";
-    CHECK(test, componentFile.LoadFile(componentPath));
-    CHECK(test, componentFile.Text().find("<component") != std::string::npos);
-    const CompileResult previewCompiled = CompileUi(SourceFile{componentPath.string(), componentFile.PreviewText()});
-    CHECK(test, previewCompiled.Ok());
-    if (previewCompiled.root.has_value()) {
-        std::unique_ptr<Element> preview = Instantiate(*previewCompiled.root, {});
-        CHECK(test, preview != nullptr);
-        if (preview != nullptr) {
-            FakeMeasurer previewMeasurer;
-            preview->SetViewport(800.0f, 600.0f);
-            preview->Measure(previewMeasurer, 800.0f, 600.0f, true);
-            preview->Arrange(Rect{0.0f, 0.0f, 800.0f, 600.0f});
-            Element* face = preview->FindById("root");
-            CHECK(test, face != nullptr && std::fabs(face->Measured().height - 44.0f) < 0.5f);
-            auto* frame = dynamic_cast<Frame*>(face);
-            CHECK(test, frame != nullptr && NearColor(frame->BackgroundColor(), *ParseColor("$color.primary")));
-        }
-    }
-    Element* spinner = busy == nullptr ? nullptr : busy->FindById("spinner");
-    CHECK(test, spinner != nullptr && spinner->Visible());
-    Element* busyLabel = busy == nullptr ? nullptr : busy->FindById("label");
-    CHECK(test, busyLabel != nullptr && !busyLabel->Visible());
-    Finish(test, "button", before);
+    DesignDocument document;
+    CHECK(test, document.LoadText("<window id=\"home\"/><board id=\"card\"><text text=\"Hello\"/></board>", "memory.xml"));
+    CHECK(test, document.AddBoardContent({1}, {0}));
+    CHECK(test, document.NodeAt({0}) != nullptr && document.NodeAt({0})->children.size() == 1);
+    CHECK(test, document.NodeAt({0})->children[0].name == "text");
+    CHECK(test, document.NodeAt({1}) != nullptr && document.NodeAt({1})->name == "board" && document.NodeAt({1})->children.size() == 1);
+    CHECK(test, document.Text().find("<screens") == std::string::npos);
+    Finish(test, "board", before);
 }
 
 void TestIrDump(TestContext& test) {
@@ -861,49 +931,6 @@ void TestFoundations(TestContext& test) {
     Finish(test, "foundations", before);
 }
 
-void TestTypography(TestContext& test) {
-    const int before = test.failed;
-    const CompileResult compiled = CompileUi(Source(
-        "<window>"
-        "<heading id=\"title\" level=\"1\" text=\"Hello\"/>"
-        "<body id=\"copy\" text=\"Body\"/>"
-        "<eyebrow id=\"kicker\" text=\"Product\"/>"
-        "<text id=\"wide\" text=\"Fill\" width=\"fill\"/>"
-        "<text id=\"screen\" text=\"Screen\" width=\"screen\"/>"
-        "<caption id=\"note\" text=\"Meta\" fontFamily=\"Segoe UI\" fontSize=\"14\"/>"
-        "</window>"));
-    CHECK(test, compiled.Ok());
-    if (compiled.root.has_value()) {
-        std::unique_ptr<Element> root = Instantiate(*compiled.root, {});
-        root->SetViewport(1200.0f, 800.0f);
-        FakeMeasurer measurer;
-        root->Measure(measurer, 400.0f, 800.0f, true);
-        auto* title = dynamic_cast<TextElement*>(root->FindById("title"));
-        auto* copy = dynamic_cast<TextElement*>(root->FindById("copy"));
-        auto* kicker = dynamic_cast<TextElement*>(root->FindById("kicker"));
-        auto* wide = dynamic_cast<TextElement*>(root->FindById("wide"));
-        auto* screen = dynamic_cast<TextElement*>(root->FindById("screen"));
-        auto* note = dynamic_cast<TextElement*>(root->FindById("note"));
-        CHECK(test, title != nullptr && std::fabs(title->FontSize() - 56.0f) < 0.1f && title->FontWeight() == 600 && title->FontFamily() == "Inter");
-        CHECK(test, copy != nullptr && std::fabs(copy->FontSize() - 19.0f) < 0.1f && copy->FontWeight() == 400);
-        CHECK(test, kicker != nullptr && kicker->DisplayText() == "PRODUCT" && std::fabs(kicker->FontSize() - 12.0f) < 0.1f);
-        CHECK(test, wide != nullptr && std::fabs(wide->Measured().width - 400.0f) < 1.0f);
-        CHECK(test, screen != nullptr && std::fabs(screen->Measured().width - 1200.0f) < 1.0f);
-        CHECK(test, note != nullptr && note->FontFamily() == "Segoe UI" && std::fabs(note->FontSize() - 14.0f) < 0.1f);
-        root->SetViewport(390.0f, 700.0f);
-        root->Measure(measurer, 390.0f, 700.0f, true);
-        CHECK(test, title != nullptr && std::fabs(title->FontSize() - 32.0f) < 0.1f);
-    }
-    const CompileResult mobile = CompileUi(Source("<window><body id=\"dense\" size=\"sm\" text=\"Dense\"/></window>"));
-    CHECK(test, mobile.Ok() && mobile.root.has_value());
-    if (mobile.root.has_value()) {
-        std::unique_ptr<Element> root = Instantiate(*mobile.root, {});
-        auto* dense = dynamic_cast<TextElement*>(root->FindById("dense"));
-        CHECK(test, dense != nullptr && std::fabs(dense->FontSize() - 17.0f) < 0.1f);
-    }
-    Finish(test, "typography", before);
-}
-
 }  // namespace
 
 int RunUnitTests() {
@@ -919,8 +946,9 @@ int RunUnitTests() {
     TestCompilerSurface(test);
     TestFoundations(test);
     TestTypography(test);
+    TestWindow(test);
+    TestBoard(test);
     TestRemainingSurface(test);
-    TestButton(test);
     TestIrDump(test);
     if (test.failed == 0) {
         std::cout << "✓ All tests passed\n";

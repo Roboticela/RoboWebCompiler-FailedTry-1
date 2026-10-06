@@ -60,6 +60,12 @@ void WriteNode(std::string& output, const XmlNode& node, int depth) {
 
 std::string SerializeXml(const XmlNode& root) {
     std::string output;
+    if (root.name == "screens") {
+        for (const XmlNode& child : root.children) {
+            WriteNode(output, child, 0);
+        }
+        return output;
+    }
     WriteNode(output, root, 0);
     return output;
 }

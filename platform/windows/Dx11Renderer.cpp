@@ -228,6 +228,7 @@ void Dx11Renderer::BeginFrame(Color clearColor) {
         return;
     }
     d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    transformStack.clear();
     opacityStack.clear();
     opacityStack.push_back(1.0f);
     d2dContext->BeginDraw();
@@ -254,7 +255,8 @@ void Dx11Renderer::StrokeRectangle(const Rect& rect, const Color& color, float t
     const float inset = thickness * 0.5f;
     const D2D1_RECT_F box = D2D1::RectF(rect.x + inset, rect.y + inset, rect.x + rect.width - inset, rect.y + rect.height - inset);
     if (radius > 0.0f) {
-        const D2D1_ROUNDED_RECT rounded{box, radius, radius};
+        const float corner = std::max(0.0f, radius - inset);
+        const D2D1_ROUNDED_RECT rounded{box, corner, corner};
         d2dContext->DrawRoundedRectangle(rounded, brush.Get(), thickness);
         return;
     }
@@ -659,6 +661,25 @@ void Dx11Renderer::PopClip() {
     if (d2dContext) {
         d2dContext->PopAxisAlignedClip();
     }
+}
+
+void Dx11Renderer::PushRotation(float degrees, float centerX, float centerY) {
+    if (!d2dContext) {
+        return;
+    }
+    D2D1_MATRIX_3X2_F previous = D2D1::Matrix3x2F::Identity();
+    d2dContext->GetTransform(&previous);
+    transformStack.push_back(previous);
+    const D2D1_MATRIX_3X2_F spin = D2D1::Matrix3x2F::Rotation(degrees, D2D1::Point2F(centerX, centerY));
+    d2dContext->SetTransform(spin * previous);
+}
+
+void Dx11Renderer::PopTransform() {
+    if (!d2dContext || transformStack.empty()) {
+        return;
+    }
+    d2dContext->SetTransform(transformStack.back());
+    transformStack.pop_back();
 }
 
 void Dx11Renderer::PushOpacity(float opacity) {

@@ -1,16 +1,21 @@
 #pragma once
 
-#include "ui/element/Element.h"
+#include "components/frame/Frame.h"
 
 namespace Runtime {
 
-class WindowElement : public Element {
+class WindowElement : public Frame {
 public:
+    WindowElement();
+
     NodeKind Kind() const override;
-    Size Measure(TextMeasurer& measurer, float availableWidth, float availableHeight, bool heightDefinite) override;
-    void Arrange(const Rect& rect) override;
-    void OnPaint(Renderer& renderer) override;
     Element* HitTest(Point point) override;
+
+    void SetTitle(std::string value);
+    const std::string& Title() const;
+
+private:
+    std::string title;
 };
 
 }  // namespace Runtime
