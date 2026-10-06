@@ -29,6 +29,10 @@ public:
     bool SetAttribute(const std::vector<int>& path, std::string_view name, std::string value);
     bool ClearAttribute(const std::vector<int>& path, std::string_view name);
     bool InsertChild(const std::vector<int>& parentPath, std::string_view componentName, std::vector<int>& insertedPath);
+    // Wraps sibling nodes in one group that takes the place of the first of them, and lifts
+    // the children of a group back into its parent.
+    bool GroupNodes(const std::vector<std::vector<int>>& paths, std::vector<int>& groupPath);
+    bool UngroupNode(const std::vector<int>& path);
     bool DeleteNode(const std::vector<int>& path);
     bool MoveNode(const std::vector<int>& path, int direction);
     bool ReplaceText(std::string xmlText);

@@ -5293,6 +5293,52 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
             return true;
         }
+        if (control && key == 'G') {
+            // Control and G combine the selection into one group, so every property set on
+            // the group reaches all of it. Add shift to take a group apart again.
+            const bool ungroup = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            if (ungroup) {
+                std::vector<std::vector<int>> targets = selections;
+                if (targets.empty() && !selection.empty()) {
+                    targets.push_back(selection);
+                }
+                std::sort(targets.begin(), targets.end());
+                bool lifted = false;
+                std::vector<int> lastParent;
+                for (auto it = targets.rbegin(); it != targets.rend(); ++it) {
+                    if (pathLocked(*it) || !document.UngroupNode(*it)) {
+                        continue;
+                    }
+                    lifted = true;
+                    lastParent = *it;
+                    lastParent.pop_back();
+                }
+                if (lifted) {
+                    remember();
+                    selection = lastParent;
+                    selections.clear();
+                    rebuildPreview();
+                    finishEdit();
+                    paintDirty = true;
+                }
+                return true;
+            }
+            std::vector<std::vector<int>> targets = selections;
+            if (targets.empty() && !selection.empty()) {
+                targets.push_back(selection);
+            }
+            if (!targets.empty()) {
+                std::vector<int> groupPath;
+                if (document.GroupNodes(targets, groupPath)) {
+                    remember();
+                    selectOnly(groupPath);
+                    rebuildPreview();
+                    finishEdit();
+                    paintDirty = true;
+                }
+            }
+            return true;
+        }
         if (control && key == 'D') {
             std::vector<int> duplicateParent = selection;
             if (!duplicateParent.empty()) {

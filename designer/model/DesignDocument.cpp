@@ -4,7 +4,11 @@
 #include "xml/parser/XmlParser.h"
 #include "xml/serializer/XmlSerializer.h"
 
+#include <algorithm>
 #include <fstream>
+#include <iterator>
+#include <utility>
+#include <vector>
 
 namespace Runtime {
 namespace {
@@ -405,6 +409,75 @@ bool DesignDocument::InsertChild(const std::vector<int>& parentPath, std::string
     parent->children.push_back(MakeComponent(componentName));
     insertedPath = parentPath;
     insertedPath.push_back(static_cast<int>(parent->children.size()) - 1);
+    SyncTextFromRoot();
+    return true;
+}
+
+bool DesignDocument::GroupNodes(const std::vector<std::vector<int>>& paths, std::vector<int>& groupPath) {
+    if (!textSynced || paths.empty()) {
+        return false;
+    }
+    std::vector<int> parentPath = paths.front();
+    if (parentPath.empty()) {
+        return false;
+    }
+    parentPath.pop_back();
+    XmlNode* parent = MutableNode(parentPath);
+    if (parent == nullptr || !AcceptsChildren(*parent)) {
+        return false;
+    }
+    std::vector<int> indices;
+    for (const std::vector<int>& path : paths) {
+        if (path.empty() || path.back() < 0 || path.back() >= static_cast<int>(parent->children.size())) {
+            return false;
+        }
+        // Only siblings can be combined, because the group has to take one parent slot.
+        const std::vector<int> pathParent(path.begin(), path.end() - 1);
+        if (pathParent != parentPath) {
+            return false;
+        }
+        indices.push_back(path.back());
+    }
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    if (indices.empty()) {
+        return false;
+    }
+    XmlNode group;
+    group.name = "group";
+    group.location = parent->children[static_cast<std::size_t>(indices.front())].location;
+    for (int index : indices) {
+        group.children.push_back(parent->children[static_cast<std::size_t>(index)]);
+    }
+    for (auto it = indices.rbegin(); it != indices.rend(); ++it) {
+        parent->children.erase(parent->children.begin() + *it);
+    }
+    const int insertAt = indices.front();
+    parent->children.insert(parent->children.begin() + insertAt, std::move(group));
+    groupPath = parentPath;
+    groupPath.push_back(insertAt);
+    SyncTextFromRoot();
+    return true;
+}
+
+bool DesignDocument::UngroupNode(const std::vector<int>& path) {
+    if (!textSynced || path.empty()) {
+        return false;
+    }
+    std::vector<int> parentPath(path.begin(), path.end() - 1);
+    const int childIndex = path.back();
+    XmlNode* parent = MutableNode(parentPath);
+    if (parent == nullptr || childIndex < 0 || childIndex >= static_cast<int>(parent->children.size())) {
+        return false;
+    }
+    XmlNode& node = parent->children[static_cast<std::size_t>(childIndex)];
+    if (node.name != "group") {
+        return false;
+    }
+    std::vector<XmlNode> lifted = std::move(node.children);
+    parent->children.erase(parent->children.begin() + childIndex);
+    parent->children.insert(parent->children.begin() + childIndex, std::make_move_iterator(lifted.begin()),
+                            std::make_move_iterator(lifted.end()));
     SyncTextFromRoot();
     return true;
 }
