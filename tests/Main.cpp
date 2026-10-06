@@ -6,6 +6,7 @@
 #include "components/layout/BoardElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
+#include "components/rectangle/RectangleElement.h"
 #include "components/text/TextElement.h"
 #include "designer/model/DesignDocument.h"
 #include "engine/motion/Motion.h"
@@ -451,15 +452,59 @@ void TestFrameLayout(TestContext& test) {
     const float secondShift = fineScroll->Bounds().y - fine->FindById("fineFirst")->Bounds().y;
     CHECK(test, secondShift > smallShift && secondShift < 48.0f);
 
-    // Shift+wheel on a vertical-only scroller still scrolls vertically instead of doing nothing.
+    // A gesture moves its own axis and never the other one. A two-finger vertical swipe over
+    // a sideways scroller must leave it where it is, and a sideways swipe must not move a
+    // vertical scroller. An axis with nothing left to scroll hands the gesture on instead.
+    std::unique_ptr<Element> sideways = Layout(
+        "<window width=\"100\" height=\"50\"><frame id=\"sideways\" overflow=\"scroll\" clip=\"true\" layout=\"horizontal\" width=\"100\" height=\"50\">"
+        "<frame id=\"sidewaysItem\" width=\"400\" height=\"40\"/></frame></window>",
+        100.0f, 50.0f);
+    CHECK(test, sideways != nullptr);
+    Element* sidewaysFrame = sideways->FindById("sideways");
+    CHECK(test, sidewaysFrame != nullptr);
+    CHECK(test, !sidewaysFrame->OnWheel(-120));
+    sideways->Arrange(Rect{0.0f, 0.0f, 100.0f, 50.0f});
+    CHECK(test, std::fabs(sideways->FindById("sidewaysItem")->Bounds().x - sidewaysFrame->Bounds().x) < 0.01f);
+
+    std::unique_ptr<Element> upright = Layout(
+        "<window width=\"100\" height=\"50\"><frame id=\"upright\" overflow=\"scroll\" clip=\"true\" layout=\"vertical\" width=\"100\" height=\"50\">"
+        "<frame id=\"uprightItem\" width=\"40\" height=\"200\"/></frame></window>",
+        100.0f, 50.0f);
+    CHECK(test, upright != nullptr);
+    Element* uprightFrame = upright->FindById("upright");
+    CHECK(test, uprightFrame != nullptr);
+    // The delta is one that would move an upright scroller, so a refusal here is the axis
+    // holding rather than nothing being left to scroll.
+    CHECK(test, !uprightFrame->OnWheel(-120, false, 1));
+    upright->Arrange(Rect{0.0f, 0.0f, 100.0f, 50.0f});
+    CHECK(test, std::fabs(upright->FindById("uprightItem")->Bounds().y - uprightFrame->Bounds().y) < 0.01f);
+
+    // Shift asks a vertical wheel for the X axis. That is a request for sideways motion, so an
+    // upright scroller is not the one to spend it on - it declines and the gesture moves on.
     std::unique_ptr<Element> shifted = Layout(
         "<window width=\"100\" height=\"50\"><frame id=\"shifted\" overflow=\"scroll\" layout=\"vertical\" width=\"100\" height=\"50\">"
         "<frame id=\"shiftedFirst\" width=\"40\" height=\"200\"/></frame></window>",
         100.0f, 50.0f);
     CHECK(test, shifted != nullptr);
-    CHECK(test, shifted->FindById("shifted")->OnWheel(-120, true));
+    Element* shiftedFrame = shifted->FindById("shifted");
+    CHECK(test, shiftedFrame != nullptr);
+    CHECK(test, !shiftedFrame->OnWheel(-120, true));
     shifted->Arrange(Rect{0.0f, 0.0f, 100.0f, 50.0f});
-    CHECK(test, shifted->FindById("shiftedFirst")->Bounds().y < shifted->FindById("shifted")->Bounds().y);
+    CHECK(test, std::fabs(shifted->FindById("shiftedFirst")->Bounds().y - shiftedFrame->Bounds().y) < 0.01f);
+
+    // Declining a gesture is what lets an enclosing scroller take it: content that fits inside
+    // its own box leaves the wheel to the page around it, so the walk outward keeps scrolling.
+    std::unique_ptr<Element> nested = Layout(
+        "<window width=\"100\" height=\"50\"><frame id=\"outer\" overflow=\"scroll\" layout=\"vertical\" width=\"100\" height=\"50\">"
+        "<frame id=\"inner\" overflow=\"scroll\" width=\"100\" height=\"20\"><frame id=\"fits\" width=\"40\" height=\"20\"/></frame>"
+        "<frame id=\"tail\" width=\"40\" height=\"200\"/></frame></window>",
+        100.0f, 50.0f);
+    CHECK(test, nested != nullptr);
+    Element* nestedInner = nested->FindById("inner");
+    Element* nestedOuter = nested->FindById("outer");
+    CHECK(test, nestedInner != nullptr && nestedOuter != nullptr);
+    CHECK(test, !nestedInner->OnWheel(-120));
+    CHECK(test, nestedOuter->OnWheel(-120));
 
     // A horizontal wheel or trackpad swipe scrolls the X axis of a horizontal scroller.
     std::unique_ptr<Element> hwheel = Layout(
@@ -822,6 +867,187 @@ void TestGroup(TestContext& test) {
     Finish(test, "group", before);
 }
 
+void TestRectangle(TestContext& test) {
+    const int before = test.failed;
+
+    // A rectangle that never got a size is the default square, and it is a shape rather than
+    // a box of content: it reports itself as a rectangle and holds nothing.
+    std::unique_ptr<Element> plain = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<rectangle id=\"box\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* box = plain != nullptr ? plain->FindById("box") : nullptr;
+    CHECK(test, box != nullptr && box->Kind() == NodeKind::RECTANGLE);
+    if (box != nullptr) {
+        CHECK(test, std::fabs(box->Bounds().width - 100.0f) < 0.01f);
+        CHECK(test, std::fabs(box->Bounds().height - 100.0f) < 0.01f);
+        CHECK(test, box->Children().empty());
+    }
+
+    // A fixed, filled, or percentage length is the only thing that moves a rectangle off the
+    // square, and min and max still cap it.
+    std::unique_ptr<Element> sized = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<rectangle id=\"wide\" x=\"10\" y=\"20\" width=\"240\" height=\"140\"/>"
+        "<rectangle id=\"capped\" x=\"10\" y=\"160\" width=\"300\" maxWidth=\"120\" height=\"30\"/>"
+        "<rectangle id=\"half\" x=\"10\" y=\"10\" width=\"50%\" height=\"20\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* wide = sized != nullptr ? sized->FindById("wide") : nullptr;
+    Element* capped = sized != nullptr ? sized->FindById("capped") : nullptr;
+    Element* half = sized != nullptr ? sized->FindById("half") : nullptr;
+    CHECK(test, wide != nullptr && capped != nullptr && half != nullptr);
+    if (wide != nullptr && capped != nullptr && half != nullptr) {
+        CHECK(test, std::fabs(wide->Bounds().x - 10.0f) < 0.01f && std::fabs(wide->Bounds().y - 20.0f) < 0.01f);
+        CHECK(test, std::fabs(wide->Bounds().width - 240.0f) < 0.01f && std::fabs(wide->Bounds().height - 140.0f) < 0.01f);
+        CHECK(test, std::fabs(capped->Bounds().width - 120.0f) < 0.01f);
+        CHECK(test, std::fabs(half->Bounds().width - 200.0f) < 0.01f);
+    }
+
+    // A uniform radius keeps the platform rectangle primitive. A rectangle whose corners
+    // differ is drawn from a path, so each corner keeps the radius it was given.
+    std::unique_ptr<Element> corners = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<rectangle id=\"even\" x=\"10\" y=\"10\" width=\"120\" height=\"60\" radius=\"12\"/>"
+        "<rectangle id=\"mixed\" x=\"10\" y=\"100\" width=\"120\" height=\"60\" radius=\"12\" radiusBottomLeft=\"0\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* even = corners != nullptr ? corners->FindById("even") : nullptr;
+    Element* mixed = corners != nullptr ? corners->FindById("mixed") : nullptr;
+    CHECK(test, even != nullptr && mixed != nullptr);
+    if (even != nullptr && mixed != nullptr) {
+        RectangleElement* evenShape = dynamic_cast<RectangleElement*>(even);
+        RectangleElement* mixedShape = dynamic_cast<RectangleElement*>(mixed);
+        CHECK(test, evenShape != nullptr && mixedShape != nullptr);
+        if (evenShape != nullptr && mixedShape != nullptr) {
+            CHECK(test, std::fabs(evenShape->CornerRadius(0) - 12.0f) < 0.01f);
+            CHECK(test, std::fabs(evenShape->CornerRadius(2) - 12.0f) < 0.01f);
+            CHECK(test, std::fabs(mixedShape->CornerRadius(0) - 12.0f) < 0.01f);
+            CHECK(test, std::fabs(mixedShape->CornerRadius(3) - 0.0f) < 0.01f);
+        }
+        RecordingRenderer renderer;
+        corners->Paint(renderer);
+        CHECK(test, PaintRecordFor(renderer, even->Bounds()) != nullptr);
+        CHECK(test, PaintRecordFor(renderer, mixed->Bounds()) != nullptr);
+    }
+
+    // A binding or an animation drives the rectangle's own values, not just the ones every
+    // element carries.
+    std::unique_ptr<Element> driven = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<rectangle id=\"driven\" width=\"60\" height=\"60\" fill=\"#000000\" radius=\"0\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    RectangleElement* drivenShape = driven != nullptr ? dynamic_cast<RectangleElement*>(driven->FindById("driven")) : nullptr;
+    CHECK(test, drivenShape != nullptr);
+    if (drivenShape != nullptr) {
+        drivenShape->ApplyBound("fill", "#FF0000");
+        CHECK(test, drivenShape->Fill().r > 0.9f && drivenShape->Fill().g < 0.1f);
+        drivenShape->ApplyBound("stroke", "#00FF00");
+        drivenShape->ApplyBound("strokeWidth", "4");
+        CHECK(test, drivenShape->StrokeColor().g > 0.9f && drivenShape->StrokeColor().r < 0.1f);
+        CHECK(test, std::fabs(drivenShape->StrokeWidth() - 4.0f) < 0.01f);
+        drivenShape->ApplyBound("radius", "8");
+        CHECK(test, std::fabs(drivenShape->CornerRadius(0) - 8.0f) < 0.01f);
+        CHECK(test, std::fabs(drivenShape->CornerRadius(3) - 8.0f) < 0.01f);
+        drivenShape->ApplyBound("rotation", "90");
+        CHECK(test, std::fabs(drivenShape->Rotation() - 90.0f) < 0.01f);
+    }
+
+    // Fill, stroke, opacity, and rotation all reach the paint pass: the fill and the stroke
+    // of the rectangle itself, and the rotation of the node it belongs to.
+    std::unique_ptr<Element> painted = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<rectangle id=\"solid\" x=\"10\" y=\"10\" width=\"80\" height=\"40\" fill=\"#112233\" opacity=\"0.5\"/>"
+        "<rectangle id=\"outline\" x=\"10\" y=\"60\" width=\"60\" height=\"30\" stroke=\"#445566\" strokeWidth=\"3\"/>"
+        "<rectangle id=\"turned\" x=\"150\" y=\"10\" width=\"40\" height=\"40\" background=\"#778899\" rotation=\"30\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* solid = painted != nullptr ? painted->FindById("solid") : nullptr;
+    Element* outline = painted != nullptr ? painted->FindById("outline") : nullptr;
+    Element* turned = painted != nullptr ? painted->FindById("turned") : nullptr;
+    CHECK(test, solid != nullptr && outline != nullptr && turned != nullptr);
+    if (solid != nullptr && outline != nullptr && turned != nullptr) {
+        RecordingRenderer renderer;
+        painted->Paint(renderer);
+        const PaintRecord* solidPaint = PaintRecordFor(renderer, solid->Bounds());
+        const PaintRecord* outlinePaint = PaintRecordFor(renderer, outline->Bounds());
+        const PaintRecord* turnedPaint = PaintRecordFor(renderer, turned->Bounds());
+        CHECK(test, solidPaint != nullptr && outlinePaint != nullptr && turnedPaint != nullptr);
+        if (solidPaint != nullptr) {
+            CHECK(test, std::fabs(solidPaint->opacity - 0.5f) < 0.001f);
+            CHECK(test, solidPaint->rotationDepth == 0 && solidPaint->clipDepth == 0);
+        }
+        if (outlinePaint != nullptr) {
+            CHECK(test, outlinePaint->rotationDepth == 0);
+        }
+        if (turnedPaint != nullptr) {
+            CHECK(test, std::fabs(turnedPaint->rotation - 30.0f) < 0.01f);
+            CHECK(test, turnedPaint->rotationDepth == 1);
+        }
+    }
+
+    // A rounded corner is outside the shape, so a click there selects what is behind the
+    // rectangle instead of the rectangle.
+    std::unique_ptr<Element> hits = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<rectangle id=\"pill\" x=\"40\" y=\"40\" width=\"100\" height=\"40\" radius=\"20\"/>"
+        "<rectangle id=\"spin\" x=\"20\" y=\"120\" width=\"60\" height=\"60\" radius=\"30\" rotation=\"45\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* pill = hits != nullptr ? hits->FindById("pill") : nullptr;
+    Element* spin = hits != nullptr ? hits->FindById("spin") : nullptr;
+    CHECK(test, pill != nullptr && spin != nullptr);
+    if (pill != nullptr && spin != nullptr) {
+        const Rect pillBox = pill->Bounds();
+        CHECK(test, pill->HitTest(Point{pillBox.x + pillBox.width * 0.5f, pillBox.y + pillBox.height * 0.5f}) == pill);
+        CHECK(test, pill->HitTest(Point{pillBox.x + 2.0f, pillBox.y + 2.0f}) == nullptr);
+        CHECK(test, pill->HitTest(Point{pillBox.x + 24.0f, pillBox.y + 2.0f}) == pill);
+        CHECK(test, pill->HitTest(Point{pillBox.x - 4.0f, pillBox.y + pillBox.height * 0.5f}) == nullptr);
+        // A turned rectangle keeps the box the renderer turned with it.
+        const Rect spun = spin->Bounds();
+        CHECK(test, spin->HitTest(Point{spun.x + 2.0f, spun.y + 2.0f}) == spin);
+    }
+
+    // Hidden and display="none" rectangles measure to nothing and paint nothing.
+    std::unique_ptr<Element> hidden = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<rectangle id=\"gone\" width=\"80\" height=\"80\" display=\"none\"/>"
+        "<rectangle id=\"away\" x=\"90\" y=\"0\" width=\"80\" height=\"80\" visible=\"false\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* gone = hidden != nullptr ? hidden->FindById("gone") : nullptr;
+    Element* away = hidden != nullptr ? hidden->FindById("away") : nullptr;
+    CHECK(test, gone != nullptr && away != nullptr);
+    if (gone != nullptr && away != nullptr) {
+        CHECK(test, !gone->Visible() && !away->Visible());
+        CHECK(test, gone->Measured().width == 0.0f && gone->Measured().height == 0.0f);
+        CHECK(test, away->Measured().width == 0.0f && away->Measured().height == 0.0f);
+        RecordingRenderer renderer;
+        hidden->Paint(renderer);
+        bool paintedSquare = false;
+        for (const PaintRecord& record : renderer.records) {
+            if (std::fabs(record.rect.width - 80.0f) < 0.01f && std::fabs(record.rect.height - 80.0f) < 0.01f) {
+                paintedSquare = true;
+            }
+        }
+        CHECK(test, !paintedSquare);
+    }
+
+    // The compiler rejects what a rectangle is not: no layout, no padding, no gap, no
+    // background image, no overflow, no scrolling, and no children.
+    CHECK(test, CompileUi(Source("<window><rectangle width=\"10\" fill=\"#FFFFFF\" radius=\"4\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><rectangle layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><rectangle padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><rectangle gap=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><rectangle overflow=\"scroll\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><rectangle scrollbar=\"auto\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><rectangle><frame/></rectangle></window>")).Ok());
+
+    Finish(test, "rectangle", before);
+}
+
 void TestBoards(TestContext& test) {
     const int before = test.failed;
     std::unique_ptr<Element> root = Layout(
@@ -856,6 +1082,64 @@ void TestDesignDocumentEditsXml(TestContext& test) {
     CHECK(test, document.NodeAt(inserted)->name == "frame");
     CHECK(test, document.DeleteNode(inserted));
     Finish(test, "design document", before);
+}
+
+void TestDesignDocumentGroups(TestContext& test) {
+    const int before = test.failed;
+    DesignDocument document;
+    CHECK(test, document.LoadText("<window width=\"800\" height=\"600\"><frame name=\"Lead\"/></window>", "memory.xml"));
+    CHECK(test, document.TextSynced());
+
+    // Three siblings under the window, so a group has something to combine and something to
+    // leave alone. The group takes the slot of the first node it wraps.
+    std::vector<int> first;
+    std::vector<int> second;
+    CHECK(test, document.InsertChild({0}, "text", first));
+    CHECK(test, document.InsertChild({0}, "frame", second));
+    const XmlNode* window = document.NodeAt({0});
+    CHECK(test, window != nullptr && window->children.size() == 3);
+
+    std::vector<int> groupPath;
+    CHECK(test, document.GroupNodes({first, second}, groupPath));
+    CHECK(test, groupPath.size() == 2);
+    const XmlNode* group = document.NodeAt(groupPath);
+    CHECK(test, group != nullptr && group->name == "group");
+    if (group != nullptr) {
+        CHECK(test, group->children.size() == 2);
+        CHECK(test, group->children[0].name == "text");
+        CHECK(test, group->children[1].name == "frame");
+    }
+    window = document.NodeAt({0});
+    CHECK(test, window != nullptr && window->children.size() == 2);
+    CHECK(test, document.Text().find("<group") != std::string::npos);
+
+    // Grouping one node is allowed, and it still produces a real group.
+    std::vector<int> singlePath;
+    CHECK(test, document.GroupNodes({{0, 0}}, singlePath));
+    const XmlNode* single = document.NodeAt(singlePath);
+    CHECK(test, single != nullptr && single->name == "group" && single->children.size() == 1);
+    CHECK(test, document.UngroupNode(singlePath));
+
+    // Ungroup lifts the children back into the slot the group occupied, in order.
+    CHECK(test, document.UngroupNode(groupPath));
+    const XmlNode* lifted = document.NodeAt(groupPath);
+    CHECK(test, lifted != nullptr && lifted->name == "text");
+    window = document.NodeAt({0});
+    CHECK(test, window != nullptr && window->children.size() == 3);
+    CHECK(test, document.Text().find("<group") == std::string::npos);
+
+    // Only siblings can be combined, because a group has to take one parent slot.
+    std::vector<int> rejected;
+    CHECK(test, !document.GroupNodes({{0, 0}, {0}}, rejected));
+    CHECK(test, !document.GroupNodes({}, rejected));
+    CHECK(test, !document.GroupNodes({{0, 9}}, rejected));
+    CHECK(test, document.Text().find("<group") == std::string::npos);
+
+    // Ungrouping only lifts a group. Every other node stays where it is.
+    CHECK(test, !document.UngroupNode({0, 0}));
+    CHECK(test, !document.UngroupNode({}));
+    CHECK(test, !document.UngroupNode({0, 99}));
+    Finish(test, "design document groups", before);
 }
 
 void TestCompilerSurface(TestContext& test) {
@@ -1425,8 +1709,10 @@ int RunUnitTests() {
     TestFrameLayout(test);
     TestPrimitives(test);
     TestGroup(test);
+    TestRectangle(test);
     TestBoards(test);
     TestDesignDocumentEditsXml(test);
+    TestDesignDocumentGroups(test);
     TestCompilerSurface(test);
     TestFoundations(test);
     TestTypography(test);

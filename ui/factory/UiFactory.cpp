@@ -5,6 +5,7 @@
 #include "components/layout/BoardElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
+#include "components/rectangle/RectangleElement.h"
 #include "components/text/TextElement.h"
 #include <algorithm>
 #include <cctype>
@@ -500,6 +501,90 @@ void ApplyGroup(GroupElement& group, const IrNode& node) {
     // treats a locked ancestor as locked, so a locked group already protects every child.
 }
 
+void ApplyRectangle(RectangleElement& rectangle, const IrNode& node) {
+    ApplyCommon(rectangle, node);
+    if (const UiValue* value = FindProperty(node, "minWidth")) rectangle.SetMinWidth(value->length);
+    if (const UiValue* value = FindProperty(node, "maxWidth")) rectangle.SetMaxWidth(value->length);
+    if (const UiValue* value = FindProperty(node, "minHeight")) rectangle.SetMinHeight(value->length);
+    if (const UiValue* value = FindProperty(node, "maxHeight")) rectangle.SetMaxHeight(value->length);
+    Edges margin{};
+    bool hasMargin = false;
+    if (const UiValue* value = FindProperty(node, "margin")) {
+        margin = value->edges;
+        hasMargin = true;
+    }
+    const auto marginSide = [&](const char* name, Length& edge) {
+        if (const UiValue* value = FindProperty(node, name)) {
+            edge = value->length;
+            hasMargin = true;
+        }
+    };
+    marginSide("marginTop", margin.top);
+    marginSide("marginRight", margin.right);
+    marginSide("marginBottom", margin.bottom);
+    marginSide("marginLeft", margin.left);
+    if (hasMargin) {
+        rectangle.SetMargin(margin);
+    }
+    if (const UiValue* value = FindProperty(node, "grow")) rectangle.SetGrow(static_cast<float>(value->number));
+    if (const UiValue* value = FindProperty(node, "zIndex")) rectangle.SetZIndex(static_cast<int>(value->number));
+    if (const UiValue* value = FindProperty(node, "cursor")) rectangle.SetCursor(value->text);
+    bool hasFill = false;
+    Color fill{};
+    if (const UiValue* value = FindProperty(node, "fill")) {
+        fill = value->color;
+        hasFill = true;
+    }
+    if (const UiValue* value = FindProperty(node, "background")) {
+        fill = value->color;
+        hasFill = true;
+    }
+    if (const UiValue* value = FindProperty(node, "backgroundColor")) {
+        fill = value->color;
+        hasFill = true;
+    }
+    if (hasFill) {
+        rectangle.SetFill(fill);
+    }
+    Color stroke = rectangle.StrokeColor();
+    float strokeWidth = rectangle.StrokeWidth();
+    if (const UiValue* value = FindProperty(node, "stroke")) {
+        stroke = value->color;
+        if (strokeWidth <= 0.0f) {
+            strokeWidth = 1.0f;
+        }
+    }
+    if (const UiValue* value = FindProperty(node, "strokeWidth")) {
+        strokeWidth = static_cast<float>(value->number);
+    }
+    rectangle.SetStroke(stroke, strokeWidth);
+    if (const UiValue* value = FindProperty(node, "radius")) {
+        rectangle.SetRadius(value->length.value);
+    }
+    // A named corner wins over the uniform radius, so it is applied afterwards.
+    if (const UiValue* value = FindProperty(node, "radiusTopLeft")) {
+        rectangle.SetCornerRadius(0, value->length.value);
+    }
+    if (const UiValue* value = FindProperty(node, "radiusTopRight")) {
+        rectangle.SetCornerRadius(1, value->length.value);
+    }
+    if (const UiValue* value = FindProperty(node, "radiusBottomRight")) {
+        rectangle.SetCornerRadius(2, value->length.value);
+    }
+    if (const UiValue* value = FindProperty(node, "radiusBottomLeft")) {
+        rectangle.SetCornerRadius(3, value->length.value);
+    }
+    if (const UiValue* value = FindProperty(node, "rotation")) {
+        rectangle.SetRotation(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "display")) {
+        rectangle.SetDisplay(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "visibility")) {
+        rectangle.SetDisplay(value->text);
+    }
+}
+
 void ApplyShape(ShapeElement& shape, const IrNode& node) {
     ApplyCommon(shape, node);
     if (const UiValue* value = FindProperty(node, "text")) {
@@ -836,6 +921,8 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<BoardElement>();
     case NodeKind::FRAME:
         return std::make_unique<Frame>();
+    case NodeKind::RECTANGLE:
+        return std::make_unique<RectangleElement>();
     case NodeKind::SHADOW:
         return nullptr;
     case NodeKind::TEXT:
@@ -874,6 +961,8 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         }
     } else if (GroupElement* group = dynamic_cast<GroupElement*>(&element)) {
         ApplyGroup(*group, node);
+    } else if (RectangleElement* rectangle = dynamic_cast<RectangleElement*>(&element)) {
+        ApplyRectangle(*rectangle, node);
     } else if (ShapeElement* shape = dynamic_cast<ShapeElement*>(&element)) {
         ApplyShape(*shape, node);
     } else {

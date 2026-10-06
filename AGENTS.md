@@ -1065,10 +1065,10 @@ If **this** works beautifully, you have the foundation for the rest.
 1.  Page
 2.  Section
 3.  Frame [Done]
-4.  Group
+4.  Group [Done]
 
-5.  Rectangle
-6.  Rounded Rectangle
+5.  Rectangle [Done]
+6.  Rounded Rectangle [Done]
 7.  Ellipse / Circle
 8.  Line
 9.  Arrow

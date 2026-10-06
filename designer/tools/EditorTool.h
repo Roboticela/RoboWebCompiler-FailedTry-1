@@ -5,6 +5,7 @@ namespace Runtime {
 enum class EditorTool {
     SELECT,
     FRAME,
+    RECTANGLE,
     TEXT,
     IMAGE,
     LINE,
@@ -18,6 +19,8 @@ inline const char* EditorToolName(EditorTool tool) {
         return "Select";
     case EditorTool::FRAME:
         return "Frame";
+    case EditorTool::RECTANGLE:
+        return "Rectangle";
     case EditorTool::TEXT:
         return "Text";
     case EditorTool::IMAGE:
@@ -36,6 +39,8 @@ inline const char* EditorToolComponent(EditorTool tool) {
     switch (tool) {
     case EditorTool::FRAME:
         return "frame";
+    case EditorTool::RECTANGLE:
+        return "rectangle";
     case EditorTool::TEXT:
         return "text";
     case EditorTool::IMAGE:
@@ -56,6 +61,8 @@ inline const char* EditorToolShortcut(EditorTool tool) {
         return "V";
     case EditorTool::FRAME:
         return "F";
+    case EditorTool::RECTANGLE:
+        return "R";
     case EditorTool::TEXT:
         return "T";
     case EditorTool::IMAGE:

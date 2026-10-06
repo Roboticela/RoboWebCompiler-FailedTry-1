@@ -399,6 +399,78 @@
             </vector>
         </frame>
     </frame>
+    <frame name="Rectangle" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="rectangle — one shape with its own fill, stroke, and a radius at every corner" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="default 100 square" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <rectangle name="Square" cursor="pointer"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="fixed size, stroke 3" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <rectangle name="Outline" width="140" height="72" fill="#FFFFFF" stroke="#0E7AFF" strokeWidth="3" radius="10"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="radius 36 at the top only" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <rectangle name="Arch" width="120" height="72" fill="#FF9F0A" radiusTopLeft="36" radiusTopRight="36"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="pill  +  rotation 45" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" gap="10" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <rectangle name="Pill" width="96" height="40" fill="#30D158" radius="20"/>
+                    <rectangle name="Diamond" width="48" height="48" fill="#FF3B30" rotation="45" radius="8"/>
+                </frame>
+            </frame>
+        </frame>
+    </frame>
+    <frame name="Group" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="group — combine objects into one node; set a property once and every child follows" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="box hugs the union" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="88" background="#F5F5F7" padding="12" radius="8">
+                    <group name="Badge" cursor="pointer">
+                        <frame width="72" height="48" background="#0E7AFF" radius="10"/>
+                        <frame x="48" y="16" width="48" height="24" background="#FFFFFF" radius="6"/>
+                    </group>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="box resizes every child" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="88" background="#F5F5F7" padding="12" radius="8">
+                    <group name="BadgeLarge" width="140" height="64">
+                        <frame width="72" height="48" background="#0E7AFF" radius="10"/>
+                        <frame x="48" y="16" width="48" height="24" background="#FFFFFF" radius="6"/>
+                    </group>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="opacity 0.45 and rotation 12 cascade" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="88" background="#F5F5F7" padding="12" radius="8">
+                    <group name="Faded" opacity="0.45" rotation="12">
+                        <frame width="40" height="40" background="#FF9F0A" radius="8"/>
+                        <frame x="20" y="20" width="40" height="40" background="#FF3B30" radius="8"/>
+                    </group>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="nested groups multiply (0.5 x 0.5)" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="88" background="#F5F5F7" padding="12" radius="8">
+                    <group name="Outer" opacity="0.5">
+                        <group name="Inner" opacity="0.5">
+                            <frame width="56" height="56" background="#0E7AFF" radius="8"/>
+                        </group>
+                    </group>
+                </frame>
+            </frame>
+        </frame>
+    </frame>
 </window>
 <component name="Scrollbar">
     <frame name="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="8" height="fill" background="transparent" radius="980">

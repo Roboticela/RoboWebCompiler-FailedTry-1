@@ -5,8 +5,10 @@
 #include "xml/serializer/XmlSerializer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -40,6 +42,16 @@ void AddAttribute(XmlNode& node, std::string name, std::string value) {
     attribute.name = std::move(name);
     attribute.value = std::move(value);
     node.attributes.push_back(std::move(attribute));
+}
+
+// A component only accepts the properties its catalog entry lists. Writing a default the
+// component does not declare would leave a document that fails to compile, so a default
+// that is not part of the language is left out instead.
+void AddDefaultAttribute(XmlNode& node, const char* name, std::string value) {
+    if (!ComponentAcceptsProperty(node.name, name)) {
+        return;
+    }
+    AddAttribute(node, name, std::move(value));
 }
 
 bool IsDocumentMeta(const std::string& name) {
@@ -143,57 +155,59 @@ XmlNode MakeComponent(std::string_view name) {
         AddAttribute(node, "x", "0");
         AddAttribute(node, "y", "0");
     } else if (name == "frame") {
-        AddAttribute(node, "auto", "true");
-        AddAttribute(node, "width", "160");
-        AddAttribute(node, "height", "80");
-        AddAttribute(node, "background", "#0E7AFF");
-        AddAttribute(node, "radius", "8");
+        AddDefaultAttribute(node, "auto", "true");
+        AddDefaultAttribute(node, "width", "160");
+        AddDefaultAttribute(node, "height", "80");
+        AddDefaultAttribute(node, "background", "#0E7AFF");
+        AddDefaultAttribute(node, "radius", "8");
+    } else if (name == "rectangle") {
+        AddDefaultAttribute(node, "width", "100");
+        AddDefaultAttribute(node, "height", "100");
+        AddDefaultAttribute(node, "fill", "#0E7AFF");
+        AddDefaultAttribute(node, "radius", "0");
     } else if (name == "shadow") {
-        AddAttribute(node, "shadowX", "0");
-        AddAttribute(node, "shadowY", "4");
-        AddAttribute(node, "shadowColor", "#1D1D1F");
+        AddDefaultAttribute(node, "shadowX", "0");
+        AddDefaultAttribute(node, "shadowY", "4");
+        AddDefaultAttribute(node, "shadowColor", "#1D1D1F");
     } else if (name == "text") {
-        AddAttribute(node, "auto", "true");
-        AddAttribute(node, "text", "Text");
-        AddAttribute(node, "fontSize", "16");
-        AddAttribute(node, "textColor", "#18181A");
+        AddDefaultAttribute(node, "auto", "true");
+        AddDefaultAttribute(node, "text", "Text");
+        AddDefaultAttribute(node, "fontSize", "16");
+        AddDefaultAttribute(node, "textColor", "#18181A");
     } else if (name == "image") {
-        AddAttribute(node, "auto", "true");
-        AddAttribute(node, "source", "image.png");
-        AddAttribute(node, "width", "120");
-        AddAttribute(node, "height", "80");
+        AddDefaultAttribute(node, "source", "image.png");
+        AddDefaultAttribute(node, "width", "120");
+        AddDefaultAttribute(node, "height", "80");
     } else if (name == "vector") {
-        AddAttribute(node, "auto", "true");
-        AddAttribute(node, "shape", "ellipse");
-        AddAttribute(node, "width", "64");
-        AddAttribute(node, "height", "64");
-        AddAttribute(node, "fill", "#7EFFF5");
+        AddDefaultAttribute(node, "shape", "ellipse");
+        AddDefaultAttribute(node, "width", "64");
+        AddDefaultAttribute(node, "height", "64");
+        AddDefaultAttribute(node, "fill", "#7EFFF5");
     } else if (name == "path") {
-        AddAttribute(node, "auto", "true");
-        AddAttribute(node, "d", "M0 40 L80 0 L80 40 Z");
-        AddAttribute(node, "width", "80");
-        AddAttribute(node, "height", "40");
-        AddAttribute(node, "stroke", "#18181A");
-        AddAttribute(node, "strokeWidth", "2");
+        AddDefaultAttribute(node, "d", "M0 40 L80 0 L80 40 Z");
+        AddDefaultAttribute(node, "width", "80");
+        AddDefaultAttribute(node, "height", "40");
+        AddDefaultAttribute(node, "stroke", "#18181A");
+        AddDefaultAttribute(node, "strokeWidth", "2");
     } else if (name == "line") {
-        AddAttribute(node, "auto", "true");
-        AddAttribute(node, "x2", "80");
-        AddAttribute(node, "stroke", "#18181A");
-        AddAttribute(node, "strokeWidth", "2");
-        AddAttribute(node, "width", "80");
-        AddAttribute(node, "height", "8");
+        AddDefaultAttribute(node, "x1", "0");
+        AddDefaultAttribute(node, "y1", "0");
+        AddDefaultAttribute(node, "x2", "80");
+        AddDefaultAttribute(node, "y2", "0");
+        AddDefaultAttribute(node, "stroke", "#18181A");
+        AddDefaultAttribute(node, "strokeWidth", "2");
+        AddDefaultAttribute(node, "width", "80");
+        AddDefaultAttribute(node, "height", "8");
     } else if (name == "group" || name == "component" || name == "slot" || name == "scroll") {
-        AddAttribute(node, "auto", "true");
-        AddAttribute(node, "width", "160");
-        AddAttribute(node, "height", "80");
+        AddDefaultAttribute(node, "width", "160");
+        AddDefaultAttribute(node, "height", "80");
         if (name == "component" || name == "slot") {
-            AddAttribute(node, "name", std::string(name));
+            AddDefaultAttribute(node, "name", std::string(name));
         }
     } else if (name == "instance") {
-        AddAttribute(node, "auto", "true");
-        AddAttribute(node, "component", "component");
-        AddAttribute(node, "width", "160");
-        AddAttribute(node, "height", "80");
+        AddDefaultAttribute(node, "component", "component");
+        AddDefaultAttribute(node, "width", "160");
+        AddDefaultAttribute(node, "height", "80");
     }
     return node;
 }
@@ -367,6 +381,11 @@ bool DesignDocument::SetAttribute(const std::vector<int>& path, std::string_view
     if (node == nullptr || name.empty()) {
         return false;
     }
+    if (!ComponentAcceptsProperty(node->name, name)) {
+        // Writing a property the component does not declare would break the next compile,
+        // so the editor only ever edits inside the language the compiler accepts.
+        return false;
+    }
     AddAttribute(*node, std::string(name), std::move(value));
     SyncTextFromRoot();
     return true;
@@ -478,6 +497,27 @@ bool DesignDocument::UngroupNode(const std::vector<int>& path) {
     parent->children.erase(parent->children.begin() + childIndex);
     parent->children.insert(parent->children.begin() + childIndex, std::make_move_iterator(lifted.begin()),
                             std::make_move_iterator(lifted.end()));
+    SyncTextFromRoot();
+    return true;
+}
+
+bool DesignDocument::PlaceNode(const std::vector<int>& path, float x, float y, float width, float height) {
+    if (!textSynced || path.empty()) {
+        return false;
+    }
+    XmlNode* node = MutableNode(path);
+    if (node == nullptr) {
+        return false;
+    }
+    const auto pixels = [](float value) {
+        const int rounded = static_cast<int>(std::lround(value));
+        return std::to_string(rounded < 1 ? 1 : rounded);
+    };
+    AddAttribute(*node, "position", "absolute");
+    AddAttribute(*node, "x", pixels(x));
+    AddAttribute(*node, "y", pixels(y));
+    AddAttribute(*node, "width", pixels(width));
+    AddAttribute(*node, "height", pixels(height));
     SyncTextFromRoot();
     return true;
 }

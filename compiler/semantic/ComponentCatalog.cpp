@@ -239,6 +239,49 @@ std::vector<PropertySpec> GroupProperties() {
                                        {"minContainer", TypeKind::FLOAT}});
 }
 
+// A rectangle is a shape, so it takes the values that describe a shape and nothing that
+// describes a box of content: no layout, no padding, no gap, no overflow, no scrolling.
+std::vector<PropertySpec> RectangleProperties() {
+    return With(IdentityProperties(), {{"minWidth", TypeKind::LENGTH},
+                                       {"maxWidth", TypeKind::LENGTH},
+                                       {"minHeight", TypeKind::LENGTH},
+                                       {"maxHeight", TypeKind::LENGTH},
+                                       {"margin", TypeKind::EDGES},
+                                       {"marginTop", TypeKind::LENGTH},
+                                       {"marginRight", TypeKind::LENGTH},
+                                       {"marginBottom", TypeKind::LENGTH},
+                                       {"marginLeft", TypeKind::LENGTH},
+                                       {"grow", TypeKind::FLOAT},
+                                       {"zIndex", TypeKind::INT},
+                                       {"fill", TypeKind::COLOR},
+                                       {"background", TypeKind::COLOR},
+                                       {"backgroundColor", TypeKind::COLOR},
+                                       {"stroke", TypeKind::COLOR},
+                                       {"strokeWidth", TypeKind::FLOAT},
+                                       {"radius", TypeKind::LENGTH},
+                                       {"radiusTopLeft", TypeKind::LENGTH},
+                                       {"radiusTopRight", TypeKind::LENGTH},
+                                       {"radiusBottomRight", TypeKind::LENGTH},
+                                       {"radiusBottomLeft", TypeKind::LENGTH},
+                                       {"rotation", TypeKind::FLOAT},
+                                       {"cursor", TypeKind::STRING},
+                                       {"display", TypeKind::STRING},
+                                       {"visibility", TypeKind::STRING},
+                                       {"locked", TypeKind::BOOL},
+                                       {"left", TypeKind::STRING},
+                                       {"right", TypeKind::STRING},
+                                       {"top", TypeKind::STRING},
+                                       {"bottom", TypeKind::STRING},
+                                       {"centerX", TypeKind::STRING},
+                                       {"centerY", TypeKind::STRING},
+                                       {"horizontal", TypeKind::STRING},
+                                       {"vertical", TypeKind::STRING},
+                                       {"minScreen", TypeKind::FLOAT},
+                                       {"maxScreen", TypeKind::FLOAT},
+                                       {"orientation", TypeKind::STRING},
+                                       {"minContainer", TypeKind::FLOAT}});
+}
+
 std::vector<PropertySpec> TextProperties() {
     return With(IdentityProperties(), {{"text", TypeKind::STRING},
                                        {"value", TypeKind::STRING},
@@ -388,6 +431,7 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"window", NodeKind::WINDOW, true, WindowProperties()},
         {"board", NodeKind::BOARD, true, FrameProperties()},
         {"frame", NodeKind::FRAME, true, FrameProperties()},
+        {"rectangle", NodeKind::RECTANGLE, false, RectangleProperties()},
         {"shadow", NodeKind::SHADOW, false, ShadowProperties()},
         {"text", NodeKind::TEXT, true, TypographyProperties()},
         {"image", NodeKind::IMAGE, false, ImageProperties()},
@@ -414,6 +458,21 @@ const ComponentSpec* FindComponent(std::string_view name) {
 
 const PropertySpec* FindInstanceProperty(std::string_view, std::string_view) {
     return nullptr;
+}
+
+bool ComponentAcceptsProperty(std::string_view component, std::string_view property) {
+    const ComponentSpec* spec = FindComponent(component);
+    if (spec == nullptr) {
+        // A definition such as style, tokens, or component is not a component, so nothing
+        // here can say that an attribute is wrong.
+        return true;
+    }
+    for (const PropertySpec& candidate : spec->properties) {
+        if (property == candidate.name) {
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace Runtime

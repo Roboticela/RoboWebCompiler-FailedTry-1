@@ -21,6 +21,7 @@ inline constexpr float UNBOUNDED_MEASURE = 100000.0f;
 enum class NodeKind : std::uint8_t {
     WINDOW,
     FRAME,
+    RECTANGLE,
     SHADOW,
     TEXT,
     IMAGE,
@@ -279,6 +280,8 @@ inline const char* NodeKindName(NodeKind kind) {
         return "window";
     case NodeKind::FRAME:
         return "frame";
+    case NodeKind::RECTANGLE:
+        return "rectangle";
     case NodeKind::SHADOW:
         return "shadow";
     case NodeKind::TEXT:

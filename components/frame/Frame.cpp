@@ -1167,19 +1167,14 @@ bool Frame::OnWheel(int delta, bool shift, int axis) {
     if (!Scrolls() || delta == 0) {
         return false;
     }
-    // A horizontal wheel or a shifted vertical wheel moves the X axis.
+    // A gesture moves its own axis and never the other one. A vertical wheel and a
+    // two-finger vertical swipe drive Y; a tilt wheel and a two-finger horizontal swipe
+    // drive X. Shift asks a vertical wheel for the X axis, the long-standing convention.
     const bool sideways = axis != 0;
-    bool useX = sideways;
-    if (shift) {
-        useX = !useX;
-    }
-    // Fall back to the axis that can actually move so a vertical-only scroller
-    // still responds to a sideways gesture and vice versa.
-    if (useX && MaxScrollX() <= 0.5f) {
-        useX = false;
-    } else if (!useX && MaxScrollY() <= 0.5f) {
-        useX = MaxScrollX() > 0.5f;
-    }
+    const bool useX = shift ? !sideways : sideways;
+    // An axis with nowhere left to go is no reason to borrow the other one: a sideways
+    // swipe that moved the page up and down read as the wrong axis entirely. Leaving the
+    // gesture unclaimed lets an enclosing scroller take it on the same axis instead.
     if (useX ? MaxScrollX() <= 0.5f : MaxScrollY() <= 0.5f) {
         return false;
     }

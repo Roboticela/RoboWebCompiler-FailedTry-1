@@ -33,6 +33,9 @@ public:
     // the children of a group back into its parent.
     bool GroupNodes(const std::vector<std::vector<int>>& paths, std::vector<int>& groupPath);
     bool UngroupNode(const std::vector<int>& path);
+    // Places a node the way the canvas does when a shape is drawn or moved: absolute, at a
+    // pixel offset inside its parent, at a pixel size.
+    bool PlaceNode(const std::vector<int>& path, float x, float y, float width, float height);
     bool DeleteNode(const std::vector<int>& path);
     bool MoveNode(const std::vector<int>& path, int direction);
     bool ReplaceText(std::string xmlText);

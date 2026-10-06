@@ -84,6 +84,7 @@ enum class DragKind {
     REORDER,
     GUIDE,
     MARQUEE,
+    CREATE,
 };
 
 enum class ResizeHandle {
@@ -575,6 +576,9 @@ void DrawMenuIcon(Renderer& renderer, float x, float y, int action, Color color)
     case 52:
     case 70:
         renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, 12.0f, 12.0f}, color, 1.4f, 2.5f);
+        break;
+    case 49:
+        renderer.FillRectangle(Rect{x + 2.5f, y + 2.5f, 11.0f, 11.0f}, color, 1.5f);
         break;
     case 44:
     case 71:
@@ -1452,6 +1456,13 @@ int DesignerApp::Run(const DesignerOptions& options) {
     bool resizeGroup = false;
     Point marqueeAnchor{};
     Point marqueePoint{};
+    // A shape tool draws its node: the node appears on press, follows the pointer, and a
+    // plain click leaves it at its own default size.
+    std::vector<int> createPath;
+    std::string createComponent;
+    Point createOrigin{};
+    Point createAnchor{};
+    bool createMoved = false;
     std::vector<std::string> undoStack;
     std::vector<std::string> redoStack;
     std::string historyBefore;
@@ -2149,7 +2160,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 const char* category;
                 const char* name;
             };
-            const std::vector<LibraryItem> items = {{"Window", "window"}, {"Board", "board"}, {"Frame", "frame"}, {"Scrollbar", "scrollbar"}};
+            const std::vector<LibraryItem> items = {{"Window", "window"}, {"Board", "board"}, {"Frame", "frame"}, {"Shape", "rectangle"}, {"Shape", "vector"}, {"Shape", "line"}, {"Scrollbar", "scrollbar"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;
@@ -2717,6 +2728,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             case 4:
                 addCommand("Select", "V", 42, activeTool == EditorTool::SELECT);
                 addCommand("Frame", "F", 43, activeTool == EditorTool::FRAME);
+                addCommand("Rectangle", "R", 49, activeTool == EditorTool::RECTANGLE);
                 addCommand("Text", "T", 44, activeTool == EditorTool::TEXT);
                 addCommand("Image", "I", 45, activeTool == EditorTool::IMAGE);
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
@@ -3184,6 +3196,101 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
         historyBefore.clear();
     };
+    auto rollbackCreate = [&]() {
+        // Starting a create edit is a transaction, so leaving it puts the document back to
+        // the text it had before the node appeared.
+        if (historyOpen) {
+            document.ReplaceText(historyBefore);
+            historyOpen = false;
+            historyBefore.clear();
+        }
+        createPath.clear();
+        createComponent.clear();
+        createMoved = false;
+        dragNodes.clear();
+        selection.clear();
+        selections.clear();
+        snapXActive = false;
+        snapYActive = false;
+        rebuildPreview();
+        paintDirty = true;
+    };
+    auto beginCreate = [&](const char* componentName, Point point) {
+        if (!ContainsPoint(canvas, point)) {
+            return;
+        }
+        const Point local = toArtboard(point);
+        const std::vector<int> parent = parentForInsert();
+        std::vector<int> inserted;
+        if (!document.InsertChild(parent, componentName, inserted)) {
+            return;
+        }
+        remember();
+        document.SetAttribute(inserted, "position", "absolute");
+        document.SetAttribute(inserted, "x", pixels(Snap(local.x)));
+        document.SetAttribute(inserted, "y", pixels(Snap(local.y)));
+        selectOnly(inserted);
+        rebuildPreview();
+        captureDragNodes();
+        if (dragNodes.empty()) {
+            rollbackCreate();
+            return;
+        }
+        createPath = inserted;
+        createComponent = componentName;
+        createOrigin = ContentOrigin(ElementAt(preview.get(), parent));
+        createAnchor = Point{dragNodes.front().localX, dragNodes.front().localY};
+        createMoved = false;
+        dragStart = point;
+        snapXActive = false;
+        snapYActive = false;
+        drag = DragKind::CREATE;
+        paintDirty = true;
+    };
+    // Snaps both edges of the draft box, so a shape drawn on the canvas lines up with the
+    // grid, the guides, its siblings, and its parent the same way a dragged node does.
+    auto applyCreate = [&](Point point) {
+        if (createPath.empty() || dragNodes.empty()) {
+            return;
+        }
+        const Point local = toArtboard(point);
+        const float pointerX = local.x - createOrigin.x;
+        const float pointerY = local.y - createOrigin.y;
+        float left = std::min(createAnchor.x, pointerX);
+        float right = std::max(createAnchor.x, pointerX);
+        float top = std::min(createAnchor.y, pointerY);
+        float bottom = std::max(createAnchor.y, pointerY);
+        if ((GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+            // Shift keeps the draft a square, anchored where the drag started.
+            const float side = std::max(right - left, bottom - top);
+            left = pointerX < createAnchor.x ? createAnchor.x - side : createAnchor.x;
+            right = left + side;
+            top = pointerY < createAnchor.y ? createAnchor.y - side : createAnchor.y;
+            bottom = top + side;
+        }
+        const float snappedLeft = snapAxis(left, true);
+        const float snappedRight = snapAxis(right, true);
+        const float snappedTop = snapAxis(top, false);
+        const float snappedBottom = snapAxis(bottom, false);
+        snapXActive = std::fabs(snappedLeft - left) > 0.01f || std::fabs(snappedRight - right) > 0.01f;
+        snapYActive = std::fabs(snappedTop - top) > 0.01f || std::fabs(snappedBottom - bottom) > 0.01f;
+        snapX = std::fabs(snappedLeft - left) <= std::fabs(snappedRight - right) ? snappedLeft : snappedRight;
+        snapY = std::fabs(snappedTop - top) <= std::fabs(snappedBottom - bottom) ? snappedTop : snappedBottom;
+        left = snappedLeft;
+        right = std::max(snappedLeft + 1.0f, snappedRight);
+        top = snappedTop;
+        bottom = std::max(snappedTop + 1.0f, snappedBottom);
+        document.PlaceNode(createPath, left, top, right - left, bottom - top);
+        if (createComponent == "line") {
+            // A line is its own two endpoints, so the drag spans the box corner to corner.
+            document.SetAttribute(createPath, "x1", "0");
+            document.SetAttribute(createPath, "y1", "0");
+            document.SetAttribute(createPath, "x2", pixels(right - left));
+            document.SetAttribute(createPath, "y2", pixels(bottom - top));
+        }
+        rebuildPreview();
+        paintDirty = true;
+    };
     auto undo = [&]() {
         finishEdit();
         if (undoStack.empty()) {
@@ -3618,6 +3725,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             activeTool = EditorTool::SELECT;
         } else if (action == 43) {
             activeTool = EditorTool::FRAME;
+        } else if (action == 49) {
+            activeTool = EditorTool::RECTANGLE;
         } else if (action == 44) {
             activeTool = EditorTool::TEXT;
         } else if (action == 45) {
@@ -3659,7 +3768,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             MessageBoxW(window.Hwnd(), L"RoboUIDesigner\nA visual editor for Runtime XML.", L"About RoboUIDesigner", MB_OK);
         } else if (action == 61) {
             MessageBoxW(window.Hwnd(),
-                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nF5  Run\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   T Text\nI Image   L Line   H Hand   Z Zoom",
+                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nF5  Run\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   R Rectangle   T Text\nI Image   L Line   H Hand   Z Zoom\n\nDrag with a shape tool to draw it at the size you want.",
                         L"Keyboard Shortcuts", MB_OK);
         } else if (action >= 70 && action <= 77) {
             const char* names[] = {"frame", "text", "image", "vector", "path", "line", "group", "scroll"};
@@ -4256,19 +4365,9 @@ int DesignerApp::Run(const DesignerOptions& options) {
             return;
         }
         if (const char* componentName = EditorToolComponent(activeTool); componentName != nullptr && ContainsPoint(canvas, point)) {
-            const Point local = toArtboard(point);
-            std::vector<int> inserted;
-            if (document.InsertChild(parentForInsert(), componentName, inserted)) {
-                remember();
-                document.SetAttribute(inserted, "position", "absolute");
-                document.SetAttribute(inserted, "x", std::to_string(static_cast<int>(Snap(local.x))));
-                document.SetAttribute(inserted, "y", std::to_string(static_cast<int>(Snap(local.y))));
-                selectOnly(inserted);
-                activeTool = EditorTool::SELECT;
-                rebuildPreview();
-                finishEdit();
-            }
-            paintDirty = true;
+            // A shape tool draws its node. Press, drag, and release sizes it; a plain click
+            // leaves it at the size its own component gives it.
+            beginCreate(componentName, point);
             return;
         }
         const Rect horizontalRuler{canvas.x + RULER_SIZE, canvas.y, std::max(0.0f, canvas.width - RULER_SIZE), RULER_SIZE};
@@ -4639,6 +4738,15 @@ int DesignerApp::Run(const DesignerOptions& options) {
             paintDirty = true;
             return;
         }
+        if (drag == DragKind::CREATE) {
+            const float travel = std::hypot(point.x - dragStart.x, point.y - dragStart.y);
+            if (travel < 3.0f && !createMoved) {
+                return;
+            }
+            createMoved = true;
+            applyCreate(point);
+            return;
+        }
         if (drag == DragKind::PAN) {
             panX += point.x - dragStart.x;
             panY += point.y - dragStart.y;
@@ -4791,6 +4899,15 @@ int DesignerApp::Run(const DesignerOptions& options) {
         }
     });
     window.SetMouseUp([&](Point point) {
+        if (drag == DragKind::CREATE) {
+            // Releasing finishes the shape. Without a real drag the node keeps the size its
+            // component gave it, and the tool goes back to Select either way.
+            createPath.clear();
+            createComponent.clear();
+            createMoved = false;
+            dragNodes.clear();
+            activeTool = EditorTool::SELECT;
+        }
         if (drag == DragKind::GUIDE && guideDraft && ContainsPoint(canvas, point)) {
             guides.push_back(draftGuide);
         }
@@ -4925,6 +5042,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     paintDirty = true;
                     return;
                 }
+            }
+            if (shift) {
+                // A shifted wheel asks for the X axis. A document with nothing to scroll
+                // sideways declines it, and a refusal there is not a request to zoom.
+                return;
             }
         }
         const float factor = delta > 0 ? 1.1f : 0.9f;
@@ -5365,6 +5487,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 paintDirty = true;
                 return true;
             }
+            if (key == 'R') {
+                activeTool = EditorTool::RECTANGLE;
+                paintDirty = true;
+                return true;
+            }
             if (key == 'T') {
                 activeTool = EditorTool::TEXT;
                 paintDirty = true;
@@ -5458,6 +5585,13 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
         }
         if (key == VK_ESCAPE) {
+            if (drag == DragKind::CREATE) {
+                rollbackCreate();
+                activeTool = EditorTool::SELECT;
+                drag = DragKind::NONE;
+                resizeHandle = ResizeHandle::NONE;
+                return true;
+            }
             if (!editScope.empty() && editTarget == EditTarget::NONE) {
                 editScope.clear();
                 paintDirty = true;
@@ -6243,6 +6377,17 @@ int DesignerApp::Run(const DesignerOptions& options) {
             renderer.FillRectangle(marquee, COLOR_SELECT_WASH, 0.0f);
             DrawBorder(renderer, marquee, COLOR_SELECT);
         }
+        if (drag == DragKind::CREATE && !createPath.empty()) {
+            // The size the shape is being drawn at, read out beside the draft box.
+            const Rect box = selectedScreen();
+            const float scale = std::max(zoom, 0.01f);
+            const std::string size = std::to_string(static_cast<int>(std::lround(box.width / scale))) + " x " +
+                                     std::to_string(static_cast<int>(std::lround(box.height / scale)));
+            const Size measured = renderer.MeasureText(size, 11.0f, 100000.0f);
+            const Rect badge{box.x + (box.width - measured.width - 14.0f) * 0.5f, box.y + box.height + 6.0f, measured.width + 14.0f, 20.0f};
+            renderer.FillRectangle(badge, COLOR_SELECT, 4.0f);
+            DrawLabel(renderer, size, badge, COLOR_CHROME, 11.0f, TextAlign::CENTER);
+        }
         if (showRulers) {
         renderer.FillRectangle(Rect{canvas.x, canvas.y, canvas.width, RULER_SIZE}, COLOR_PANEL, 0.0f);
         renderer.FillRectangle(Rect{canvas.x, canvas.y, RULER_SIZE, canvas.height}, COLOR_PANEL, 0.0f);
@@ -6483,6 +6628,54 @@ int DesignerApp::Run(const DesignerOptions& options) {
         clientHeight = window.ClientHeightDip();
         layoutChrome(clientWidth, clientHeight);
         if (!paint()) {
+            return 1;
+        }
+        // The canvas draws a shape by inserting it and then placing it at the dragged box.
+        // Every component a shape tool can draw has to survive that trip, because the
+        // editor writes defaults of its own for each of them and a default the component
+        // does not declare would leave a document that no longer compiles.
+        const char* drawable[] = {"rectangle", "frame", "text", "image", "line", "vector", "group"};
+        for (const char* component : drawable) {
+            std::vector<int> drawnShape;
+            if (!document.InsertChild({0}, component, drawnShape) || !document.SetAttribute(drawnShape, "id", "drawnShape") ||
+                !document.PlaceNode(drawnShape, 40.0f, 60.0f, 180.0f, 90.0f)) {
+                LogError(std::string("Self-test could not draw a ") + component + ".");
+                return 1;
+            }
+            rebuildPreview();
+            // The preview only has bounds once a paint pass measured and arranged it.
+            if (!paint()) {
+                return 1;
+            }
+            if (!compileDiagnostics.empty()) {
+                LogError(std::string("Self-test drew a ") + component + " that fails to compile: " + compileDiagnostics.front().message);
+                return 1;
+            }
+            Element* drawnElement = preview == nullptr ? nullptr : preview->FindById("drawnShape");
+            if (drawnElement == nullptr) {
+                LogError(std::string("Self-test drew a ") + component + " that did not reach the preview.");
+                return 1;
+            }
+            if (std::fabs(drawnElement->Bounds().width - 180.0f) > 0.01f || std::fabs(drawnElement->Bounds().height - 90.0f) > 0.01f) {
+                LogError(std::string("Self-test drew a ") + component + " at " + std::to_string(drawnElement->Bounds().width) + " x " +
+                         std::to_string(drawnElement->Bounds().height) + " instead of 180 x 90.");
+                return 1;
+            }
+            document.DeleteNode(drawnShape);
+            rebuildPreview();
+        }
+        // Control+G wraps the selection and Control+Shift+G lifts it again. The self-test
+        // runs the same document calls the keys make, because the keys themselves need the
+        // real system keyboard state.
+        std::vector<int> groupPath;
+        if (!document.GroupNodes({buttonPath}, groupPath) || document.NodeAt(groupPath) == nullptr ||
+            document.NodeAt(groupPath)->name != "group") {
+            LogError("Self-test could not group the selected node.");
+            return 1;
+        }
+        if (!document.UngroupNode(groupPath) || document.NodeAt(groupPath) == nullptr ||
+            document.NodeAt(groupPath)->name != "frame") {
+            LogError("Self-test could not ungroup the group again.");
             return 1;
         }
         LogInfo("RoboUIDesigner self-test ok");
