@@ -1,8 +1,10 @@
 #include "compiler/ir/UiIr.h"
 #include "compiler/semantic/UiCompiler.h"
 #include "compiler/types/ValueParser.h"
+#include "components/ellipse/EllipseElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
+#include "components/line/LineElement.h"
 #include "components/layout/BoardElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
@@ -57,6 +59,11 @@ struct PaintRecord {
     int clipDepth = 0;
     int rotationDepth = 0;
     float rotation = 0.0f;
+    // True when the draw went through a sampled path rather than a platform rectangle,
+    // which is how a shape with corners or a curve is told apart from a plain box. The
+    // path itself is kept so a test can measure the curve that was actually drawn.
+    bool vector = false;
+    std::string path;
 };
 
 // Records what a paint pass handed to each draw, so a group can be checked for passing its
@@ -72,7 +79,11 @@ public:
     void StrokeRectangle(const Rect& rect, const Color&, float, float) override { Record(rect); }
     void DrawString(std::string_view, const Rect& rect, const TextStyle&) override { Record(rect); }
     void DrawCachedImage(std::string_view, const Rect& rect, const unsigned char*, int, int) override { Record(rect); }
-    void DrawVector(const VectorPaint& paint) override { Record(paint.bounds); }
+    void DrawVector(const VectorPaint& paint) override {
+        Record(paint.bounds);
+        records.back().vector = true;
+        records.back().path.assign(paint.data);
+    }
     void PushClip(const Rect& rect) override { clips.push_back(rect); }
     void PopClip() override {
         if (!clips.empty()) {
@@ -1048,6 +1059,392 @@ void TestRectangle(TestContext& test) {
     Finish(test, "rectangle", before);
 }
 
+void TestEllipse(TestContext& test) {
+    const int before = test.failed;
+
+    // An ellipse that never got a size is a circle, and like every shape it holds nothing.
+    std::unique_ptr<Element> plain = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<ellipse id=\"dot\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* dot = plain != nullptr ? plain->FindById("dot") : nullptr;
+    CHECK(test, dot != nullptr && dot->Kind() == NodeKind::ELLIPSE);
+    if (dot != nullptr) {
+        CHECK(test, std::fabs(dot->Bounds().width - 100.0f) < 0.01f);
+        CHECK(test, std::fabs(dot->Bounds().height - 100.0f) < 0.01f);
+        CHECK(test, dot->Children().empty());
+        CHECK(test, dynamic_cast<EllipseElement*>(dot) != nullptr && static_cast<EllipseElement*>(dot)->IsCircle());
+    }
+
+    // A circle takes one diameter instead of two sizes, and the two names are one component.
+    std::unique_ptr<Element> round = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<circle id=\"ring\" diameter=\"80\" fill=\"#000000\" />"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* ring = round != nullptr ? round->FindById("ring") : nullptr;
+    CHECK(test, ring != nullptr && ring->Kind() == NodeKind::ELLIPSE);
+    if (ring != nullptr) {
+        CHECK(test, std::fabs(ring->Bounds().width - 80.0f) < 0.01f);
+        CHECK(test, std::fabs(ring->Bounds().height - 80.0f) < 0.01f);
+    }
+    // The diameter fills in only the sizes the node did not give, so one number is round
+    // while an explicit size still wins and lets the editor resize a circle.
+    std::unique_ptr<Element> forced = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<circle id=\"halfDia\" diameter=\"80\" width=\"120\"/>"
+        "<circle id=\"squareDia\" diameter=\"80\" width=\"200\" height=\"40\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* halfDia = forced != nullptr ? forced->FindById("halfDia") : nullptr;
+    Element* squareDia = forced != nullptr ? forced->FindById("squareDia") : nullptr;
+    CHECK(test, halfDia != nullptr && squareDia != nullptr);
+    if (halfDia != nullptr && squareDia != nullptr) {
+        CHECK(test, std::fabs(halfDia->Bounds().width - 120.0f) < 0.01f);
+        CHECK(test, std::fabs(halfDia->Bounds().height - 80.0f) < 0.01f);
+        // A circle resized out of round is an ellipse, which is what a circle is made of.
+        CHECK(test, std::fabs(squareDia->Bounds().width - 200.0f) < 0.01f);
+        CHECK(test, std::fabs(squareDia->Bounds().height - 40.0f) < 0.01f);
+    }
+
+    // An ellipse is two radii, and a fixed, filled, or percentage length is the only thing
+    // that moves it off the circle, with min and max still capping it.
+    std::unique_ptr<Element> sized = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<ellipse id=\"oval\" x=\"10\" y=\"20\" width=\"240\" height=\"140\"/>"
+        "<ellipse id=\"capped\" x=\"10\" y=\"160\" width=\"300\" maxWidth=\"120\" height=\"30\"/>"
+        "<ellipse id=\"half\" x=\"10\" y=\"10\" width=\"50%\" height=\"20\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* oval = sized != nullptr ? sized->FindById("oval") : nullptr;
+    Element* cappedOval = sized != nullptr ? sized->FindById("capped") : nullptr;
+    Element* halfOval = sized != nullptr ? sized->FindById("half") : nullptr;
+    CHECK(test, oval != nullptr && cappedOval != nullptr && halfOval != nullptr);
+    if (oval != nullptr && cappedOval != nullptr && halfOval != nullptr) {
+        CHECK(test, std::fabs(oval->Bounds().x - 10.0f) < 0.01f && std::fabs(oval->Bounds().y - 20.0f) < 0.01f);
+        CHECK(test, std::fabs(oval->Bounds().width - 240.0f) < 0.01f && std::fabs(oval->Bounds().height - 140.0f) < 0.01f);
+        CHECK(test, std::fabs(cappedOval->Bounds().width - 120.0f) < 0.01f);
+        CHECK(test, std::fabs(halfOval->Bounds().width - 200.0f) < 0.01f);
+        // A non-square box is an ellipse rather than a circle, and a circle is not one.
+        CHECK(test, dynamic_cast<EllipseElement*>(oval) != nullptr && !static_cast<EllipseElement*>(oval)->IsCircle());
+    }
+
+    // Fill, stroke, opacity, and rotation all reach the paint pass. A circle goes through the
+    // platform primitive; an ellipse has to go through a path, because a rounded rectangle
+    // with the same radii would come out a stadium.
+    std::unique_ptr<Element> painted = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<ellipse id=\"solid\" x=\"10\" y=\"10\" width=\"80\" height=\"80\" fill=\"#112233\" opacity=\"0.5\"/>"
+        "<ellipse id=\"outline\" x=\"10\" y=\"60\" width=\"60\" height=\"60\" fill=\"#00000000\" stroke=\"#445566\" strokeWidth=\"3\"/>"
+        "<ellipse id=\"stretched\" x=\"120\" y=\"10\" width=\"120\" height=\"40\" background=\"#778899\"/>"
+        "<ellipse id=\"turned\" x=\"150\" y=\"80\" width=\"60\" height=\"30\" fill=\"#8899AA\" rotation=\"30\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* solidEllipse = painted != nullptr ? painted->FindById("solid") : nullptr;
+    Element* outlineEllipse = painted != nullptr ? painted->FindById("outline") : nullptr;
+    Element* stretchedEllipse = painted != nullptr ? painted->FindById("stretched") : nullptr;
+    Element* turnedEllipse = painted != nullptr ? painted->FindById("turned") : nullptr;
+    CHECK(test, solidEllipse != nullptr && outlineEllipse != nullptr && stretchedEllipse != nullptr && turnedEllipse != nullptr);
+    if (solidEllipse != nullptr && outlineEllipse != nullptr && stretchedEllipse != nullptr && turnedEllipse != nullptr) {
+        RecordingRenderer renderer;
+        painted->Paint(renderer);
+        const PaintRecord* solidPaint = PaintRecordFor(renderer, solidEllipse->Bounds());
+        const PaintRecord* outlinePaint = PaintRecordFor(renderer, outlineEllipse->Bounds());
+        const PaintRecord* stretchedPaint = PaintRecordFor(renderer, stretchedEllipse->Bounds());
+        const PaintRecord* turnedPaint = PaintRecordFor(renderer, turnedEllipse->Bounds());
+        CHECK(test, solidPaint != nullptr && outlinePaint != nullptr && stretchedPaint != nullptr && turnedPaint != nullptr);
+        if (solidPaint != nullptr) {
+            CHECK(test, std::fabs(solidPaint->opacity - 0.5f) < 0.001f);
+            CHECK(test, solidPaint->rotationDepth == 0 && solidPaint->clipDepth == 0);
+        }
+        // Only the stretched box needs a path; the three square boxes are circles.
+        CHECK(test, stretchedPaint != nullptr && stretchedPaint->vector);
+        if (stretchedPaint != nullptr && stretchedPaint->vector) {
+            // The curve is checked against its own definition: every sampled point of the
+            // path sits on the two radii. A stadium would miss by a wide margin at 45 degrees.
+            const Rect box = stretchedEllipse->Bounds();
+            const float radiusX = box.width * 0.5f;
+            const float radiusY = box.height * 0.5f;
+            float worst = 0.0f;
+            const std::vector<PathSample> samples = SamplePath(stretchedPaint->path);
+            for (const PathSample& sample : samples) {
+                const float normalizedX = (sample.x - radiusX) / radiusX;
+                const float normalizedY = (sample.y - radiusY) / radiusY;
+                worst = std::max(worst, std::fabs(normalizedX * normalizedX + normalizedY * normalizedY - 1.0f));
+            }
+            CHECK(test, samples.size() > 16);
+            CHECK(test, worst < 0.02f);
+        }
+        // A circle stays on the platform primitive, so no path is drawn for it at all.
+        const bool solidDrewVector = std::any_of(renderer.records.begin(), renderer.records.end(), [&](const PaintRecord& record) {
+            return record.vector && std::fabs(record.rect.width - solidEllipse->Bounds().width) < 0.01f &&
+                   std::fabs(record.rect.height - solidEllipse->Bounds().height) < 0.01f;
+        });
+        CHECK(test, !solidDrewVector);
+        if (turnedPaint != nullptr) {
+            CHECK(test, std::fabs(turnedPaint->rotation - 30.0f) < 0.01f);
+            CHECK(test, turnedPaint->rotationDepth == 1);
+        }
+    }
+
+    // The curve is the shape: a click in the corner of the box is outside the ellipse, and a
+    // click on the far side of a turn is outside it too.
+    std::unique_ptr<Element> hits = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<ellipse id=\"wide\" x=\"20\" y=\"20\" width=\"160\" height=\"80\"/>"
+        "<ellipse id=\"lean\" x=\"20\" y=\"120\" width=\"80\" height=\"40\" rotation=\"45\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* wideEllipse = hits != nullptr ? hits->FindById("wide") : nullptr;
+    Element* leanEllipse = hits != nullptr ? hits->FindById("lean") : nullptr;
+    CHECK(test, wideEllipse != nullptr && leanEllipse != nullptr);
+    if (wideEllipse != nullptr && leanEllipse != nullptr) {
+        const Rect wide = wideEllipse->Bounds();
+        CHECK(test, wideEllipse->HitTest(Point{wide.x + wide.width * 0.5f, wide.y + wide.height * 0.5f}) == wideEllipse);
+        CHECK(test, wideEllipse->HitTest(Point{wide.x + 2.0f, wide.y + 2.0f}) == nullptr);
+        CHECK(test, wideEllipse->HitTest(Point{wide.x + wide.width * 0.5f, wide.y + 1.0f}) == wideEllipse);
+        CHECK(test, wideEllipse->HitTest(Point{wide.x + 1.0f, wide.y + wide.height * 0.5f}) == wideEllipse);
+        CHECK(test, wideEllipse->HitTest(Point{wide.x - 6.0f, wide.y + wide.height * 0.5f}) == nullptr);
+        // The turned box is the renderer's bounds, so the same point lands inside it.
+        const Rect lean = leanEllipse->Bounds();
+        CHECK(test, leanEllipse->HitTest(Point{lean.x + lean.width * 0.5f, lean.y + lean.height * 0.5f}) == leanEllipse);
+    }
+
+    // A binding or an animation drives the ellipse's own values, not just the ones every
+    // element carries.
+    std::unique_ptr<Element> driven = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<ellipse id=\"driven\" width=\"60\" height=\"60\" fill=\"#000000\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    EllipseElement* drivenEllipse = driven != nullptr ? dynamic_cast<EllipseElement*>(driven->FindById("driven")) : nullptr;
+    CHECK(test, drivenEllipse != nullptr);
+    if (drivenEllipse != nullptr) {
+        drivenEllipse->ApplyBound("fill", "#FF0000");
+        CHECK(test, drivenEllipse->Fill().r > 0.9f && drivenEllipse->Fill().g < 0.1f);
+        drivenEllipse->ApplyBound("stroke", "#00FF00");
+        drivenEllipse->ApplyBound("strokeWidth", "4");
+        CHECK(test, drivenEllipse->StrokeColor().g > 0.9f && drivenEllipse->StrokeColor().r < 0.1f);
+        CHECK(test, std::fabs(drivenEllipse->StrokeWidth() - 4.0f) < 0.01f);
+        drivenEllipse->ApplyBound("rotation", "90");
+        CHECK(test, std::fabs(drivenEllipse->Rotation() - 90.0f) < 0.01f);
+    }
+
+    // Hidden and display="none" ellipses measure to nothing and paint nothing.
+    std::unique_ptr<Element> hidden = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<ellipse id=\"gone\" width=\"80\" height=\"80\" display=\"none\"/>"
+        "<ellipse id=\"away\" x=\"90\" y=\"0\" width=\"80\" height=\"80\" visible=\"false\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* goneEllipse = hidden != nullptr ? hidden->FindById("gone") : nullptr;
+    Element* awayEllipse = hidden != nullptr ? hidden->FindById("away") : nullptr;
+    CHECK(test, goneEllipse != nullptr && awayEllipse != nullptr);
+    if (goneEllipse != nullptr && awayEllipse != nullptr) {
+        CHECK(test, !goneEllipse->Visible() && !awayEllipse->Visible());
+        CHECK(test, goneEllipse->Measured().width == 0.0f && goneEllipse->Measured().height == 0.0f);
+        CHECK(test, goneEllipse->HitTest(Point{goneEllipse->Bounds().x + 4.0f, goneEllipse->Bounds().y + 4.0f}) == nullptr);
+    }
+
+    // The compiler rejects what an ellipse is not: no layout, no padding, no radius (it has
+    // no corners to round), no overflow, and no children.
+    CHECK(test, CompileUi(Source("<window><ellipse width=\"10\" fill=\"#FFFFFF\" stroke=\"#000000\" strokeWidth=\"1\"/></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><circle diameter=\"10\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><ellipse layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><ellipse padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><ellipse gap=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><ellipse radius=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><ellipse overflow=\"scroll\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><ellipse><frame/></ellipse></window>")).Ok());
+    // A diameter is a circle's value, so an ellipse does not take one.
+    CHECK(test, !CompileUi(Source("<window><ellipse diameter=\"10\"/></window>")).Ok());
+
+    Finish(test, "ellipse", before);
+}
+
+void TestLine(TestContext& test) {
+    const int before = test.failed;
+
+    // A line is two endpoints, so its box is their span and it holds nothing.
+    std::unique_ptr<Element> plain = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<line id=\"span\" x1=\"0\" y1=\"0\" x2=\"120\" y2=\"40\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* span = plain != nullptr ? plain->FindById("span") : nullptr;
+    CHECK(test, span != nullptr && span->Kind() == NodeKind::LINE);
+    if (span != nullptr) {
+        CHECK(test, std::fabs(span->Bounds().width - 120.0f) < 0.01f);
+        CHECK(test, std::fabs(span->Bounds().height - 40.0f) < 0.01f);
+        CHECK(test, span->Children().empty());
+    }
+
+    // An explicit box stretches the endpoints with it, so dragging a line's handle lengthens
+    // the line instead of only growing the area that catches clicks.
+    std::unique_ptr<Element> stretched = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<line id=\"long\" x1=\"0\" y1=\"0\" x2=\"60\" y2=\"20\" width=\"180\" height=\"60\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* longLine = stretched != nullptr ? stretched->FindById("long") : nullptr;
+    CHECK(test, longLine != nullptr);
+    if (longLine != nullptr) {
+        CHECK(test, std::fabs(longLine->Bounds().width - 180.0f) < 0.01f);
+        CHECK(test, std::fabs(longLine->Bounds().height - 60.0f) < 0.01f);
+        // The stroke now reaches the far corner of the box, three times as far as it did.
+        const Rect box = longLine->Bounds();
+        CHECK(test, longLine->HitTest(Point{box.x + box.width - 1.0f, box.y + box.height - 1.0f}) == longLine);
+        CHECK(test, longLine->HitTest(Point{box.x + box.width * 0.5f, box.y + 1.0f}) == nullptr);
+    }
+
+    // A line with no run on an axis is drawn across the middle of its box rather than hugging
+    // one edge, which is what makes a horizontal line with a height look right.
+    std::unique_ptr<Element> flat = Layout(
+        "<window width=\"200\" height=\"100\"><frame layout=\"none\" width=\"200\" height=\"100\">"
+        "<line id=\"flat\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"20\"/>"
+        "</frame></window>",
+        200.0f, 100.0f);
+    Element* flatLine = flat != nullptr ? flat->FindById("flat") : nullptr;
+    CHECK(test, flatLine != nullptr);
+    if (flatLine != nullptr) {
+        const Rect box = flatLine->Bounds();
+        CHECK(test, flatLine->HitTest(Point{box.x + 40.0f, box.y + 10.0f}) == flatLine);
+        CHECK(test, flatLine->HitTest(Point{box.x + 40.0f, box.y + 1.0f}) == nullptr);
+        CHECK(test, flatLine->HitTest(Point{box.x + 20.0f, box.y + 19.0f}) == nullptr);
+    }
+
+    // The stroke, its width, and its cap reach the paint pass, and only the requested dash
+    // pattern turns a solid stroke into a dashed one.
+    std::unique_ptr<Element> painted = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<line id=\"solid\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"20\" stroke=\"#FF0000\" strokeWidth=\"4\" opacity=\"0.5\"/>"
+        "<line id=\"dashed\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"20\" stroke=\"#00FF00\" strokeWidth=\"2\" dash=\"6\" dashGap=\"4\" lineCap=\"round\"/>"
+        "<line id=\"dotted\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"20\" stroke=\"#0000FF\" strokeWidth=\"2\" dash=\"2 6\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* solidLine = painted != nullptr ? painted->FindById("solid") : nullptr;
+    Element* dashedLine = painted != nullptr ? painted->FindById("dashed") : nullptr;
+    Element* dottedLine = painted != nullptr ? painted->FindById("dotted") : nullptr;
+    CHECK(test, solidLine != nullptr && dashedLine != nullptr && dottedLine != nullptr);
+    if (solidLine != nullptr && dashedLine != nullptr && dottedLine != nullptr) {
+        LineElement* solid = dynamic_cast<LineElement*>(solidLine);
+        LineElement* dashed = dynamic_cast<LineElement*>(dashedLine);
+        LineElement* dotted = dynamic_cast<LineElement*>(dottedLine);
+        CHECK(test, solid != nullptr && dashed != nullptr && dotted != nullptr);
+        if (solid != nullptr && dashed != nullptr && dotted != nullptr) {
+            CHECK(test, solid->Dashes().empty());
+            CHECK(test, solid->LineCap() == "butt");
+            CHECK(test, dashed->Dashes().size() == 2 && std::fabs(dashed->Dashes()[0] - 6.0f) < 0.01f && std::fabs(dashed->Dashes()[1] - 4.0f) < 0.01f);
+            CHECK(test, dashed->LineCap() == "round");
+            // Two numbers alternate on and off by themselves, with no gap property needed.
+            CHECK(test, dotted->Dashes().size() == 2 && std::fabs(dotted->Dashes()[0] - 2.0f) < 0.01f && std::fabs(dotted->Dashes()[1] - 6.0f) < 0.01f);
+        }
+        RecordingRenderer renderer;
+        painted->Paint(renderer);
+        const PaintRecord* solidPaint = PaintRecordFor(renderer, solidLine->Bounds());
+        CHECK(test, solidPaint != nullptr);
+        if (solidPaint != nullptr) {
+            CHECK(test, std::fabs(solidPaint->opacity - 0.5f) < 0.001f);
+            CHECK(test, solidPaint->rotationDepth == 0 && solidPaint->clipDepth == 0);
+            // The stroke is one path, not a stamp of squares, so a long line costs one draw.
+            CHECK(test, solidPaint->vector);
+            if (solidPaint->vector) {
+                // The path runs straight from one end of the box to the other, across the
+                // middle, which is the line the endpoints ask for.
+                const Rect box = solidLine->Bounds();
+                const std::vector<PathSample> samples = SamplePath(solidPaint->path);
+                CHECK(test, samples.size() >= 2);
+                if (samples.size() >= 2) {
+                    const PathSample& first = samples.front();
+                    const PathSample& last = samples.back();
+                    CHECK(test, std::fabs(first.x) < 1.0f && std::fabs(first.y - box.height * 0.5f) < 1.0f);
+                    CHECK(test, std::fabs(last.x - box.width) < 1.0f && std::fabs(last.y - box.height * 0.5f) < 1.0f);
+                }
+            }
+        }
+    }
+
+    // A line is hit along its stroke and not in the empty half of its box.
+    std::unique_ptr<Element> hits = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<line id=\"diagonal\" x=\"20\" y=\"20\" x1=\"0\" y1=\"0\" x2=\"100\" y2=\"100\" width=\"100\" height=\"100\" strokeWidth=\"2\"/>"
+        "<line id=\"turned\" x=\"0\" y=\"140\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"20\" rotation=\"90\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* diagonal = hits != nullptr ? hits->FindById("diagonal") : nullptr;
+    Element* turned = hits != nullptr ? hits->FindById("turned") : nullptr;
+    CHECK(test, diagonal != nullptr && turned != nullptr);
+    if (diagonal != nullptr && turned != nullptr) {
+        const Rect box = diagonal->Bounds();
+        CHECK(test, diagonal->HitTest(Point{box.x + 50.0f, box.y + 50.0f}) == diagonal);
+        CHECK(test, diagonal->HitTest(Point{box.x + 50.0f, box.y + 2.0f}) == nullptr);
+        CHECK(test, diagonal->HitTest(Point{box.x + 2.0f, box.y + 50.0f}) == nullptr);
+        // Undoing the turn is what keeps the stroke hit along the line rather than across it.
+        const Rect turnedBox = turned->Bounds();
+        CHECK(test, turned->HitTest(Point{turnedBox.x + turnedBox.width * 0.5f, turnedBox.y + turnedBox.height * 0.5f}) == turned);
+        CHECK(test, turned->HitTest(Point{turnedBox.x + 1.0f, turnedBox.y + 1.0f}) == nullptr);
+    }
+
+    // A binding or an animation drives the line's own values, endpoints included.
+    std::unique_ptr<Element> driven = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<line id=\"driven\" x1=\"0\" y1=\"0\" x2=\"60\" y2=\"0\" width=\"60\" height=\"10\" stroke=\"#000000\" strokeWidth=\"1\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    LineElement* drivenLine = driven != nullptr ? dynamic_cast<LineElement*>(driven->FindById("driven")) : nullptr;
+    CHECK(test, drivenLine != nullptr);
+    if (drivenLine != nullptr) {
+        drivenLine->ApplyBound("stroke", "#FF0000");
+        CHECK(test, drivenLine->StrokeColor().r > 0.9f && drivenLine->StrokeColor().g < 0.1f);
+        drivenLine->ApplyBound("strokeWidth", "5");
+        CHECK(test, std::fabs(drivenLine->StrokeWidth() - 5.0f) < 0.01f);
+        drivenLine->ApplyBound("lineCap", "round");
+        CHECK(test, drivenLine->LineCap() == "round");
+        drivenLine->ApplyBound("dash", "8");
+        CHECK(test, drivenLine->Dashes().size() == 2 && std::fabs(drivenLine->Dashes()[0] - 8.0f) < 0.01f && std::fabs(drivenLine->Dashes()[1] - 8.0f) < 0.01f);
+        drivenLine->ApplyBound("dashGap", "3");
+        CHECK(test, drivenLine->Dashes().size() == 2 && std::fabs(drivenLine->Dashes()[1] - 3.0f) < 0.01f);
+        drivenLine->ApplyBound("y2", "40");
+        CHECK(test, std::fabs(drivenLine->EndY() - 40.0f) < 0.01f);
+        drivenLine->ApplyBound("rotation", "90");
+        CHECK(test, std::fabs(drivenLine->Rotation() - 90.0f) < 0.01f);
+        // An unreadable pattern leaves the stroke solid instead of clearing it.
+        drivenLine->ApplyBound("dash", "none");
+        CHECK(test, drivenLine->Dashes().empty());
+    }
+
+    // Hidden and display="none" lines measure to nothing and are not hit.
+    std::unique_ptr<Element> hidden = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<line id=\"gone\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"10\" display=\"none\"/>"
+        "<line id=\"away\" x=\"0\" y=\"20\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"10\" visible=\"false\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* goneLine = hidden != nullptr ? hidden->FindById("gone") : nullptr;
+    Element* awayLine = hidden != nullptr ? hidden->FindById("away") : nullptr;
+    CHECK(test, goneLine != nullptr && awayLine != nullptr);
+    if (goneLine != nullptr && awayLine != nullptr) {
+        CHECK(test, !goneLine->Visible() && !awayLine->Visible());
+        const Rect box = goneLine->Bounds();
+        CHECK(test, goneLine->HitTest(Point{box.x + 4.0f, box.y + 4.0f}) == nullptr);
+    }
+
+    // The compiler rejects what a line is not: no layout, no fill (it has no area to cover),
+    // no radius, no overflow, and no children.
+    CHECK(test, CompileUi(Source("<window><line x1=\"0\" y1=\"0\" x2=\"10\" y2=\"10\" stroke=\"#000000\" strokeWidth=\"1\"/></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><line lineCap=\"round\" dash=\"4 2\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><line layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><line padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><line gap=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><line radius=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><line overflow=\"scroll\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><line fill=\"#FFFFFF\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><line><frame/></line></window>")).Ok());
+
+    Finish(test, "line", before);
+}
+
 void TestBoards(TestContext& test) {
     const int before = test.failed;
     std::unique_ptr<Element> root = Layout(
@@ -1710,6 +2107,8 @@ int RunUnitTests() {
     TestPrimitives(test);
     TestGroup(test);
     TestRectangle(test);
+    TestEllipse(test);
+    TestLine(test);
     TestBoards(test);
     TestDesignDocumentEditsXml(test);
     TestDesignDocumentGroups(test);

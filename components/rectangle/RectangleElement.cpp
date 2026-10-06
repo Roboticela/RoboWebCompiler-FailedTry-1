@@ -250,9 +250,11 @@ void RectangleElement::OnPaint(Renderer& renderer) {
             renderer.StrokeRectangle(area, stroke, strokeWidth, Radius());
         }
     } else {
+        // The path outlives the paint it is handed to; a view into a temporary would dangle.
+        const std::string path = CornerPath(area.width, area.height);
         VectorPaint paint;
         paint.bounds = area;
-        paint.data = CornerPath(area.width, area.height);
+        paint.data = path;
         paint.viewX = 0.0f;
         paint.viewY = 0.0f;
         paint.viewWidth = area.width;

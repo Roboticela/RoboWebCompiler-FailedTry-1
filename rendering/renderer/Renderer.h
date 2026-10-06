@@ -6,6 +6,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Runtime {
 
@@ -50,6 +51,9 @@ struct VectorPaint {
     bool fillEnabled = false;
     char lineCap = 'b';
     char lineJoin = 'm';
+    // Alternating painted and unpainted lengths in pixels. An empty pattern strokes solid,
+    // so a caller that never sets one keeps the plain line it always drew.
+    std::vector<float> dashes;
 };
 
 class Renderer : public TextMeasurer {

@@ -33,7 +33,6 @@ public:
     void SetUnderline(bool value);
     void SetSpin(float degrees);
     void SetTextStyle(std::string family, bool italic, bool rtl, std::string locale);
-    void SetLine(float startX, float startY, float endX, float endY);
     void SetCornerRadius(float value);
 
 protected:
@@ -73,10 +72,6 @@ private:
     bool rtl = false;
     bool underline = false;
     float spin = 0.0f;
-    float lineX1 = 0.0f;
-    float lineY1 = 0.0f;
-    float lineX2 = 80.0f;
-    float lineY2 = 0.0f;
     float cornerRadius = 0.0f;
 };
 

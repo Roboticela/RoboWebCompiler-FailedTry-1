@@ -5,6 +5,8 @@
 #include "components/layout/BoardElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
+#include "components/ellipse/EllipseElement.h"
+#include "components/line/LineElement.h"
 #include "components/rectangle/RectangleElement.h"
 #include "components/text/TextElement.h"
 #include <algorithm>
@@ -585,6 +587,126 @@ void ApplyRectangle(RectangleElement& rectangle, const IrNode& node) {
     }
 }
 
+// The size, spacing, and identity values an ellipse and a line share with a rectangle.
+// A shape has no layout of its own, so it can only be placed, sized, and capped.
+void ApplyShapeBox(Element& shape, const IrNode& node) {
+    if (const UiValue* value = FindProperty(node, "minWidth")) shape.SetMinWidth(value->length);
+    if (const UiValue* value = FindProperty(node, "maxWidth")) shape.SetMaxWidth(value->length);
+    if (const UiValue* value = FindProperty(node, "minHeight")) shape.SetMinHeight(value->length);
+    if (const UiValue* value = FindProperty(node, "maxHeight")) shape.SetMaxHeight(value->length);
+    Edges margin{};
+    bool hasMargin = false;
+    if (const UiValue* value = FindProperty(node, "margin")) {
+        margin = value->edges;
+        hasMargin = true;
+    }
+    const auto marginSide = [&](const char* name, Length& edge) {
+        if (const UiValue* value = FindProperty(node, name)) {
+            edge = value->length;
+            hasMargin = true;
+        }
+    };
+    marginSide("marginTop", margin.top);
+    marginSide("marginRight", margin.right);
+    marginSide("marginBottom", margin.bottom);
+    marginSide("marginLeft", margin.left);
+    if (hasMargin) {
+        shape.SetMargin(margin);
+    }
+    if (const UiValue* value = FindProperty(node, "grow")) shape.SetGrow(static_cast<float>(value->number));
+    if (const UiValue* value = FindProperty(node, "zIndex")) shape.SetZIndex(static_cast<int>(value->number));
+}
+
+void ApplyEllipse(EllipseElement& ellipse, const IrNode& node) {
+    ApplyCommon(ellipse, node);
+    ApplyShapeBox(ellipse, node);
+    if (const UiValue* value = FindProperty(node, "cursor")) ellipse.SetCursor(value->text);
+    bool hasFill = false;
+    Color fill{};
+    if (const UiValue* value = FindProperty(node, "fill")) {
+        fill = value->color;
+        hasFill = true;
+    }
+    if (const UiValue* value = FindProperty(node, "background")) {
+        fill = value->color;
+        hasFill = true;
+    }
+    if (const UiValue* value = FindProperty(node, "backgroundColor")) {
+        fill = value->color;
+        hasFill = true;
+    }
+    if (hasFill) {
+        ellipse.SetFill(fill);
+    }
+    Color stroke = ellipse.StrokeColor();
+    float strokeWidth = ellipse.StrokeWidth();
+    if (const UiValue* value = FindProperty(node, "stroke")) {
+        stroke = value->color;
+        if (strokeWidth <= 0.0f) {
+            strokeWidth = 1.0f;
+        }
+    }
+    if (const UiValue* value = FindProperty(node, "strokeWidth")) {
+        strokeWidth = static_cast<float>(value->number);
+    }
+    ellipse.SetStroke(stroke, strokeWidth);
+    if (const UiValue* value = FindProperty(node, "rotation")) {
+        ellipse.SetRotation(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "display")) {
+        ellipse.SetDisplay(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "visibility")) {
+        ellipse.SetDisplay(value->text);
+    }
+    // A circle is one number wide. The diameter fills in only the sizes the node did not
+    // give, so a circle written with one number comes out round while an explicit width and
+    // height still win and let the editor resize it.
+    if (const UiValue* value = FindProperty(node, "diameter")) {
+        const Length side = value->length;
+        if (FindProperty(node, "width") == nullptr) {
+            ellipse.SetWidth(side);
+        }
+        if (FindProperty(node, "height") == nullptr) {
+            ellipse.SetHeight(side);
+        }
+    }
+}
+
+void ApplyLine(LineElement& line, const IrNode& node) {
+    ApplyCommon(line, node);
+    ApplyShapeBox(line, node);
+    if (const UiValue* value = FindProperty(node, "cursor")) line.SetCursor(value->text);
+    line.SetEndpoints(NumberOf(node, "x1", 0.0f), NumberOf(node, "y1", 0.0f), NumberOf(node, "x2", 80.0f), NumberOf(node, "y2", 0.0f));
+    Color stroke = line.StrokeColor();
+    float strokeWidth = line.StrokeWidth();
+    if (const UiValue* value = FindProperty(node, "stroke")) {
+        stroke = value->color;
+    }
+    if (const UiValue* value = FindProperty(node, "strokeWidth")) {
+        strokeWidth = static_cast<float>(value->number);
+    }
+    line.SetStroke(stroke, strokeWidth);
+    if (const UiValue* value = FindProperty(node, "lineCap")) {
+        line.SetLineCap(value->text);
+    }
+    // A dash pattern written as numbers carries its own gaps; a single number is a dash
+    // length whose gap comes from dashGap.
+    if (const UiValue* value = FindProperty(node, "dash")) {
+        const float gap = NumberOf(node, "dashGap", 0.0f);
+        line.SetDash(value->text, gap);
+    }
+    if (const UiValue* value = FindProperty(node, "rotation")) {
+        line.SetRotation(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "display")) {
+        line.SetDisplay(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "visibility")) {
+        line.SetDisplay(value->text);
+    }
+}
+
 void ApplyShape(ShapeElement& shape, const IrNode& node) {
     ApplyCommon(shape, node);
     if (const UiValue* value = FindProperty(node, "text")) {
@@ -689,7 +811,6 @@ void ApplyShape(ShapeElement& shape, const IrNode& node) {
     const bool italic = FindProperty(node, "fontStyle") != nullptr && FindProperty(node, "fontStyle")->text == "italic";
     const bool rtl = FindProperty(node, "direction") != nullptr && FindProperty(node, "direction")->text == "rtl";
     shape.SetTextStyle(std::move(family), italic, rtl, std::move(locale));
-    shape.SetLine(NumberOf(node, "x1", 0.0f), NumberOf(node, "y1", 0.0f), NumberOf(node, "x2", 80.0f), NumberOf(node, "y2", 0.0f));
 }
 
 const IrNode* FindNamedComponent(const IrNode& node, std::string_view name) {
@@ -923,6 +1044,10 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<Frame>();
     case NodeKind::RECTANGLE:
         return std::make_unique<RectangleElement>();
+    case NodeKind::ELLIPSE:
+        return std::make_unique<EllipseElement>();
+    case NodeKind::LINE:
+        return std::make_unique<LineElement>();
     case NodeKind::SHADOW:
         return nullptr;
     case NodeKind::TEXT:
@@ -932,7 +1057,6 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
     case NodeKind::IMAGE:
     case NodeKind::VECTOR:
     case NodeKind::PATH:
-    case NodeKind::LINE:
     case NodeKind::COMPONENT:
     case NodeKind::INSTANCE:
     case NodeKind::SLOT:
@@ -963,6 +1087,10 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         ApplyGroup(*group, node);
     } else if (RectangleElement* rectangle = dynamic_cast<RectangleElement*>(&element)) {
         ApplyRectangle(*rectangle, node);
+    } else if (EllipseElement* ellipse = dynamic_cast<EllipseElement*>(&element)) {
+        ApplyEllipse(*ellipse, node);
+    } else if (LineElement* line = dynamic_cast<LineElement*>(&element)) {
+        ApplyLine(*line, node);
     } else if (ShapeElement* shape = dynamic_cast<ShapeElement*>(&element)) {
         ApplyShape(*shape, node);
     } else {

@@ -133,13 +133,6 @@ void ShapeElement::SetTextStyle(std::string family, bool italicValue, bool rtlVa
     }
 }
 
-void ShapeElement::SetLine(float startX, float startY, float endX, float endY) {
-    lineX1 = startX;
-    lineY1 = startY;
-    lineX2 = endX;
-    lineY2 = endY;
-}
-
 void ShapeElement::SetCornerRadius(float value) {
     cornerRadius = value < 0.0f ? 0.0f : value;
 }
@@ -164,14 +157,10 @@ Size ShapeElement::Measure(TextMeasurer& measurer, float availableWidth, float a
             resolvedWidth = 120.0f;
             resolvedHeight = 80.0f;
         }
-    } else if (nodeKind == NodeKind::LINE) {
-        resolvedWidth = std::max(strokeWidth, std::fabs(lineX2 - lineX1));
-        resolvedHeight = std::max(strokeWidth, std::fabs(lineY2 - lineY1));
     } else if (PlacesChildren()) {
         resolvedWidth = 8.0f;
-        resolvedHeight = 8.0f;
-        for (const std::unique_ptr<Element>& child : Children()) {
-            child->Measure(measurer, availableWidth, availableHeight, false);
+        resolvedHeight = 8.0f;    for (const std::unique_ptr<Element>& child : Children()) {
+        child->Measure(measurer, availableWidth, availableHeight, false);
             const float childRight = child->OffsetX().Resolve(availableWidth, 0.0f, true) + child->Measured().width;
             const float childBottom = child->OffsetY().Resolve(availableHeight, 0.0f, true) + child->Measured().height;
             resolvedWidth = std::max(resolvedWidth, childRight);
@@ -382,12 +371,6 @@ void ShapeElement::OnPaint(Renderer& renderer) {
         paint.lineCap = lineCap;
         paint.lineJoin = lineJoin;
         renderer.DrawVector(paint);
-        return;
-    }
-    if (nodeKind == NodeKind::LINE) {
-        const float left = std::min(lineX1, lineX2);
-        const float top = std::min(lineY1, lineY2);
-        StrokeSegment(renderer, area.x + (lineX1 - left), area.y + (lineY1 - top), area.x + (lineX2 - left), area.y + (lineY2 - top), stroke, strokeWidth);
         return;
     }
     if (nodeKind == NodeKind::COMPONENT || nodeKind == NodeKind::SLOT) {

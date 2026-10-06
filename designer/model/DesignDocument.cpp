@@ -165,6 +165,13 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "height", "100");
         AddDefaultAttribute(node, "fill", "#0E7AFF");
         AddDefaultAttribute(node, "radius", "0");
+    } else if (name == "ellipse") {
+        AddDefaultAttribute(node, "width", "100");
+        AddDefaultAttribute(node, "height", "100");
+        AddDefaultAttribute(node, "fill", "#0E7AFF");
+    } else if (name == "circle") {
+        AddDefaultAttribute(node, "diameter", "100");
+        AddDefaultAttribute(node, "fill", "#0E7AFF");
     } else if (name == "shadow") {
         AddDefaultAttribute(node, "shadowX", "0");
         AddDefaultAttribute(node, "shadowY", "4");
@@ -196,8 +203,9 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "y2", "0");
         AddDefaultAttribute(node, "stroke", "#18181A");
         AddDefaultAttribute(node, "strokeWidth", "2");
+        AddDefaultAttribute(node, "lineCap", "butt");
         AddDefaultAttribute(node, "width", "80");
-        AddDefaultAttribute(node, "height", "8");
+        AddDefaultAttribute(node, "height", "2");
     } else if (name == "group" || name == "component" || name == "slot" || name == "scroll") {
         AddDefaultAttribute(node, "width", "160");
         AddDefaultAttribute(node, "height", "80");

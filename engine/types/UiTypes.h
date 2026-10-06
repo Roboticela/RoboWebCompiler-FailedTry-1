@@ -22,12 +22,13 @@ enum class NodeKind : std::uint8_t {
     WINDOW,
     FRAME,
     RECTANGLE,
+    ELLIPSE,
+    LINE,
     SHADOW,
     TEXT,
     IMAGE,
     VECTOR,
     PATH,
-    LINE,
     GROUP,
     COMPONENT,
     INSTANCE,
@@ -282,6 +283,10 @@ inline const char* NodeKindName(NodeKind kind) {
         return "frame";
     case NodeKind::RECTANGLE:
         return "rectangle";
+    case NodeKind::ELLIPSE:
+        return "ellipse";
+    case NodeKind::LINE:
+        return "line";
     case NodeKind::SHADOW:
         return "shadow";
     case NodeKind::TEXT:
@@ -292,8 +297,6 @@ inline const char* NodeKindName(NodeKind kind) {
         return "vector";
     case NodeKind::PATH:
         return "path";
-    case NodeKind::LINE:
-        return "line";
     case NodeKind::GROUP:
         return "group";
     case NodeKind::COMPONENT:

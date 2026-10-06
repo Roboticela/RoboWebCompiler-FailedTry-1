@@ -353,8 +353,64 @@ std::vector<PropertySpec> PathProperties() {
                                        {"dashOffset", TypeKind::FLOAT}});
 }
 
+// An ellipse is a shape, so it takes the values that describe a shape and nothing that
+// describes a box of content: no layout, no padding, no gap, no overflow, no scrolling.
+// A circle is the same component with a square box and one diameter instead of two sizes.
+std::vector<PropertySpec> EllipseProperties(bool circle) {
+    std::vector<PropertySpec> properties = With(IdentityProperties(), {{"minWidth", TypeKind::LENGTH},
+                                                                       {"maxWidth", TypeKind::LENGTH},
+                                                                       {"minHeight", TypeKind::LENGTH},
+                                                                       {"maxHeight", TypeKind::LENGTH},
+                                                                       {"margin", TypeKind::EDGES},
+                                                                       {"marginTop", TypeKind::LENGTH},
+                                                                       {"marginRight", TypeKind::LENGTH},
+                                                                       {"marginBottom", TypeKind::LENGTH},
+                                                                       {"marginLeft", TypeKind::LENGTH},
+                                                                       {"grow", TypeKind::FLOAT},
+                                                                       {"zIndex", TypeKind::INT},
+                                                                       {"fill", TypeKind::COLOR},
+                                                                       {"background", TypeKind::COLOR},
+                                                                       {"backgroundColor", TypeKind::COLOR},
+                                                                       {"stroke", TypeKind::COLOR},
+                                                                       {"strokeWidth", TypeKind::FLOAT},
+                                                                       {"rotation", TypeKind::FLOAT},
+                                                                       {"cursor", TypeKind::STRING},
+                                                                       {"display", TypeKind::STRING},
+                                                                       {"visibility", TypeKind::STRING},
+                                                                       {"locked", TypeKind::BOOL},
+                                                                       {"left", TypeKind::STRING},
+                                                                       {"right", TypeKind::STRING},
+                                                                       {"top", TypeKind::STRING},
+                                                                       {"bottom", TypeKind::STRING},
+                                                                       {"centerX", TypeKind::STRING},
+                                                                       {"centerY", TypeKind::STRING},
+                                                                       {"horizontal", TypeKind::STRING},
+                                                                       {"vertical", TypeKind::STRING},
+                                                                       {"minScreen", TypeKind::FLOAT},
+                                                                       {"maxScreen", TypeKind::FLOAT},
+                                                                       {"orientation", TypeKind::STRING},
+                                                                       {"minContainer", TypeKind::FLOAT}});
+    if (circle) {
+        properties.push_back({"diameter", TypeKind::LENGTH});
+    }
+    return properties;
+}
+
+// A line is a shape too, but the only paint it owns is its stroke: a fill would have no
+// area to cover. Its geometry is the two endpoints, so it has no radius to round.
 std::vector<PropertySpec> LineProperties() {
-    return With(IdentityProperties(), {{"x1", TypeKind::FLOAT},
+    return With(IdentityProperties(), {{"minWidth", TypeKind::LENGTH},
+                                       {"maxWidth", TypeKind::LENGTH},
+                                       {"minHeight", TypeKind::LENGTH},
+                                       {"maxHeight", TypeKind::LENGTH},
+                                       {"margin", TypeKind::EDGES},
+                                       {"marginTop", TypeKind::LENGTH},
+                                       {"marginRight", TypeKind::LENGTH},
+                                       {"marginBottom", TypeKind::LENGTH},
+                                       {"marginLeft", TypeKind::LENGTH},
+                                       {"grow", TypeKind::FLOAT},
+                                       {"zIndex", TypeKind::INT},
+                                       {"x1", TypeKind::FLOAT},
                                        {"y1", TypeKind::FLOAT},
                                        {"x2", TypeKind::FLOAT},
                                        {"y2", TypeKind::FLOAT},
@@ -362,7 +418,24 @@ std::vector<PropertySpec> LineProperties() {
                                        {"strokeWidth", TypeKind::FLOAT},
                                        {"lineCap", TypeKind::STRING},
                                        {"dash", TypeKind::STRING},
-                                       {"dashGap", TypeKind::FLOAT}});
+                                       {"dashGap", TypeKind::FLOAT},
+                                       {"rotation", TypeKind::FLOAT},
+                                       {"cursor", TypeKind::STRING},
+                                       {"display", TypeKind::STRING},
+                                       {"visibility", TypeKind::STRING},
+                                       {"locked", TypeKind::BOOL},
+                                       {"left", TypeKind::STRING},
+                                       {"right", TypeKind::STRING},
+                                       {"top", TypeKind::STRING},
+                                       {"bottom", TypeKind::STRING},
+                                       {"centerX", TypeKind::STRING},
+                                       {"centerY", TypeKind::STRING},
+                                       {"horizontal", TypeKind::STRING},
+                                       {"vertical", TypeKind::STRING},
+                                       {"minScreen", TypeKind::FLOAT},
+                                       {"maxScreen", TypeKind::FLOAT},
+                                       {"orientation", TypeKind::STRING},
+                                       {"minContainer", TypeKind::FLOAT}});
 }
 
 std::vector<PropertySpec> ScrollProperties() {
@@ -437,6 +510,8 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"image", NodeKind::IMAGE, false, ImageProperties()},
         {"vector", NodeKind::VECTOR, true, VectorProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},
+        {"ellipse", NodeKind::ELLIPSE, false, EllipseProperties(false)},
+        {"circle", NodeKind::ELLIPSE, false, EllipseProperties(true)},
         {"line", NodeKind::LINE, false, LineProperties()},
         {"group", NodeKind::GROUP, true, GroupProperties()},
         {"component", NodeKind::COMPONENT, true, With(IdentityProperties(), {{"variant", TypeKind::STRING}})},

@@ -61,6 +61,10 @@ add_library(RuntimeUi STATIC
     components/group/GroupElement.h
     components/rectangle/RectangleElement.cpp
     components/rectangle/RectangleElement.h
+    components/ellipse/EllipseElement.cpp
+    components/ellipse/EllipseElement.h
+    components/line/LineElement.cpp
+    components/line/LineElement.h
     components/primitive/PrimitiveElement.cpp
     components/primitive/PrimitiveElement.h
     components/layout/WindowElement.cpp

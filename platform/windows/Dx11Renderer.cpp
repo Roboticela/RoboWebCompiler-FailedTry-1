@@ -578,8 +578,12 @@ void Dx11Renderer::DrawVector(const VectorPaint& paint) {
         style.dashCap = cap;
         style.lineJoin = paint.lineJoin == 'r' ? D2D1_LINE_JOIN_ROUND : paint.lineJoin == 'b' ? D2D1_LINE_JOIN_BEVEL : D2D1_LINE_JOIN_MITER;
         style.miterLimit = 4.0f;
+        if (!paint.dashes.empty()) {
+            style.dashStyle = D2D1_DASH_STYLE_CUSTOM;
+        }
         Microsoft::WRL::ComPtr<ID2D1StrokeStyle> strokeStyle;
-        d2dFactory->CreateStrokeStyle(style, nullptr, 0, strokeStyle.GetAddressOf());
+        d2dFactory->CreateStrokeStyle(style, paint.dashes.empty() ? nullptr : paint.dashes.data(),
+                                      static_cast<UINT32>(paint.dashes.size()), strokeStyle.GetAddressOf());
         brush->SetColor(ToD2d(paint.stroke, opacityStack.back()));
         d2dContext->DrawGeometry(geometry.Get(), brush.Get(), paint.strokeWidth, strokeStyle.Get());
     }

@@ -1069,8 +1069,8 @@ If **this** works beautifully, you have the foundation for the rest.
 
 5.  Rectangle [Done]
 6.  Rounded Rectangle [Done]
-7.  Ellipse / Circle
-8.  Line
+7.  Ellipse / Circle [Done]
+8.  Line [Done]
 9.  Arrow
 10. Polygon
 11. Star

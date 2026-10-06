@@ -6,6 +6,7 @@ enum class EditorTool {
     SELECT,
     FRAME,
     RECTANGLE,
+    ELLIPSE,
     TEXT,
     IMAGE,
     LINE,
@@ -21,6 +22,8 @@ inline const char* EditorToolName(EditorTool tool) {
         return "Frame";
     case EditorTool::RECTANGLE:
         return "Rectangle";
+    case EditorTool::ELLIPSE:
+        return "Ellipse";
     case EditorTool::TEXT:
         return "Text";
     case EditorTool::IMAGE:
@@ -41,6 +44,8 @@ inline const char* EditorToolComponent(EditorTool tool) {
         return "frame";
     case EditorTool::RECTANGLE:
         return "rectangle";
+    case EditorTool::ELLIPSE:
+        return "ellipse";
     case EditorTool::TEXT:
         return "text";
     case EditorTool::IMAGE:
@@ -63,6 +68,8 @@ inline const char* EditorToolShortcut(EditorTool tool) {
         return "F";
     case EditorTool::RECTANGLE:
         return "R";
+    case EditorTool::ELLIPSE:
+        return "O";
     case EditorTool::TEXT:
         return "T";
     case EditorTool::IMAGE:
