@@ -60,7 +60,7 @@ public:
     virtual void OnFocus();
     virtual void OnBlur();
     virtual bool OnDrag(Point point);
-    virtual bool OnWheel(int delta);
+    virtual bool OnWheel(int delta, bool shift = false);
     virtual void Activate();
     virtual bool WantsHandCursor() const;
     virtual bool TakesTextFocus() const;
@@ -68,6 +68,9 @@ public:
     virtual bool OnChar(wchar_t character);
     virtual bool OnKeyDown(unsigned key);
     virtual bool OnKeyEvent(const KeyEvent& event);
+    bool PointerHover() const { return pointerHover; }
+    bool PointerPressed() const { return pointerPressed; }
+    const std::string& Orientation() const { return orientation; }
 
     Element* FindById(std::string_view id);
 

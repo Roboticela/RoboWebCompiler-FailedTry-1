@@ -14,6 +14,7 @@ public:
     bool OnLeave();
     bool HoverWantsHand() const;
     Element* Pressed() const;
+    Element* Hovered() const;
 
 private:
     Element* hovered = nullptr;

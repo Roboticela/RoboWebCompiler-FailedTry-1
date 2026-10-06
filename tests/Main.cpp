@@ -312,6 +312,51 @@ void TestFrameLayout(TestContext& test) {
     CHECK(test, std::fabs(filled->FindById("a")->Bounds().width - 229.333f) < 0.5f);
     CHECK(test, std::fabs(filled->FindById("b")->Bounds().x - (filled->FindById("a")->Bounds().x + filled->FindById("a")->Bounds().width + 16.0f)) < 0.5f);
     CHECK(test, std::fabs(filled->FindById("c")->Bounds().width - filled->FindById("a")->Bounds().width) < 0.5f);
+
+    std::unique_ptr<Element> bar = Layout(
+        "<window width=\"120\" height=\"100\"><frame id=\"scroller\" overflow=\"scroll\" clip=\"true\" scrollbarVisibility=\"visible\" width=\"120\" height=\"100\">"
+        "<frame id=\"block\" width=\"40\" height=\"240\"/>"
+        "<frame id=\"track\" role=\"scrollbar\" orientation=\"vertical\" position=\"absolute\" width=\"14\" height=\"100\">"
+        "<frame id=\"up\" role=\"decrement\" width=\"14\" height=\"14\"/>"
+        "<frame id=\"thumb\" role=\"thumb\" width=\"14\" height=\"20\"/>"
+        "<frame id=\"down\" role=\"increment\" width=\"14\" height=\"14\"/></frame></frame></window>",
+        120.0f, 100.0f);
+    CHECK(test, bar != nullptr);
+    Element* thumb = bar->FindById("thumb");
+    Element* track = bar->FindById("track");
+    Element* block = bar->FindById("block");
+    Element* down = bar->FindById("down");
+    CHECK(test, thumb != nullptr && track != nullptr && block != nullptr && down != nullptr);
+    CHECK(test, thumb->Bounds().height < track->Bounds().height - 1.0f);
+    CHECK(test, thumb->Bounds().y > track->Bounds().y + 1.0f);
+    CHECK(test, !track->WantsHandCursor());
+    const float beforeArrow = block->Bounds().y;
+    down->OnPointerDown(Point{down->Bounds().x + 2.0f, down->Bounds().y + 2.0f});
+    bar->Arrange(Rect{0.0f, 0.0f, 120.0f, 100.0f});
+    CHECK(test, block->Bounds().y < beforeArrow);
+    thumb->OnPointerDown(Point{thumb->Bounds().x + 2.0f, thumb->Bounds().y + 4.0f});
+    thumb->OnDrag(Point{track->Bounds().x + 2.0f, track->Bounds().y + track->Bounds().height - 2.0f});
+    bar->Arrange(Rect{0.0f, 0.0f, 120.0f, 100.0f});
+    CHECK(test, block->Bounds().y < -1.0f);
+    CHECK(test, thumb->Bounds().y > track->Bounds().y + 1.0f);
+
+    std::unique_ptr<Element> hbar = Layout(
+        "<window width=\"160\" height=\"80\"><frame id=\"hscroll\" overflow=\"scroll\" clip=\"true\" scrollbarVisibility=\"visible\" width=\"160\" height=\"80\">"
+        "<frame id=\"wide\" width=\"400\" height=\"40\"/>"
+        "<frame id=\"htrack\" role=\"scrollbar\" orientation=\"horizontal\" position=\"absolute\" width=\"160\" height=\"14\">"
+        "<frame id=\"left\" role=\"decrement\" width=\"14\" height=\"14\"/>"
+        "<frame id=\"hthumb\" role=\"thumb\" width=\"20\" height=\"14\"/>"
+        "<frame id=\"right\" role=\"increment\" width=\"14\" height=\"14\"/></frame></frame></window>",
+        160.0f, 80.0f);
+    CHECK(test, hbar != nullptr);
+    Element* hthumb = hbar->FindById("hthumb");
+    Element* htrack = hbar->FindById("htrack");
+    Element* wide = hbar->FindById("wide");
+    CHECK(test, hthumb != nullptr && htrack != nullptr && wide != nullptr);
+    CHECK(test, hthumb->Bounds().width < htrack->Bounds().width - 1.0f);
+    CHECK(test, hbar->FindById("hscroll")->OnWheel(-120, true));
+    hbar->Arrange(Rect{0.0f, 0.0f, 160.0f, 80.0f});
+    CHECK(test, wide->Bounds().x < hbar->FindById("hscroll")->Bounds().x - 1.0f);
     Finish(test, "frame layout", before);
 }
 

@@ -15,6 +15,7 @@
 #include "components/frame/Frame.h"
 #include "ui/element/Element.h"
 #include "ui/factory/UiFactory.h"
+#include "xml/serializer/XmlSerializer.h"
 
 #include <algorithm>
 #include <cctype>
@@ -196,6 +197,13 @@ constexpr DevicePreset DEVICE_PRESETS[] = {
 
 bool SamePath(const std::vector<int>& left, const std::vector<int>& right) {
     return left == right;
+}
+
+bool PathStartsWith(const std::vector<int>& path, const std::vector<int>& prefix) {
+    if (prefix.empty() || path.size() < prefix.size()) {
+        return false;
+    }
+    return std::equal(prefix.begin(), prefix.end(), path.begin());
 }
 
 bool AttributeIsFalse(const XmlNode& node, std::string_view name) {
@@ -981,7 +989,7 @@ void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& n
     } else if (name == "group") {
         renderer.StrokeRectangle(Rect{x, y + 4.0f, size - 6.0f, size - 6.0f}, quiet, 1.5f, 3.0f);
         renderer.StrokeRectangle(Rect{x + 6.0f, y, size - 6.0f, size - 6.0f}, ink, 1.5f, 3.0f);
-    } else if (name == "scroll") {
+    } else if (name == "scroll" || name == "scrollbar") {
         renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
         renderer.FillRectangle(Rect{x + size - 5.0f, y + 3.0f, 2.0f, size * 0.45f}, quiet, 1.0f);
     } else if (name == "component") {
@@ -1424,6 +1432,12 @@ int DesignerApp::Run(const DesignerOptions& options) {
     bool showRulers = true;
     unsigned lastClickTick = 0;
     std::vector<int> lastClickPath;
+    unsigned lastCanvasTick = 0;
+    std::vector<int> lastCanvasPath;
+    std::vector<int> editScope;
+    Rect scopeDoneRect{};
+    Rect scopeMainRect{};
+    Rect scopeApplyRect{};
     unsigned lastTitleTick = 0;
     int lastTitleIndex = -1;
     std::vector<EditorGuide> guides;
@@ -2135,7 +2149,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 const char* category;
                 const char* name;
             };
-            const std::vector<LibraryItem> items = {{"Window", "window"}, {"Board", "board"}, {"Frame", "frame"}};
+            const std::vector<LibraryItem> items = {{"Window", "window"}, {"Board", "board"}, {"Frame", "frame"}, {"Scrollbar", "scrollbar"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;
@@ -2922,6 +2936,99 @@ int DesignerApp::Run(const DesignerOptions& options) {
             return std::vector<int>{0};
         }
         return parent;
+    };
+
+    auto componentScopeOf = [&](const std::vector<int>& path) {
+        std::vector<int> found;
+        for (std::size_t count = 1; count <= path.size(); ++count) {
+            const std::vector<int> prefix(path.begin(), path.begin() + static_cast<std::ptrdiff_t>(count));
+            const XmlNode* node = document.NodeAt(prefix);
+            if (node == nullptr) {
+                continue;
+            }
+            if (node->name == "component" || node->name == "instance" || !document.Attribute(prefix, "component").empty()) {
+                found = prefix;
+            }
+        }
+        return found;
+    };
+    auto findComponentDefinition = [&](const std::string& name, std::vector<int>& path) {
+        const XmlNode* root = document.Root();
+        if (root == nullptr || name.empty()) {
+            return false;
+        }
+        auto walk = [&](auto&& self, const XmlNode& node, const std::vector<int>& current) -> bool {
+            if (node.name == "component" && document.Attribute(current, "name") == name) {
+                path = current;
+                return true;
+            }
+            for (int index = 0; index < static_cast<int>(node.children.size()); ++index) {
+                std::vector<int> child = current;
+                child.push_back(index);
+                if (self(self, node.children[static_cast<std::size_t>(index)], child)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        return walk(walk, *root, {});
+    };
+    auto applyComponent = [&](const std::string& name) {
+        std::vector<int> master;
+        if (!findComponentDefinition(name, master)) {
+            return;
+        }
+        const XmlNode* masterNode = document.NodeAt(master);
+        if (masterNode == nullptr) {
+            return;
+        }
+        const XmlNode* body = nullptr;
+        for (const XmlNode& child : masterNode->children) {
+            if (child.name != "property" && child.name != "event") {
+                body = &child;
+                break;
+            }
+        }
+        if (body == nullptr) {
+            return;
+        }
+        std::vector<std::string> pieces;
+        for (const XmlNode& child : body->children) {
+            pieces.push_back(SerializeXml(child));
+        }
+        std::vector<std::vector<int>> instances;
+        auto walk = [&](auto&& self, const XmlNode& node, const std::vector<int>& current) -> void {
+            if (PathStartsWith(current, master)) {
+                return;
+            }
+            if (node.name != "component" && document.Attribute(current, "component") == name) {
+                instances.push_back(current);
+            }
+            for (int index = 0; index < static_cast<int>(node.children.size()); ++index) {
+                std::vector<int> child = current;
+                child.push_back(index);
+                self(self, node.children[static_cast<std::size_t>(index)], child);
+            }
+        };
+        if (document.Root() != nullptr) {
+            walk(walk, *document.Root(), {});
+        }
+        for (const std::vector<int>& instance : instances) {
+            const XmlNode* node = document.NodeAt(instance);
+            if (node == nullptr) {
+                continue;
+            }
+            for (int index = static_cast<int>(node->children.size()) - 1; index >= 0; --index) {
+                std::vector<int> child = instance;
+                child.push_back(index);
+                document.DeleteNode(child);
+            }
+            for (const std::string& piece : pieces) {
+                std::vector<int> inserted;
+                document.PasteXml(instance, piece, inserted);
+            }
+        }
+        rebuildPreview();
     };
 
     auto zoomAt = [&](Point point, float factor) {
@@ -4002,6 +4109,23 @@ int DesignerApp::Run(const DesignerOptions& options) {
                     paintDirty = true;
                     return;
                 }
+                if (row.name == "scrollbar") {
+                    remember();
+                    std::vector<int> inserted;
+                    const char* scrollbarXml =
+                        "<frame name=\"Scrollbar\" component=\"Scrollbar\" role=\"scrollbar\" orientation=\"vertical\" position=\"absolute\" "
+                        "width=\"14\" height=\"fill\" background=\"#E8E8ED\" radius=\"7\">"
+                        "<frame name=\"Decrement\" role=\"decrement\" width=\"fill\" height=\"14\" background=\"#D2D2D7\" radius=\"4\"/>"
+                        "<frame name=\"Thumb\" role=\"thumb\" width=\"fill\" height=\"48\" background=\"#86868B\" radius=\"7\"/>"
+                        "<frame name=\"Increment\" role=\"increment\" width=\"fill\" height=\"14\" background=\"#D2D2D7\" radius=\"4\"/>"
+                        "</frame>";
+                    if (document.PasteXml(parentForInsert(), scrollbarXml, inserted)) {
+                        selectOnly(inserted);
+                        rebuildPreview();
+                    }
+                    paintDirty = true;
+                    return;
+                }
                 std::vector<int> inserted;
                 if (document.InsertChild(parentForInsert(), row.name, inserted)) {
                     remember();
@@ -4197,10 +4321,46 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 }
                 ++titleIndex;
             }
+            if (!editScope.empty() && (ContainsPoint(scopeDoneRect, point) || ContainsPoint(scopeMainRect, point) || ContainsPoint(scopeApplyRect, point))) {
+                if (ContainsPoint(scopeDoneRect, point)) {
+                    editScope.clear();
+                } else if (ContainsPoint(scopeApplyRect, point)) {
+                    const XmlNode* scoped = document.NodeAt(editScope);
+                    const std::string name = scoped != nullptr && scoped->name == "component" ? document.Attribute(editScope, "name")
+                                                                                               : document.Attribute(editScope, "component");
+                    remember();
+                    applyComponent(name);
+                } else {
+                    const std::string name = document.Attribute(editScope, "component");
+                    std::vector<int> master;
+                    if (findComponentDefinition(name, master)) {
+                        editScope = master;
+                        selectOnly(master);
+                    }
+                }
+                applyCursor(point);
+                paintDirty = true;
+                return;
+            }
             const Point local = toArtboard(point);
             Element* hit = preview->HitTest(local);
             std::vector<int> path;
             if (hit != nullptr && FindElementPath(*preview, hit, path)) {
+                const unsigned now = GetTickCount();
+                const bool doubleClick = SamePath(lastCanvasPath, path) && now - lastCanvasTick < 400;
+                lastCanvasTick = now;
+                lastCanvasPath = path;
+                const std::vector<int> entered = doubleClick ? componentScopeOf(path) : std::vector<int>{};
+                if (!entered.empty()) {
+                    editScope = entered;
+                    selectOnly(path.size() > entered.size() ? path : entered);
+                    applyCursor(point);
+                    paintDirty = true;
+                    return;
+                }
+                if (!editScope.empty() && !PathStartsWith(path, editScope)) {
+                    editScope.clear();
+                }
                 const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
                 const bool keepBoard = !shift && selection.size() == 1 && !path.empty() && path.front() == selection.front() && path.size() > selection.size();
                 if (shift) {
@@ -4733,6 +4893,17 @@ int DesignerApp::Run(const DesignerOptions& options) {
         if (!ContainsPoint(canvas, point)) {
             return;
         }
+        if ((GetKeyState(VK_CONTROL) & 0x8000) == 0 && preview != nullptr && ContainsPoint(artboardScreen(), point)) {
+            const Point local = toArtboard(point);
+            const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            Element* hit = preview->HitTest(local);
+            for (Element* node = hit; node != nullptr; node = node->Parent()) {
+                if (node->OnWheel(delta, shift)) {
+                    paintDirty = true;
+                    return;
+                }
+            }
+        }
         const float factor = delta > 0 ? 1.1f : 0.9f;
         const Rect before = artboardScreen();
         const float localX = (point.x - before.x) / zoom;
@@ -5218,6 +5389,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
             }
         }
         if (key == VK_ESCAPE) {
+            if (!editScope.empty() && editTarget == EditTarget::NONE) {
+                editScope.clear();
+                paintDirty = true;
+                return true;
+            }
             if (editTarget == EditTarget::PROPERTY) {
                 propertyDraft = propertyOriginal;
                 commitProperty();
@@ -5930,8 +6106,33 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 renderer.FillRectangle(Rect{canvas.x, y, canvas.width, 1.0f}, COLOR_SELECT, 0.0f);
             }
         }
-        const std::string toolLabel = std::string(EditorToolName(activeTool)) + (selections.size() > 1 ? "  " + std::to_string(selections.size()) : "");
         const float rulerInset = showRulers ? RULER_SIZE : 0.0f;
+        scopeDoneRect = {};
+        scopeMainRect = {};
+        scopeApplyRect = {};
+        if (!editScope.empty()) {
+            const XmlNode* scoped = document.NodeAt(editScope);
+            const bool master = scoped != nullptr && scoped->name == "component";
+            const std::string componentName = master ? document.Attribute(editScope, "name") : document.Attribute(editScope, "component");
+            const std::string label = master ? "Editing " + componentName + " component" : "Editing " + (componentName.empty() ? "component" : componentName) + " instance";
+            const Rect bar{canvas.x + rulerInset + 8.0f, canvas.y + rulerInset + 8.0f, std::min(520.0f, std::max(0.0f, canvas.width - rulerInset - 16.0f)), 32.0f};
+            renderer.FillRectangle(bar, COLOR_PANEL, 8.0f);
+            renderer.StrokeRectangle(bar, COLOR_LINE, 1.0f, 8.0f);
+            DrawLabel(renderer, label, Rect{bar.x + 10.0f, bar.y, std::max(0.0f, bar.width - 280.0f), bar.height}, COLOR_INK, 12.0f, TextAlign::START);
+            scopeDoneRect = Rect{bar.x + bar.width - 64.0f, bar.y + 4.0f, 56.0f, 24.0f};
+            renderer.FillRectangle(scopeDoneRect, COLOR_FIELD, 6.0f);
+            DrawLabel(renderer, "Done", scopeDoneRect, COLOR_INK, 12.0f, TextAlign::CENTER);
+            if (master) {
+                scopeApplyRect = Rect{scopeDoneRect.x - 132.0f, scopeDoneRect.y, 124.0f, 24.0f};
+                renderer.FillRectangle(scopeApplyRect, COLOR_NAV, 6.0f);
+                DrawLabel(renderer, "Apply instances", scopeApplyRect, COLOR_INK, 12.0f, TextAlign::CENTER);
+            } else if (!componentName.empty()) {
+                scopeMainRect = Rect{scopeDoneRect.x - 148.0f, scopeDoneRect.y, 140.0f, 24.0f};
+                renderer.FillRectangle(scopeMainRect, COLOR_NAV, 6.0f);
+                DrawLabel(renderer, "Main component", scopeMainRect, COLOR_INK, 12.0f, TextAlign::CENTER);
+            }
+        }
+        const std::string toolLabel = std::string(EditorToolName(activeTool)) + (selections.size() > 1 ? "  " + std::to_string(selections.size()) : "");
         DrawLabel(renderer, toolLabel, Rect{canvas.x + rulerInset + 8.0f, canvas.y + canvas.height - 22.0f, 140.0f, 18.0f}, COLOR_TICK, 12.0f, TextAlign::START);
         const Rect selectedRect = selectedScreen();
         if (!hoverPath.empty() && !pathSelected(hoverPath) && !SamePath(hoverPath, selection) && activeTool == EditorTool::SELECT) {

@@ -1,6 +1,9 @@
-<window name="Frame demo" title="Frame demo" auto="false" width="1120" widthMode="fill" height="2920" background="#F5F5F7" layout="vertical" gap="20" padding="24">
+<window name="Frame demo" title="Frame demo" auto="false" width="1120" widthMode="fill" height="800" heightMode="fill" overflow="scroll" clip="true" scrollbarVisibility="auto" smoothScrolling="true" background="#F5F5F7" layout="vertical" gap="20" padding="24">
     <text text="Frame" fontSize="28" textColor="#1D1D1F"/>
     <text text="Every layout, sizing, and constraint value. Resize a parent to see fill, min, max, and constraints move." fontSize="14" textColor="#86868B"/>
+    <frame name="Wide strip" width="1400" height="40" background="#E8E8ED" radius="8" layout="horizontal" padding="10" gap="12" alignItems="center">
+        <text text="Wide content — shift+wheel or horizontal scrollbar; arrows, track, thumb, keys, and drag also scroll." fontSize="13" textColor="#86868B"/>
+    </frame>
     <frame name="Layout" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
         <text text="layout" fontSize="13" textColor="#86868B"/>
         <frame layout="horizontal" gap="16" width="fill" heightMode="hug">
@@ -318,4 +321,64 @@
             </frame>
         </frame>
     </frame>
+    <frame name="Scrollbar" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="scrollbar" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="vertical + autohide" fontSize="12" textColor="#86868B"/>
+                <frame overflow="scroll" clip="true" scrollbarVisibility="auto" smoothScrolling="true" layout="vertical" gap="8" width="fill" height="180" padding="12" background="#F5F5F7" radius="8">
+                    <frame width="fill" height="48" background="#0E7AFF" radius="6"/>
+                    <frame width="fill" height="48" background="#1D1D1F" radius="6"/>
+                    <frame width="fill" height="48" background="#30D158" radius="6"/>
+                    <frame width="fill" height="48" background="#FF9F0A" radius="6"/>
+                    <frame width="fill" height="48" background="#FF3B30" radius="6"/>
+                    <frame width="fill" height="48" background="#0E7AFF" radius="6"/>
+                    <frame name="Scrollbar" component="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="14" height="fill" background="#E8E8ED" radius="7">
+                        <frame name="Decrement" role="decrement" width="fill" height="14" background="#D2D2D7" radius="4"/>
+                        <frame name="Thumb" role="thumb" width="fill" height="48" background="#86868B" radius="7"/>
+                        <frame name="Increment" role="increment" width="fill" height="14" background="#D2D2D7" radius="4"/>
+                    </frame>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="horizontal + visible" fontSize="12" textColor="#86868B"/>
+                <frame overflow="scroll" clip="true" scrollbarVisibility="visible" layout="horizontal" gap="8" width="fill" height="96" padding="12" background="#F5F5F7" radius="8">
+                    <frame width="120" height="fill" background="#0E7AFF" radius="6"/>
+                    <frame width="120" height="fill" background="#1D1D1F" radius="6"/>
+                    <frame width="120" height="fill" background="#30D158" radius="6"/>
+                    <frame width="120" height="fill" background="#FF9F0A" radius="6"/>
+                    <frame width="120" height="fill" background="#FF3B30" radius="6"/>
+                    <frame name="ScrollbarX" component="ScrollbarX" role="scrollbar" orientation="horizontal" position="absolute" width="fill" height="14" background="#E8E8ED" radius="7">
+                        <frame name="Decrement" role="decrement" width="14" height="fill" background="#D2D2D7" radius="4"/>
+                        <frame name="Thumb" role="thumb" width="48" height="fill" background="#86868B" radius="7"/>
+                        <frame name="Increment" role="increment" width="14" height="fill" background="#D2D2D7" radius="4"/>
+                    </frame>
+                </frame>
+            </frame>
+        </frame>
+    </frame>
+    <frame name="Scrollbar" component="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="14" height="fill" background="#E8E8ED" radius="7">
+        <frame name="Decrement" role="decrement" width="fill" height="14" background="#D2D2D7" radius="4"/>
+        <frame name="Thumb" role="thumb" width="fill" height="48" background="#86868B" radius="7"/>
+        <frame name="Increment" role="increment" width="fill" height="14" background="#D2D2D7" radius="4"/>
+    </frame>
+    <frame name="ScrollbarX" component="ScrollbarX" role="scrollbar" orientation="horizontal" position="absolute" width="fill" height="14" background="#E8E8ED" radius="7">
+        <frame name="Decrement" role="decrement" width="14" height="fill" background="#D2D2D7" radius="4"/>
+        <frame name="Thumb" role="thumb" width="48" height="fill" background="#86868B" radius="7"/>
+        <frame name="Increment" role="increment" width="14" height="fill" background="#D2D2D7" radius="4"/>
+    </frame>
 </window>
+<component name="Scrollbar">
+    <frame name="Scrollbar" role="scrollbar" orientation="vertical" position="absolute" width="14" height="fill" background="#E8E8ED" radius="7">
+        <frame name="Decrement" role="decrement" width="fill" height="14" background="#D2D2D7" radius="4"/>
+        <frame name="Thumb" role="thumb" width="fill" height="48" background="#86868B" radius="7"/>
+        <frame name="Increment" role="increment" width="fill" height="14" background="#D2D2D7" radius="4"/>
+    </frame>
+</component>
+<component name="ScrollbarX">
+    <frame name="ScrollbarX" role="scrollbar" orientation="horizontal" position="absolute" width="fill" height="14" background="#E8E8ED" radius="7">
+        <frame name="Decrement" role="decrement" width="14" height="fill" background="#D2D2D7" radius="4"/>
+        <frame name="Thumb" role="thumb" width="48" height="fill" background="#86868B" radius="7"/>
+        <frame name="Increment" role="increment" width="14" height="fill" background="#D2D2D7" radius="4"/>
+    </frame>
+</component>

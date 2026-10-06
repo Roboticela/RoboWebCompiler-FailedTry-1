@@ -26,6 +26,83 @@ bool LeavesFlow(const Element& element) {
     return position == FramePosition::ABSOLUTE || position == FramePosition::FIXED;
 }
 
+Frame* DirectRole(Frame& root, const std::string& role) {
+    for (const std::unique_ptr<Element>& child : root.Children()) {
+        Frame* frame = AsFrame(*child);
+        if (frame != nullptr && frame->Role() == role) {
+            return frame;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<Frame*> DirectRoles(Frame& root, const std::string& role) {
+    std::vector<Frame*> found;
+    for (const std::unique_ptr<Element>& child : root.Children()) {
+        Frame* frame = AsFrame(*child);
+        if (frame != nullptr && frame->Role() == role) {
+            found.push_back(frame);
+        }
+    }
+    return found;
+}
+
+bool FrameScrolls(const Frame& frame) {
+    const OverflowMode mode = frame.Overflow();
+    return mode == OverflowMode::SCROLL || mode == OverflowMode::AUTO;
+}
+
+bool IsScrollChrome(const std::string& role) {
+    return role == "scrollbar" || role == "thumb" || role == "decrement" || role == "increment";
+}
+
+Frame* ScrollOwnerOf(Frame& self) {
+    if (FrameScrolls(self)) {
+        return &self;
+    }
+    for (Element* node = self.Parent(); node != nullptr; node = node->Parent()) {
+        Frame* frame = AsFrame(*node);
+        if (frame != nullptr && FrameScrolls(*frame)) {
+            return frame;
+        }
+    }
+    return nullptr;
+}
+
+bool DescendantHovered(const Element& root) {
+    if (root.PointerHover()) {
+        return true;
+    }
+    for (const std::unique_ptr<Element>& child : root.Children()) {
+        if (DescendantHovered(*child)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool DescendantPressed(const Element& root) {
+    if (root.PointerPressed()) {
+        return true;
+    }
+    for (const std::unique_ptr<Element>& child : root.Children()) {
+        if (DescendantPressed(*child)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+constexpr unsigned KEY_PRIOR = 0x21;
+constexpr unsigned KEY_NEXT = 0x22;
+constexpr unsigned KEY_END = 0x23;
+constexpr unsigned KEY_HOME = 0x24;
+constexpr unsigned KEY_LEFT = 0x25;
+constexpr unsigned KEY_UP = 0x26;
+constexpr unsigned KEY_RIGHT = 0x27;
+constexpr unsigned KEY_DOWN = 0x28;
+constexpr unsigned KEY_SPACE = 0x20;
+
 float GapOf(const Length& specific, const Length& shared, float available) {
     if (specific.unit != LengthUnit::FIT) {
         return specific.Resolve(available, 0.0f);
@@ -72,7 +149,7 @@ void Frame::SetAnchor(FrameAnchor value) { anchor = value; }
 void Frame::SetPadding(Edges value) { padding = value; }
 
 float Frame::ContentX() const {
-    return Bounds().x + padding.left.Resolve(Bounds().width, 0.0f);
+    return Bounds().x + padding.left.Resolve(Bounds().width, 0.0f) - (Scrolls() ? scrollX : 0.0f);
 }
 
 float Frame::ContentY() const {
@@ -135,6 +212,10 @@ void Frame::SetEffects(float blurAmount, float backdrop, float bright, float con
     hueRotate = hue;
 }
 void Frame::SetCursor(std::string value) { cursor = std::move(value); }
+void Frame::SetScrollbarVisibility(std::string value) { scrollbarVisibility = std::move(value); }
+void Frame::SetSmoothScrolling(bool value) { smoothScrolling = value; }
+void Frame::SetScrollStep(float value) { scrollStep = std::max(1.0f, value); }
+void Frame::RevealScrollbars() { scrollReveal = 1.25f; }
 
 const std::string& Frame::Name() const { return name; }
 const std::string& Frame::ClassName() const { return className; }
@@ -148,6 +229,7 @@ FrameAnchor Frame::Anchor() const { return anchor; }
 OverflowMode Frame::Overflow() const { return overflow; }
 FrameDisplay Frame::Display() const { return display; }
 const std::string& Frame::Cursor() const { return cursor; }
+const std::string& Frame::ScrollbarVisibility() const { return scrollbarVisibility; }
 const std::string& Frame::BlendMode() const { return blendMode; }
 const std::string& Frame::Gradient() const { return gradient; }
 const std::string& Frame::BackgroundImage() const { return backgroundImage; }
@@ -158,8 +240,278 @@ float Frame::Blur() const { return blur; }
 bool Frame::Clips() const { return clip || overflow == OverflowMode::HIDDEN || overflow == OverflowMode::SCROLL || overflow == OverflowMode::AUTO; }
 bool Frame::OutOfFlow() const { return positionMode == FramePosition::ABSOLUTE || positionMode == FramePosition::FIXED; }
 bool Frame::Scrolls() const { return overflow == OverflowMode::SCROLL || overflow == OverflowMode::AUTO; }
-float Frame::MaxScroll() const { return std::max(0.0f, contentHeight - bounds.height); }
+float Frame::MaxScrollX() const { return std::max(0.0f, contentWidth - bounds.width); }
+float Frame::MaxScrollY() const { return std::max(0.0f, contentHeight - bounds.height); }
+float Frame::MaxScroll() const { return MaxScrollY(); }
+bool Frame::ScrollChrome() const { return IsScrollChrome(role); }
+bool Frame::BarHorizontal() const {
+    if (orientation == "horizontal" || orientation == "scrollX") {
+        return true;
+    }
+    if (orientation == "vertical" || orientation == "scrollY") {
+        return false;
+    }
+    return Measured().width > Measured().height + 0.5f;
+}
 bool Frame::WantsHandCursor() const { return cursor == "pointer"; }
+
+void Frame::ScrollTo(float x, float y) {
+    const float nextX = std::clamp(x, 0.0f, MaxScrollX());
+    const float nextY = std::clamp(y, 0.0f, MaxScrollY());
+    if (smoothScrolling) {
+        scrollTargetX = nextX;
+        scrollTargetY = nextY;
+    } else {
+        scrollX = nextX;
+        scrollY = nextY;
+        scrollTargetX = nextX;
+        scrollTargetY = nextY;
+    }
+    RevealScrollbars();
+    InvalidateLayout();
+}
+
+void Frame::ScrollBy(float dx, float dy) {
+    if (smoothScrolling) {
+        ScrollTo(scrollTargetX + dx, scrollTargetY + dy);
+    } else {
+        ScrollTo(scrollX + dx, scrollY + dy);
+    }
+}
+
+void Frame::BeginPan(Point point) {
+    panActive = true;
+    panOrigin = point;
+    panScrollX = scrollX;
+    panScrollY = scrollY;
+    RevealScrollbars();
+}
+
+bool Frame::StepArrow(bool increment) {
+    Frame* owner = ScrollOwnerOf(*this);
+    if (owner == nullptr) {
+        return false;
+    }
+    Frame* track = role == "scrollbar" ? this : (Parent() != nullptr ? AsFrame(*Parent()) : nullptr);
+    const bool horizontal = track != nullptr && track->BarHorizontal();
+    const float step = owner->scrollStep;
+    const float delta = increment ? step : -step;
+    if (horizontal) {
+        owner->ScrollBy(delta, 0.0f);
+    } else {
+        owner->ScrollBy(0.0f, delta);
+    }
+    arrowRepeat = 0.35f;
+    return true;
+}
+
+bool Frame::PageTrack(Point point) {
+    Frame* owner = ScrollOwnerOf(*this);
+    Frame* thumb = DirectRole(*this, "thumb");
+    if (owner == nullptr || thumb == nullptr) {
+        return false;
+    }
+    const bool horizontal = BarHorizontal();
+    if (horizontal) {
+        const float page = std::max(24.0f, owner->Bounds().width * 0.85f);
+        const float next = point.x < thumb->Bounds().x ? owner->scrollX - page : owner->scrollX + page;
+        owner->ScrollTo(next, owner->scrollY);
+    } else {
+        const float page = std::max(24.0f, owner->Bounds().height * 0.85f);
+        const float next = point.y < thumb->Bounds().y ? owner->scrollY - page : owner->scrollY + page;
+        owner->ScrollTo(owner->scrollX, next);
+    }
+    return true;
+}
+
+bool Frame::DragThumb(Point point) {
+    Frame* track = Parent() == nullptr ? nullptr : AsFrame(*Parent());
+    Frame* owner = ScrollOwnerOf(*this);
+    if (track == nullptr || owner == nullptr) {
+        return false;
+    }
+    const bool horizontal = track->BarHorizontal();
+    Frame* decrement = DirectRole(*track, "decrement");
+    Frame* increment = DirectRole(*track, "increment");
+    if (horizontal) {
+        const float lead = decrement != nullptr ? decrement->Bounds().width : 0.0f;
+        const float trail = increment != nullptr ? increment->Bounds().width : 0.0f;
+        const float rail = std::max(0.0f, track->Bounds().width - lead - trail);
+        const float travel = std::max(0.0f, rail - bounds.width);
+        const float left = track->Bounds().x + lead;
+        const float x = std::clamp(point.x - scrollGrab, left, left + travel);
+        const float along = travel <= 0.0f ? 0.0f : (x - left) / travel;
+        owner->ScrollTo(along * owner->MaxScrollX(), owner->scrollY);
+    } else {
+        const float lead = decrement != nullptr ? decrement->Bounds().height : 0.0f;
+        const float trail = increment != nullptr ? increment->Bounds().height : 0.0f;
+        const float rail = std::max(0.0f, track->Bounds().height - lead - trail);
+        const float travel = std::max(0.0f, rail - bounds.height);
+        const float top = track->Bounds().y + lead;
+        const float y = std::clamp(point.y - scrollGrab, top, top + travel);
+        const float along = travel <= 0.0f ? 0.0f : (y - top) / travel;
+        owner->ScrollTo(owner->scrollX, along * owner->MaxScrollY());
+    }
+    return true;
+}
+
+bool Frame::DragPan(Point point) {
+    if (!panActive || !Scrolls()) {
+        return false;
+    }
+    ScrollTo(panScrollX + (panOrigin.x - point.x), panScrollY + (panOrigin.y - point.y));
+    return true;
+}
+
+bool Frame::OnPointerDown(Point point) {
+    Element::OnPointerDown(point);
+    if (role == "thumb") {
+        Frame* track = Parent() != nullptr ? AsFrame(*Parent()) : nullptr;
+        const bool horizontal = track != nullptr && track->BarHorizontal();
+        scrollGrab = horizontal ? point.x - bounds.x : point.y - bounds.y;
+        if (Frame* owner = ScrollOwnerOf(*this)) {
+            owner->RevealScrollbars();
+        }
+        return true;
+    }
+    if (role == "decrement") {
+        return StepArrow(false);
+    }
+    if (role == "increment") {
+        return StepArrow(true);
+    }
+    if (role == "scrollbar") {
+        return PageTrack(point);
+    }
+    if (Frame* owner = ScrollOwnerOf(*this)) {
+        if (!IsScrollChrome(role)) {
+            owner->BeginPan(point);
+        }
+        owner->RevealScrollbars();
+    }
+    return true;
+}
+
+bool Frame::OnDrag(Point point) {
+    if (role == "thumb") {
+        return DragThumb(point);
+    }
+    if (panActive && Scrolls()) {
+        return DragPan(point);
+    }
+    return false;
+}
+
+bool Frame::OnKeyDown(unsigned key) {
+    if (!Scrolls()) {
+        return false;
+    }
+    const float pageY = std::max(24.0f, bounds.height * 0.85f);
+    switch (key) {
+    case KEY_UP:
+        ScrollBy(0.0f, -scrollStep);
+        return true;
+    case KEY_DOWN:
+        ScrollBy(0.0f, scrollStep);
+        return true;
+    case KEY_LEFT:
+        ScrollBy(-scrollStep, 0.0f);
+        return true;
+    case KEY_RIGHT:
+        ScrollBy(scrollStep, 0.0f);
+        return true;
+    case KEY_PRIOR:
+        ScrollBy(0.0f, -pageY);
+        return true;
+    case KEY_NEXT:
+    case KEY_SPACE:
+        ScrollBy(0.0f, pageY);
+        return true;
+    case KEY_HOME:
+        ScrollTo(0.0f, 0.0f);
+        return true;
+    case KEY_END:
+        ScrollTo(MaxScrollX(), MaxScrollY());
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool Frame::SetPointerHover(bool hovered) {
+    const bool changed = Element::SetPointerHover(hovered);
+    if (hovered) {
+        if (Frame* owner = ScrollOwnerOf(*this)) {
+            owner->RevealScrollbars();
+        }
+    }
+    return changed;
+}
+
+bool Frame::Tick(float seconds) {
+    bool changed = Element::Tick(seconds);
+    if (role == "decrement" || role == "increment") {
+        if (PointerPressed()) {
+            arrowRepeat -= seconds;
+            if (arrowRepeat <= 0.0f) {
+                StepArrow(role == "increment");
+                arrowRepeat = 0.05f;
+                changed = true;
+            }
+        } else {
+            arrowRepeat = 0.0f;
+        }
+    }
+    if (!Scrolls()) {
+        return changed;
+    }
+    if (smoothScrolling) {
+        const float blend = std::clamp(seconds * 14.0f, 0.0f, 1.0f);
+        const float nextX = scrollX + (scrollTargetX - scrollX) * blend;
+        const float nextY = scrollY + (scrollTargetY - scrollY) * blend;
+        if (std::fabs(nextX - scrollX) > 0.05f || std::fabs(nextY - scrollY) > 0.05f) {
+            scrollX = nextX;
+            scrollY = nextY;
+            InvalidateLayout();
+            changed = true;
+        } else if (scrollX != scrollTargetX || scrollY != scrollTargetY) {
+            scrollX = scrollTargetX;
+            scrollY = scrollTargetY;
+            InvalidateLayout();
+            changed = true;
+        }
+    }
+    if (scrollbarVisibility == "auto") {
+        if (scrollReveal > 0.0f) {
+            scrollReveal = std::max(0.0f, scrollReveal - seconds);
+            changed = true;
+        }
+        const float target = (scrollReveal > 0.0f || ScrollbarHot()) && ScrollbarWanted() ? 1.0f : 0.0f;
+        const float next = scrollBarOpacity + (target - scrollBarOpacity) * std::clamp(seconds * 10.0f, 0.0f, 1.0f);
+        if (std::fabs(next - scrollBarOpacity) > 0.01f) {
+            scrollBarOpacity = next;
+            changed = true;
+        } else {
+            scrollBarOpacity = target;
+        }
+    } else if (scrollbarVisibility == "hidden") {
+        scrollBarOpacity = 0.0f;
+    } else {
+        scrollBarOpacity = ScrollbarWanted() ? 1.0f : 0.0f;
+    }
+    if (panActive && !DescendantPressed(*this) && !PointerPressed()) {
+        panActive = false;
+    }
+    return changed;
+}
+
+bool Frame::ScrollbarWanted() const {
+    return MaxScrollX() > 0.5f || MaxScrollY() > 0.5f;
+}
+
+bool Frame::ScrollbarHot() const {
+    return DescendantHovered(*this);
+}
 
 std::vector<Element*> Frame::PaintOrder() const {
     std::vector<Element*> order;
@@ -319,10 +671,14 @@ Size Frame::Measure(TextMeasurer& measurer, float availableWidth, float availabl
     }
     measured.width = widthLength.unit == LengthUnit::FIT ? fitWidth : widthLength.Resolve(widthSpace, fitWidth);
     measured.height = ResolveDefinite(heightLength, heightSpace, fitHeight, heightDefinite || heightMode == SizeMode::FILL || heightMode == SizeMode::PERCENT || heightMode == SizeMode::FIXED);
+    contentWidth = fitWidth;
     contentHeight = fitHeight;
-    if (scrollY > std::max(0.0f, contentHeight - measured.height)) {
-        scrollY = std::max(0.0f, contentHeight - measured.height);
-    }
+    const float maxX = std::max(0.0f, contentWidth - measured.width);
+    const float maxY = std::max(0.0f, contentHeight - measured.height);
+    scrollX = std::clamp(scrollX, 0.0f, maxX);
+    scrollY = std::clamp(scrollY, 0.0f, maxY);
+    scrollTargetX = std::clamp(scrollTargetX, 0.0f, maxX);
+    scrollTargetY = std::clamp(scrollTargetY, 0.0f, maxY);
     return FinishMeasure(availableWidth, availableHeight);
 }
 
@@ -342,7 +698,7 @@ void Frame::Arrange(const Rect& rect) {
     const float innerHeight = std::max(0.0f, bounds.height - padding.SpanY(bounds.width));
     const float columnSpace = GapOf(columnGap, gap, bounds.width);
     const float rowSpace = GapOf(rowGap, gap, bounds.width);
-    const float originX = bounds.x + padLeft;
+    const float originX = bounds.x + padLeft - (Scrolls() ? scrollX : 0.0f);
     const float originY = bounds.y + padTop - (Scrolls() ? scrollY : 0.0f);
 
     std::vector<Element*> flow;
@@ -502,6 +858,105 @@ void Frame::Arrange(const Rect& rect) {
             child->Arrange(pinned);
         }
     }
+    PlaceScrollbars();
+}
+
+void Frame::PlaceOneScrollbar(Frame& track, bool horizontal, bool both) {
+    const float inset = 4.0f;
+    const float thickness = horizontal ? std::max(10.0f, track.Measured().height) : std::max(10.0f, track.Measured().width);
+    const float endGap = both ? thickness + inset : inset;
+    Rect trackRect{};
+    if (horizontal) {
+        trackRect = Rect{bounds.x + inset, bounds.y + bounds.height - thickness - inset, std::max(0.0f, bounds.width - inset - endGap), thickness};
+    } else {
+        trackRect = Rect{bounds.x + bounds.width - thickness - inset, bounds.y + inset, thickness, std::max(0.0f, bounds.height - inset - endGap)};
+    }
+    track.Arrange(trackRect);
+    track.SetOpacity(scrollBarOpacity);
+    track.SetVisible(scrollBarOpacity > 0.02f && (horizontal ? MaxScrollX() > 0.5f : MaxScrollY() > 0.5f || overflow == OverflowMode::SCROLL));
+    if (scrollbarVisibility == "hidden") {
+        track.SetVisible(false);
+        track.SetOpacity(0.0f);
+    } else if (scrollbarVisibility == "visible") {
+        track.SetVisible(horizontal ? MaxScrollX() > 0.5f : MaxScrollY() > 0.5f || overflow == OverflowMode::SCROLL);
+        track.SetOpacity(track.Visible() ? 1.0f : 0.0f);
+    }
+    Frame* decrement = DirectRole(track, "decrement");
+    Frame* increment = DirectRole(track, "increment");
+    Frame* thumb = DirectRole(track, "thumb");
+    const float arrow = horizontal ? std::max(12.0f, thickness) : std::max(12.0f, thickness);
+    float lead = 0.0f;
+    float trail = 0.0f;
+    if (decrement != nullptr) {
+        lead = arrow;
+        if (horizontal) {
+            decrement->Arrange(Rect{trackRect.x, trackRect.y, lead, trackRect.height});
+        } else {
+            decrement->Arrange(Rect{trackRect.x, trackRect.y, trackRect.width, lead});
+        }
+        decrement->SetOpacity(track.Opacity());
+        decrement->SetVisible(track.Visible());
+    }
+    if (increment != nullptr) {
+        trail = arrow;
+        if (horizontal) {
+            increment->Arrange(Rect{trackRect.x + trackRect.width - trail, trackRect.y, trail, trackRect.height});
+        } else {
+            increment->Arrange(Rect{trackRect.x, trackRect.y + trackRect.height - trail, trackRect.width, trail});
+        }
+        increment->SetOpacity(track.Opacity());
+        increment->SetVisible(track.Visible());
+    }
+    if (thumb == nullptr) {
+        return;
+    }
+    if (horizontal) {
+        const float rail = std::max(0.0f, trackRect.width - lead - trail);
+        const float content = std::max(bounds.width, contentWidth);
+        float thumbSize = rail * (bounds.width / content);
+        thumbSize = std::clamp(thumbSize, std::min(28.0f, rail), rail);
+        const float travel = std::max(0.0f, rail - thumbSize);
+        const float maxScroll = MaxScrollX();
+        const float x = trackRect.x + lead + (maxScroll <= 0.0f ? 0.0f : travel * (scrollX / maxScroll));
+        thumb->Arrange(Rect{x, trackRect.y, thumbSize, trackRect.height});
+    } else {
+        const float rail = std::max(0.0f, trackRect.height - lead - trail);
+        const float content = std::max(bounds.height, contentHeight);
+        float thumbSize = rail * (bounds.height / content);
+        thumbSize = std::clamp(thumbSize, std::min(28.0f, rail), rail);
+        const float travel = std::max(0.0f, rail - thumbSize);
+        const float maxScroll = MaxScrollY();
+        const float y = trackRect.y + lead + (maxScroll <= 0.0f ? 0.0f : travel * (scrollY / maxScroll));
+        thumb->Arrange(Rect{trackRect.x, y, trackRect.width, thumbSize});
+    }
+    thumb->SetOpacity(track.Opacity());
+    thumb->SetVisible(track.Visible());
+}
+
+void Frame::PlaceScrollbars() {
+    if (!Scrolls()) {
+        return;
+    }
+    std::vector<Frame*> bars = DirectRoles(*this, "scrollbar");
+    if (bars.empty()) {
+        return;
+    }
+    Frame* vertical = nullptr;
+    Frame* horizontal = nullptr;
+    for (Frame* bar : bars) {
+        if (bar->BarHorizontal()) {
+            horizontal = bar;
+        } else {
+            vertical = bar;
+        }
+    }
+    const bool both = vertical != nullptr && horizontal != nullptr;
+    if (vertical != nullptr) {
+        PlaceOneScrollbar(*vertical, false, both);
+    }
+    if (horizontal != nullptr) {
+        PlaceOneScrollbar(*horizontal, true, both);
+    }
 }
 
 void Frame::ApplyBound(const std::string& property, const std::string& value) {
@@ -513,6 +968,24 @@ void Frame::ApplyBound(const std::string& property, const std::string& value) {
     } else if (property == "cursor") {
         SetCursor(value);
     }
+}
+
+void Frame::PaintScrollArrow(Renderer& renderer) {
+    if (role != "decrement" && role != "increment") {
+        return;
+    }
+    Frame* track = Parent() != nullptr ? AsFrame(*Parent()) : nullptr;
+    const bool horizontal = track != nullptr && track->BarHorizontal();
+    const bool increase = role == "increment";
+    TextStyle style;
+    style.fontSize = std::max(9.0f, std::min(bounds.width, bounds.height) * 0.7f);
+    style.fontWeight = 600;
+    style.color = COLOR_TEXT_SECONDARY;
+    style.horizontal = TextAlign::CENTER;
+    style.vertical = TextAlign::CENTER;
+    style.wrap = false;
+    const char* glyph = horizontal ? (increase ? ">" : "<") : (increase ? "v" : "^");
+    renderer.DrawString(glyph, bounds, style);
 }
 
 void Frame::OnPaint(Renderer& renderer) {
@@ -548,6 +1021,7 @@ void Frame::OnPaint(Renderer& renderer) {
             }
         }
     }
+    PaintScrollArrow(renderer);
     const bool clipChildren = Clips() || !clipPath.empty();
     if (clipChildren) {
         renderer.PushClip(bounds);
@@ -558,13 +1032,39 @@ void Frame::OnPaint(Renderer& renderer) {
     if (clipChildren) {
         renderer.PopClip();
     }
-    if (Scrolls() && MaxScroll() > 0.0f) {
-        const Rect track{bounds.x + bounds.width - 14.0f, bounds.y + 6.0f, 8.0f, std::max(0.0f, bounds.height - 12.0f)};
-        const float thumbHeight = std::min(track.height, std::max(28.0f, track.height * (bounds.height / std::max(bounds.height, contentHeight))));
-        const float travel = std::max(0.0f, track.height - thumbHeight);
-        const float y = track.y + (MaxScroll() <= 0.0f ? 0.0f : travel * (scrollY / MaxScroll()));
-        renderer.FillRectangle(track, COLOR_BORDER_DEFAULT, 4.0f);
-        renderer.FillRectangle(Rect{track.x, y, track.width, thumbHeight}, COLOR_TEXT_SECONDARY, 4.0f);
+    if (Scrolls() && DirectRoles(*this, "scrollbar").empty() && scrollbarVisibility != "hidden" && scrollBarOpacity > 0.02f) {
+        renderer.PushOpacity(scrollBarOpacity);
+        if (MaxScrollY() > 0.5f) {
+            const float thickness = 10.0f;
+            const bool both = MaxScrollX() > 0.5f;
+            const Rect track{bounds.x + bounds.width - thickness - 4.0f, bounds.y + 4.0f, thickness,
+                             std::max(0.0f, bounds.height - 8.0f - (both ? thickness : 0.0f))};
+            const float arrow = thickness;
+            const float rail = std::max(0.0f, track.height - arrow * 2.0f);
+            const float thumbHeight = std::clamp(rail * (bounds.height / std::max(bounds.height, contentHeight)), std::min(28.0f, rail), rail);
+            const float travel = std::max(0.0f, rail - thumbHeight);
+            const float y = track.y + arrow + (MaxScrollY() <= 0.0f ? 0.0f : travel * (scrollY / MaxScrollY()));
+            renderer.FillRectangle(track, COLOR_BORDER_DEFAULT, 4.0f);
+            renderer.FillRectangle(Rect{track.x, track.y, track.width, arrow}, COLOR_BG_TERTIARY, 4.0f);
+            renderer.FillRectangle(Rect{track.x, track.y + track.height - arrow, track.width, arrow}, COLOR_BG_TERTIARY, 4.0f);
+            renderer.FillRectangle(Rect{track.x, y, track.width, thumbHeight}, COLOR_TEXT_SECONDARY, 4.0f);
+        }
+        if (MaxScrollX() > 0.5f) {
+            const float thickness = 10.0f;
+            const bool both = MaxScrollY() > 0.5f;
+            const Rect track{bounds.x + 4.0f, bounds.y + bounds.height - thickness - 4.0f, std::max(0.0f, bounds.width - 8.0f - (both ? thickness : 0.0f)),
+                             thickness};
+            const float arrow = thickness;
+            const float rail = std::max(0.0f, track.width - arrow * 2.0f);
+            const float thumbWidth = std::clamp(rail * (bounds.width / std::max(bounds.width, contentWidth)), std::min(28.0f, rail), rail);
+            const float travel = std::max(0.0f, rail - thumbWidth);
+            const float x = track.x + arrow + (MaxScrollX() <= 0.0f ? 0.0f : travel * (scrollX / MaxScrollX()));
+            renderer.FillRectangle(track, COLOR_BORDER_DEFAULT, 4.0f);
+            renderer.FillRectangle(Rect{track.x, track.y, arrow, track.height}, COLOR_BG_TERTIARY, 4.0f);
+            renderer.FillRectangle(Rect{track.x + track.width - arrow, track.y, arrow, track.height}, COLOR_BG_TERTIARY, 4.0f);
+            renderer.FillRectangle(Rect{x, track.y, thumbWidth, track.height}, COLOR_TEXT_SECONDARY, 4.0f);
+        }
+        renderer.PopOpacity();
     }
     if (turned) {
         renderer.PopTransform();
@@ -573,6 +1073,9 @@ void Frame::OnPaint(Renderer& renderer) {
 
 Element* Frame::HitTest(Point point) {
     if (!visible || display == FrameDisplay::NONE || !ContainsPoint(bounds, point)) {
+        return nullptr;
+    }
+    if (ScrollChrome() && opacity < 0.05f) {
         return nullptr;
     }
     const std::vector<Element*> order = PaintOrder();
@@ -584,17 +1087,22 @@ Element* Frame::HitTest(Point point) {
     return this;
 }
 
-bool Frame::OnWheel(int delta) {
+bool Frame::OnWheel(int delta, bool shift) {
     if (!Scrolls()) {
         return false;
     }
-    const float next = std::clamp(scrollY + (delta > 0 ? -48.0f : 48.0f), 0.0f, MaxScroll());
-    if (next == scrollY) {
-        return false;
+    const float step = delta > 0 ? -scrollStep : scrollStep;
+    const float beforeX = scrollX;
+    const float beforeY = scrollY;
+    if (shift || (MaxScrollY() <= 0.5f && MaxScrollX() > 0.5f)) {
+        ScrollBy(step, 0.0f);
+    } else {
+        ScrollBy(0.0f, step);
+        if (scrollY == beforeY && MaxScrollX() > 0.5f) {
+            ScrollBy(step, 0.0f);
+        }
     }
-    scrollY = next;
-    InvalidateLayout();
-    return true;
+    return scrollX != beforeX || scrollY != beforeY || smoothScrolling;
 }
 
 }  // namespace Runtime

@@ -186,9 +186,10 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
             if (view->root == nullptr) {
                 return;
             }
+            const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             Element* hit = view->root->HitTest(point);
             for (Element* node = hit; node != nullptr; node = node->Parent()) {
-                if (node->OnWheel(delta)) {
+                if (node->OnWheel(delta, shift)) {
                     view->layoutDirty = true;
                     view->paintDirty = true;
                     break;
@@ -229,6 +230,17 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
             if (view->focused != nullptr && view->focused->OnKeyDown(key)) {
                 view->paintDirty = true;
                 return true;
+            }
+            Element* start = view->input.Hovered();
+            if (start == nullptr) {
+                start = view->focused;
+            }
+            for (Element* node = start; node != nullptr; node = node->Parent()) {
+                if (node->OnKeyDown(key)) {
+                    view->layoutDirty = true;
+                    view->paintDirty = true;
+                    return true;
+                }
             }
             return false;
         });

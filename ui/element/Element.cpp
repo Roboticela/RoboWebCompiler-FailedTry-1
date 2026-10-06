@@ -112,7 +112,7 @@ bool Element::OnDrag(Point) {
     return false;
 }
 
-bool Element::OnWheel(int) {
+bool Element::OnWheel(int, bool) {
     return false;
 }
 

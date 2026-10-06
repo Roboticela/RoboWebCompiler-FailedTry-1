@@ -297,6 +297,17 @@ void ApplyFrame(Frame& frame, const IrNode& node) {
         frame.SetShadow(ReadShadow(node));
     }
     if (const UiValue* value = FindProperty(node, "overflow")) frame.SetOverflow(ParseOverflow(value->text));
+    if (const UiValue* value = FindProperty(node, "scrollbarVisibility")) {
+        frame.SetScrollbarVisibility(value->text);
+    } else if (const UiValue* value = FindProperty(node, "scrollbar")) {
+        frame.SetScrollbarVisibility(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "smoothScrolling")) {
+        frame.SetSmoothScrolling(value->kind == TypeKind::BOOL ? value->boolean : value->text == "true");
+    }
+    if (const UiValue* value = FindProperty(node, "scrollStep")) {
+        frame.SetScrollStep(static_cast<float>(value->number));
+    }
     if (const UiValue* value = FindProperty(node, "clip")) frame.SetClip(value->boolean);
     if (const UiValue* value = FindProperty(node, "clipRadius")) frame.SetClipRadius(value->length.value);
     if (const UiValue* value = FindProperty(node, "clipPath")) frame.SetClipPath(value->text);

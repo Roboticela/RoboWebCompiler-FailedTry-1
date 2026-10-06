@@ -25,7 +25,12 @@ public:
     bool PaintsOwnBorder() const override { return true; }
     Element* HitTest(Point point) override;
     void ApplyBound(const std::string& property, const std::string& value) override;
-    bool OnWheel(int delta) override;
+    bool OnWheel(int delta, bool shift = false) override;
+    bool OnPointerDown(Point point) override;
+    bool OnDrag(Point point) override;
+    bool OnKeyDown(unsigned key) override;
+    bool Tick(float seconds) override;
+    bool SetPointerHover(bool hovered) override;
     bool WantsHandCursor() const override;
 
     void SetName(std::string value);
@@ -77,6 +82,10 @@ public:
     void SetBlendMode(std::string value);
     void SetEffects(float blurAmount, float backdrop, float bright, float contrastAmount, float saturationAmount, float gray, float hue);
     void SetCursor(std::string value);
+    void SetScrollbarVisibility(std::string value);
+    void SetSmoothScrolling(bool value);
+    void SetScrollStep(float value);
+    void RevealScrollbars();
 
     const std::string& Name() const;
     const std::string& ClassName() const;
@@ -93,6 +102,7 @@ public:
     const std::string& BlendMode() const;
     const std::string& Gradient() const;
     const std::string& BackgroundImage() const;
+    const std::string& ScrollbarVisibility() const;
     Color BackgroundColor() const;
     float CornerRadius(int corner) const;
     const std::vector<FrameShadow>& Shadows() const;
@@ -107,8 +117,24 @@ public:
 private:
     bool OutOfFlow() const;
     bool Scrolls() const;
+    float MaxScrollX() const;
+    float MaxScrollY() const;
     float MaxScroll() const;
+    bool ScrollChrome() const;
+    bool BarHorizontal() const;
+    void ScrollBy(float dx, float dy);
+    void ScrollTo(float x, float y);
+    void BeginPan(Point point);
+    bool StepArrow(bool increment);
+    bool PageTrack(Point point);
+    bool DragThumb(Point point);
+    bool DragPan(Point point);
+    void PlaceScrollbars();
+    void PlaceOneScrollbar(Frame& track, bool horizontal, bool both);
+    bool ScrollbarWanted() const;
+    bool ScrollbarHot() const;
     std::vector<Element*> PaintOrder() const;
+    void PaintScrollArrow(Renderer& renderer);
 
     std::string name;
     std::string className;
@@ -169,8 +195,23 @@ private:
     float grayscale = 0.0f;
     float hueRotate = 0.0f;
     std::string cursor = "default";
+    std::string scrollbarVisibility = "auto";
+    bool smoothScrolling = false;
+    float scrollStep = 48.0f;
+    float contentWidth = 0.0f;
     float contentHeight = 0.0f;
+    float scrollX = 0.0f;
     float scrollY = 0.0f;
+    float scrollTargetX = 0.0f;
+    float scrollTargetY = 0.0f;
+    float scrollGrab = 0.0f;
+    float scrollBarOpacity = 1.0f;
+    float scrollReveal = 0.0f;
+    float arrowRepeat = 0.0f;
+    bool panActive = false;
+    Point panOrigin{};
+    float panScrollX = 0.0f;
+    float panScrollY = 0.0f;
 };
 
 }  // namespace Runtime

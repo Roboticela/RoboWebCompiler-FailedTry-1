@@ -8,6 +8,14 @@ bool PointerInput::OnMove(Element& root, Point point) {
     bool dragged = false;
     if (pressed != nullptr) {
         dragged = pressed->OnDrag(point);
+        if (!dragged) {
+            for (Element* node = pressed->Parent(); node != nullptr; node = node->Parent()) {
+                if (node->OnDrag(point)) {
+                    dragged = true;
+                    break;
+                }
+            }
+        }
     }
     Element* next = root.HitTest(point);
     if (hovered == next) {
@@ -68,6 +76,10 @@ bool PointerInput::HoverWantsHand() const {
 
 Element* PointerInput::Pressed() const {
     return pressed;
+}
+
+Element* PointerInput::Hovered() const {
+    return hovered;
 }
 
 }  // namespace Runtime
