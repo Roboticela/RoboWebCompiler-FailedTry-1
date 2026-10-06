@@ -10,6 +10,7 @@ enum class EditorTool {
     TEXT,
     IMAGE,
     LINE,
+    ARROW,
     HAND,
     ZOOM,
 };
@@ -30,6 +31,8 @@ inline const char* EditorToolName(EditorTool tool) {
         return "Image";
     case EditorTool::LINE:
         return "Line";
+    case EditorTool::ARROW:
+        return "Arrow";
     case EditorTool::HAND:
         return "Hand";
     case EditorTool::ZOOM:
@@ -52,6 +55,8 @@ inline const char* EditorToolComponent(EditorTool tool) {
         return "image";
     case EditorTool::LINE:
         return "line";
+    case EditorTool::ARROW:
+        return "arrow";
     case EditorTool::SELECT:
     case EditorTool::HAND:
     case EditorTool::ZOOM:
@@ -76,6 +81,8 @@ inline const char* EditorToolShortcut(EditorTool tool) {
         return "I";
     case EditorTool::LINE:
         return "L";
+    case EditorTool::ARROW:
+        return "A";
     case EditorTool::HAND:
         return "H";
     case EditorTool::ZOOM:

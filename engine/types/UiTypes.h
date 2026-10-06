@@ -24,6 +24,7 @@ enum class NodeKind : std::uint8_t {
     RECTANGLE,
     ELLIPSE,
     LINE,
+    ARROW,
     SHADOW,
     TEXT,
     IMAGE,
@@ -287,6 +288,8 @@ inline const char* NodeKindName(NodeKind kind) {
         return "ellipse";
     case NodeKind::LINE:
         return "line";
+    case NodeKind::ARROW:
+        return "arrow";
     case NodeKind::SHADOW:
         return "shadow";
     case NodeKind::TEXT:

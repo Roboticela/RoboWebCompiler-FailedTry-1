@@ -1,5 +1,6 @@
 #include "ui/factory/UiFactory.h"
 
+#include "components/arrow/ArrowElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
 #include "components/layout/BoardElement.h"
@@ -707,6 +708,21 @@ void ApplyLine(LineElement& line, const IrNode& node) {
     }
 }
 
+void ApplyArrow(ArrowElement& arrow, const IrNode& node) {
+    // Everything a line reads, an arrow reads the same way, because an arrow is the line plus
+    // a head. Only the three values that shape the head are read here.
+    ApplyLine(arrow, node);
+    if (const UiValue* value = FindProperty(node, "head")) {
+        arrow.SetHead(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "headLength")) {
+        arrow.SetHeadLength(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "headWidth")) {
+        arrow.SetHeadWidth(static_cast<float>(value->number));
+    }
+}
+
 void ApplyShape(ShapeElement& shape, const IrNode& node) {
     ApplyCommon(shape, node);
     if (const UiValue* value = FindProperty(node, "text")) {
@@ -1048,6 +1064,8 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<EllipseElement>();
     case NodeKind::LINE:
         return std::make_unique<LineElement>();
+    case NodeKind::ARROW:
+        return std::make_unique<ArrowElement>();
     case NodeKind::SHADOW:
         return nullptr;
     case NodeKind::TEXT:
@@ -1089,6 +1107,10 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         ApplyRectangle(*rectangle, node);
     } else if (EllipseElement* ellipse = dynamic_cast<EllipseElement*>(&element)) {
         ApplyEllipse(*ellipse, node);
+    } else if (ArrowElement* arrow = dynamic_cast<ArrowElement*>(&element)) {
+        // An arrow is a line, so it has to be asked first: the line branch below would
+        // otherwise take it and leave the head as a line with nothing on the end.
+        ApplyArrow(*arrow, node);
     } else if (LineElement* line = dynamic_cast<LineElement*>(&element)) {
         ApplyLine(*line, node);
     } else if (ShapeElement* shape = dynamic_cast<ShapeElement*>(&element)) {

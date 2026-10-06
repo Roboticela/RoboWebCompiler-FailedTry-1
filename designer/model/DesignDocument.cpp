@@ -196,7 +196,9 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "height", "40");
         AddDefaultAttribute(node, "stroke", "#18181A");
         AddDefaultAttribute(node, "strokeWidth", "2");
-    } else if (name == "line") {
+    } else if (name == "line" || name == "arrow") {
+        // An arrow is a line with a head, so it starts life as the same line and then says
+        // how big its head is.
         AddDefaultAttribute(node, "x1", "0");
         AddDefaultAttribute(node, "y1", "0");
         AddDefaultAttribute(node, "x2", "80");
@@ -206,6 +208,11 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "lineCap", "butt");
         AddDefaultAttribute(node, "width", "80");
         AddDefaultAttribute(node, "height", "2");
+        if (name == "arrow") {
+            AddDefaultAttribute(node, "headLength", "12");
+            AddDefaultAttribute(node, "headWidth", "12");
+            AddDefaultAttribute(node, "head", "end");
+        }
     } else if (name == "group" || name == "component" || name == "slot" || name == "scroll") {
         AddDefaultAttribute(node, "width", "160");
         AddDefaultAttribute(node, "height", "80");

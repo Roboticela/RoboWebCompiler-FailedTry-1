@@ -2743,6 +2743,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Text", "T", 44, activeTool == EditorTool::TEXT);
                 addCommand("Image", "I", 45, activeTool == EditorTool::IMAGE);
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
+                addCommand("Arrow", "A", 57, activeTool == EditorTool::ARROW);
                 addCommand("Hand", "H", 47, activeTool == EditorTool::HAND);
                 addCommand("Zoom", "Z", 48, activeTool == EditorTool::ZOOM);
                 break;
@@ -3292,8 +3293,9 @@ int DesignerApp::Run(const DesignerOptions& options) {
         top = snappedTop;
         bottom = std::max(snappedTop + 1.0f, snappedBottom);
         document.PlaceNode(createPath, left, top, right - left, bottom - top);
-        if (createComponent == "line") {
-            // A line is its own two endpoints, so the drag spans the box corner to corner.
+        if (createComponent == "line" || createComponent == "arrow") {
+            // A line, and the arrow built on it, are their own two endpoints, so the drag
+            // spans the box corner to corner.
             document.SetAttribute(createPath, "x1", "0");
             document.SetAttribute(createPath, "y1", "0");
             document.SetAttribute(createPath, "x2", pixels(right - left));
@@ -3746,6 +3748,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             activeTool = EditorTool::IMAGE;
         } else if (action == 46) {
             activeTool = EditorTool::LINE;
+        } else if (action == 57) {
+            activeTool = EditorTool::ARROW;
         } else if (action == 47) {
             activeTool = EditorTool::HAND;
         } else if (action == 48) {
@@ -3781,7 +3785,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             MessageBoxW(window.Hwnd(), L"RoboUIDesigner\nA visual editor for Runtime XML.", L"About RoboUIDesigner", MB_OK);
         } else if (action == 61) {
             MessageBoxW(window.Hwnd(),
-                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nF5  Run\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   R Rectangle   O Ellipse   T Text\nI Image   L Line   H Hand   Z Zoom\n\nDrag with a shape tool to draw it at the size you want.",
+                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nF5  Run\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   R Rectangle   O Ellipse   T Text\nI Image   L Line   A Arrow   H Hand   Z Zoom\n\nDrag with a shape tool to draw it at the size you want.",
                         L"Keyboard Shortcuts", MB_OK);
         } else if (action >= 70 && action <= 77) {
             const char* names[] = {"frame", "text", "image", "vector", "path", "line", "group", "scroll"};
@@ -5525,6 +5529,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 paintDirty = true;
                 return true;
             }
+            if (key == 'A') {
+                activeTool = EditorTool::ARROW;
+                paintDirty = true;
+                return true;
+            }
             if (key == 'H') {
                 activeTool = EditorTool::HAND;
                 paintDirty = true;
@@ -6652,7 +6661,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         // Every component a shape tool can draw has to survive that trip, because the
         // editor writes defaults of its own for each of them and a default the component
         // does not declare would leave a document that no longer compiles.
-        const char* drawable[] = {"rectangle", "ellipse", "circle", "frame", "text", "image", "line", "vector", "group"};
+        const char* drawable[] = {"rectangle", "ellipse", "circle", "frame", "text", "image", "line", "arrow", "vector", "group"};
         for (const char* component : drawable) {
             std::vector<int> drawnShape;
             if (!document.InsertChild({0}, component, drawnShape) || !document.SetAttribute(drawnShape, "id", "drawnShape") ||

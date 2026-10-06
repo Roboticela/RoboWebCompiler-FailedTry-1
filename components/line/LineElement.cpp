@@ -180,11 +180,7 @@ void LineElement::PlaceEndpoints(Point& start, Point& end) const {
     end = Point{baseX + x2 * scaleX, baseY + y2 * scaleY};
 }
 
-std::string LineElement::SegmentPath() const {
-    Point start{};
-    Point end{};
-    PlaceEndpoints(start, end);
-    const Rect area = Bounds();
+std::string LineElement::SegmentPath(const Rect& area, Point start, Point end) const {
     std::string path = "M ";
     AppendNumber(path, start.x - area.x);
     path += ' ';
@@ -250,16 +246,8 @@ void LineElement::ApplyBound(const std::string& property, const std::string& val
     }
 }
 
-void LineElement::OnPaint(Renderer& renderer) {
-    const Rect area = Bounds();
-    if (area.width <= 0.0f || area.height <= 0.0f || strokeWidth <= 0.0f || stroke.a <= 0.0f) {
-        return;
-    }
-    const bool turned = std::fabs(rotationZ) > TURN_EPSILON;
-    if (turned) {
-        renderer.PushRotation(rotationZ, area.x + area.width * 0.5f, area.y + area.height * 0.5f);
-    }
-    const std::string path = SegmentPath();
+void LineElement::PaintStroke(Renderer& renderer, const Rect& area, Point start, Point end) {
+    const std::string path = SegmentPath(area, start, end);
     VectorPaint paint;
     // The path is already in box-local pixels, so the view box matches the box exactly and
     // the stroke width reaches the renderer at its real size.
@@ -273,6 +261,23 @@ void LineElement::OnPaint(Renderer& renderer) {
     paint.dashes = dashes;
     paint.fillEnabled = false;
     renderer.DrawVector(paint);
+}
+
+void LineElement::OnPaint(Renderer& renderer) {
+    const Rect area = Bounds();
+    if (area.width <= 0.0f || area.height <= 0.0f || strokeWidth <= 0.0f || stroke.a <= 0.0f) {
+        return;
+    }
+    const bool turned = std::fabs(rotationZ) > TURN_EPSILON;
+    if (turned) {
+        renderer.PushRotation(rotationZ, area.x + area.width * 0.5f, area.y + area.height * 0.5f);
+    }
+    Point start{};
+    Point end{};
+    PlaceEndpoints(start, end);
+    // Whatever the line stands between its endpoints is drawn under the same turn, so a turn
+    // carries a decoration along with the stroke it decorates.
+    PaintStroke(renderer, area, start, end);
     if (turned) {
         renderer.PopTransform();
     }

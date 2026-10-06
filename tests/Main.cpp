@@ -1,6 +1,7 @@
 #include "compiler/ir/UiIr.h"
 #include "compiler/semantic/UiCompiler.h"
 #include "compiler/types/ValueParser.h"
+#include "components/arrow/ArrowElement.h"
 #include "components/ellipse/EllipseElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
@@ -1445,6 +1446,197 @@ void TestLine(TestContext& test) {
     Finish(test, "line", before);
 }
 
+// An arrow is a line with a head, built on the line instead of beside it. So most of what is
+// checked here is the line showing through the arrow: the box, the stroke, the cap, the dash,
+// the bindings, and the hit band all come from underneath, and only the head is new.
+void TestArrow(TestContext& test) {
+    const int before = test.failed;
+
+    // The geometry belongs to the line: the box is the span of the endpoints, the arrow holds
+    // nothing, and the line's own type still answers for it.
+    std::unique_ptr<Element> plain = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<arrow id=\"shaft\" x1=\"0\" y1=\"0\" x2=\"120\" y2=\"40\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* shaft = plain != nullptr ? plain->FindById("shaft") : nullptr;
+    CHECK(test, shaft != nullptr && shaft->Kind() == NodeKind::ARROW);
+    if (shaft != nullptr) {
+        CHECK(test, std::fabs(shaft->Bounds().width - 120.0f) < 0.01f);
+        CHECK(test, std::fabs(shaft->Bounds().height - 40.0f) < 0.01f);
+        CHECK(test, shaft->Children().empty());
+        // An arrow is a line, so anything that treats a line as a line still works on it.
+        CHECK(test, dynamic_cast<LineElement*>(shaft) != nullptr);
+        ArrowElement* arrow = dynamic_cast<ArrowElement*>(shaft);
+        CHECK(test, arrow != nullptr);
+        if (arrow != nullptr) {
+            CHECK(test, std::fabs(arrow->HeadLength() - 12.0f) < 0.01f);
+            CHECK(test, std::fabs(arrow->HeadWidth() - 12.0f) < 0.01f);
+            CHECK(test, arrow->Head() == "end");
+        }
+    }
+
+    // A binding or an animation aimed at the line lands on the arrow, because the arrow keeps
+    // no second copy of the line that could fall out of step with it.
+    std::unique_ptr<Element> driven = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<arrow id=\"driven\" x1=\"0\" y1=\"0\" x2=\"60\" y2=\"0\" width=\"60\" height=\"10\" stroke=\"#000000\" strokeWidth=\"1\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    ArrowElement* drivenArrow = driven != nullptr ? dynamic_cast<ArrowElement*>(driven->FindById("driven")) : nullptr;
+    CHECK(test, drivenArrow != nullptr);
+    if (drivenArrow != nullptr) {
+        drivenArrow->ApplyBound("stroke", "#FF0000");
+        CHECK(test, drivenArrow->StrokeColor().r > 0.9f && drivenArrow->StrokeColor().g < 0.1f);
+        drivenArrow->ApplyBound("strokeWidth", "5");
+        CHECK(test, std::fabs(drivenArrow->StrokeWidth() - 5.0f) < 0.01f);
+        drivenArrow->ApplyBound("lineCap", "round");
+        CHECK(test, drivenArrow->LineCap() == "round");
+        drivenArrow->ApplyBound("dash", "8");
+        CHECK(test, drivenArrow->Dashes().size() == 2 && std::fabs(drivenArrow->Dashes()[0] - 8.0f) < 0.01f);
+        drivenArrow->ApplyBound("y2", "40");
+        CHECK(test, std::fabs(drivenArrow->EndY() - 40.0f) < 0.01f);
+        drivenArrow->ApplyBound("rotation", "90");
+        CHECK(test, std::fabs(drivenArrow->Rotation() - 90.0f) < 0.01f);
+        // The head is the only part the arrow owns, and an unreadable head value falls back
+        // to the one-end head rather than to nothing at all.
+        drivenArrow->ApplyBound("headLength", "20");
+        CHECK(test, std::fabs(drivenArrow->HeadLength() - 20.0f) < 0.01f);
+        drivenArrow->ApplyBound("headWidth", "8");
+        CHECK(test, std::fabs(drivenArrow->HeadWidth() - 8.0f) < 0.01f);
+        drivenArrow->ApplyBound("head", "both");
+        CHECK(test, drivenArrow->Head() == "both");
+        drivenArrow->ApplyBound("head", "nonsense");
+        CHECK(test, drivenArrow->Head() == "end");
+    }
+
+    // The paint pass is the line's stroke plus the head laid over one of its ends: the head is
+    // a closed triangle whose tip is the far endpoint, and the shaft stops at the neck so the
+    // line does not blunt the point it is pointing with.
+    std::unique_ptr<Element> painted = Layout(
+        "<window width=\"400\" height=\"220\"><frame layout=\"none\" width=\"400\" height=\"220\">"
+        "<arrow id=\"one\" x=\"10\" y=\"10\" x1=\"0\" y1=\"0\" x2=\"100\" y2=\"0\" width=\"100\" height=\"20\" stroke=\"#112233\" strokeWidth=\"2\" headLength=\"16\" headWidth=\"12\"/>"
+        "<arrow id=\"two\" x=\"10\" y=\"80\" x1=\"0\" y1=\"0\" x2=\"100\" y2=\"0\" width=\"100\" height=\"20\" head=\"both\" headLength=\"10\" headWidth=\"10\"/>"
+        "<arrow id=\"back\" x=\"10\" y=\"150\" x1=\"0\" y1=\"0\" x2=\"100\" y2=\"0\" width=\"100\" height=\"20\" head=\"start\" headLength=\"12\" headWidth=\"12\"/>"
+        "</frame></window>",
+        400.0f, 220.0f);
+    Element* one = painted != nullptr ? painted->FindById("one") : nullptr;
+    Element* two = painted != nullptr ? painted->FindById("two") : nullptr;
+    Element* back = painted != nullptr ? painted->FindById("back") : nullptr;
+    CHECK(test, one != nullptr && two != nullptr && back != nullptr);
+    if (one != nullptr && two != nullptr && back != nullptr) {
+        RecordingRenderer renderer;
+        painted->Paint(renderer);
+        const auto recordsFor = [&](const Rect& box) {
+            std::vector<const PaintRecord*> found;
+            for (const PaintRecord& record : renderer.records) {
+                if (std::fabs(record.rect.x - box.x) < 0.01f && std::fabs(record.rect.y - box.y) < 0.01f &&
+                    std::fabs(record.rect.width - box.width) < 0.01f && std::fabs(record.rect.height - box.height) < 0.01f) {
+                    found.push_back(&record);
+                }
+            }
+            return found;
+        };
+        // One head, one shaft under it, and the shaft is the line's stroke reaching the neck.
+        const std::vector<const PaintRecord*> single = recordsFor(one->Bounds());
+        CHECK(test, single.size() == 2);
+        if (single.size() == 2) {
+            CHECK(test, single[0]->vector && single[1]->vector);
+            const std::vector<PathSample> shaftPath = SamplePath(single[0]->path);
+            const std::vector<PathSample> headPath = SamplePath(single[1]->path);
+            CHECK(test, shaftPath.size() >= 2 && headPath.size() >= 3);
+            if (shaftPath.size() >= 2) {
+                // The stroke runs from the near end to 16 short of the far end.
+                CHECK(test, std::fabs(shaftPath.front().x) < 0.5f);
+                CHECK(test, std::fabs(shaftPath.back().x - 84.0f) < 0.5f);
+                CHECK(test, std::fabs(shaftPath.back().y - 10.0f) < 0.5f);
+            }
+            if (headPath.size() >= 3) {
+                // The head reaches the far end the shaft deliberately stopped short of.
+                float headReach = 0.0f;
+                for (const PathSample& sample : headPath) {
+                    headReach = std::max(headReach, sample.x);
+                }
+                CHECK(test, std::fabs(headReach - 100.0f) < 0.5f);
+            }
+        }
+        // A head at each end is one stroke and two heads.
+        CHECK(test, recordsFor(two->Bounds()).size() == 3);
+        // A head at the start points the other way: the head is at the near end and the stroke
+        // begins where its neck left off.
+        const std::vector<const PaintRecord*> backwards = recordsFor(back->Bounds());
+        CHECK(test, backwards.size() == 2);
+        if (backwards.size() == 2) {
+            const std::vector<PathSample> shaftPath = SamplePath(backwards[0]->path);
+            float headReach = 100.0f;
+            for (const PathSample& sample : SamplePath(backwards[1]->path)) {
+                headReach = std::min(headReach, sample.x);
+            }
+            CHECK(test, std::fabs(headReach) < 0.5f);
+            CHECK(test, shaftPath.size() >= 2 && std::fabs(shaftPath.front().x - 12.0f) < 0.5f);
+        }
+    }
+
+    // An arrow is hit along the line it is built from, not in the empty half of its box, and
+    // turning it turns the head with it.
+    std::unique_ptr<Element> hits = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<arrow id=\"diagonal\" x=\"20\" y=\"20\" x1=\"0\" y1=\"0\" x2=\"100\" y2=\"100\" width=\"100\" height=\"100\" strokeWidth=\"2\"/>"
+        "<arrow id=\"turned\" x=\"0\" y=\"150\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"20\" rotation=\"90\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* diagonal = hits != nullptr ? hits->FindById("diagonal") : nullptr;
+    Element* turned = hits != nullptr ? hits->FindById("turned") : nullptr;
+    CHECK(test, diagonal != nullptr && turned != nullptr);
+    if (diagonal != nullptr && turned != nullptr) {
+        const Rect box = diagonal->Bounds();
+        CHECK(test, diagonal->HitTest(Point{box.x + 50.0f, box.y + 50.0f}) == diagonal);
+        CHECK(test, diagonal->HitTest(Point{box.x + 50.0f, box.y + 2.0f}) == nullptr);
+        const Rect turnedBox = turned->Bounds();
+        CHECK(test, turned->HitTest(Point{turnedBox.x + turnedBox.width * 0.5f, turnedBox.y + turnedBox.height * 0.5f}) == turned);
+        CHECK(test, turned->HitTest(Point{turnedBox.x + 1.0f, turnedBox.y + 1.0f}) == nullptr);
+    }
+
+    // Hidden and display="none" arrows measure to nothing and paint nothing.
+    std::unique_ptr<Element> hidden = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<arrow id=\"gone\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"10\" display=\"none\"/>"
+        "<arrow id=\"away\" x=\"0\" y=\"20\" x1=\"0\" y1=\"0\" x2=\"80\" y2=\"0\" width=\"80\" height=\"10\" visible=\"false\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* goneArrow = hidden != nullptr ? hidden->FindById("gone") : nullptr;
+    Element* awayArrow = hidden != nullptr ? hidden->FindById("away") : nullptr;
+    CHECK(test, goneArrow != nullptr && awayArrow != nullptr);
+    if (goneArrow != nullptr && awayArrow != nullptr) {
+        CHECK(test, !goneArrow->Visible() && !awayArrow->Visible());
+        CHECK(test, goneArrow->HitTest(Point{goneArrow->Bounds().x + 4.0f, goneArrow->Bounds().y + 4.0f}) == nullptr);
+        RecordingRenderer renderer;
+        hidden->Paint(renderer);
+        bool paintedArrow = false;
+        for (const PaintRecord& record : renderer.records) {
+            if (std::fabs(record.rect.width - 80.0f) < 0.01f) {
+                paintedArrow = true;
+            }
+        }
+        CHECK(test, !paintedArrow);
+    }
+
+    // An arrow takes everything a line takes plus the shape of its head, and it stands for a
+    // line so it is refused everything a line is refused: no layout, no padding, no gap, no
+    // radius, no fill, no overflow, and no children.
+    CHECK(test, CompileUi(Source("<window><arrow x1=\"0\" y1=\"0\" x2=\"10\" y2=\"10\" stroke=\"#000000\" strokeWidth=\"1\"/></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><arrow head=\"both\" headLength=\"14\" headWidth=\"10\" lineCap=\"round\" dash=\"4 2\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><arrow layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><arrow padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><arrow gap=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><arrow radius=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><arrow fill=\"#FFFFFF\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><arrow overflow=\"scroll\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><arrow><frame/></arrow></window>")).Ok());
+
+    Finish(test, "arrow", before);
+}
+
 void TestBoards(TestContext& test) {
     const int before = test.failed;
     std::unique_ptr<Element> root = Layout(
@@ -2109,6 +2301,7 @@ int RunUnitTests() {
     TestRectangle(test);
     TestEllipse(test);
     TestLine(test);
+    TestArrow(test);
     TestBoards(test);
     TestDesignDocumentEditsXml(test);
     TestDesignDocumentGroups(test);

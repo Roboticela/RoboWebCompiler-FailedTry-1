@@ -438,6 +438,12 @@ std::vector<PropertySpec> LineProperties() {
                                        {"minContainer", TypeKind::FLOAT}});
 }
 
+// An arrow is a line with a head, so it accepts everything a line accepts and the three
+// values that shape the head on top of it. Anything the line rejects, the arrow rejects too.
+std::vector<PropertySpec> ArrowProperties() {
+    return With(LineProperties(), {{"headLength", TypeKind::FLOAT}, {"headWidth", TypeKind::FLOAT}, {"head", TypeKind::STRING}});
+}
+
 std::vector<PropertySpec> ScrollProperties() {
     return With(FrameProperties(), {{"direction", TypeKind::STRING},
                                     {"offset", TypeKind::FLOAT},
@@ -513,6 +519,7 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"ellipse", NodeKind::ELLIPSE, false, EllipseProperties(false)},
         {"circle", NodeKind::ELLIPSE, false, EllipseProperties(true)},
         {"line", NodeKind::LINE, false, LineProperties()},
+        {"arrow", NodeKind::ARROW, false, ArrowProperties()},
         {"group", NodeKind::GROUP, true, GroupProperties()},
         {"component", NodeKind::COMPONENT, true, With(IdentityProperties(), {{"variant", TypeKind::STRING}})},
         {"instance", NodeKind::INSTANCE, true, With(IdentityProperties(), {{"component", TypeKind::STRING}, {"variant", TypeKind::STRING}})},

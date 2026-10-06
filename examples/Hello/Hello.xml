@@ -475,6 +475,35 @@
             </frame>
         </frame>
     </frame>
+    <frame name="Arrow" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="arrow — a line with a head, so every line property still applies to it" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="head 16 wide on a 3px stroke" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="90" background="#F5F5F7" padding="12" radius="8">
+                    <arrow name="Right" x1="0" y1="0" x2="160" y2="0" width="160" height="12" stroke="#0E7AFF" strokeWidth="3" headLength="16" headWidth="14"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="diagonal, round cap, head 24" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="90" background="#F5F5F7" padding="12" radius="8">
+                    <arrow name="Diagonal" x1="0" y1="0" x2="120" y2="60" width="120" height="60" stroke="#30D158" strokeWidth="6" lineCap="round" headLength="24" headWidth="20"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="a head at each end" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="90" background="#F5F5F7" padding="12" radius="8">
+                    <arrow name="Both" x1="0" y1="0" x2="160" y2="0" width="160" height="12" stroke="#FF9F0A" strokeWidth="4" head="both" headLength="18" headWidth="16"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="dashed shaft, solid head" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="90" background="#F5F5F7" padding="12" radius="8">
+                    <arrow name="Dashed" x1="0" y1="0" x2="160" y2="0" width="160" height="12" stroke="#FF3B30" strokeWidth="4" dash="10" dashGap="6" lineCap="round" headLength="20" headWidth="16"/>
+                </frame>
+            </frame>
+        </frame>
+    </frame>
     <frame name="Group" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
         <text text="group — combine objects into one node; set a property once and every child follows" fontSize="13" textColor="#86868B"/>
         <frame layout="horizontal" gap="16" width="fill" heightMode="hug">

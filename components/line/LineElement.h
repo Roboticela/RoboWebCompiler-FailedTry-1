@@ -44,11 +44,19 @@ public:
 protected:
     void OnPaint(Renderer& renderer) override;
 
-private:
-    // The two endpoints placed inside the arranged box, in box-local pixels.
+    // The two endpoints placed inside the arranged box, in box-local pixels. A subclass that
+    // stands something at an end of the stroke reads them to know where that end is.
     void PlaceEndpoints(Point& start, Point& end) const;
-    std::string SegmentPath() const;
 
+    // Draws the stroke between two placed endpoints, as one path inside the box. A subclass
+    // that decorates the line overrides this and calls straight back into it, so the shaft it
+    // draws is always the shaft this line draws.
+    virtual void PaintStroke(Renderer& renderer, const Rect& area, Point start, Point end);
+
+    // A segment in box-local pixels, in the path syntax the renderer reads.
+    std::string SegmentPath(const Rect& area, Point start, Point end) const;
+
+private:
     float x1 = 0.0f;
     float y1 = 0.0f;
     float x2 = 80.0f;
