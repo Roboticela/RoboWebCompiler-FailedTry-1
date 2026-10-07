@@ -984,7 +984,7 @@ void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& n
     } else if (name == "vector") {
         renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, size - 4.0f, size - 4.0f}, ink, 1.5f, (size - 4.0f) * 0.5f);
     } else if (name == "svg") {
-        // A file of art: the box it is drawn in, with a stroke drawn across it.
+        // Art drawn in a box: the box it is drawn in, and the run of paths held inside it.
         renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
         for (int step = 0; step < 6; ++step) {
             const float t = static_cast<float>(step) / 5.0f;

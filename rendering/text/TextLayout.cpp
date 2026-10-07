@@ -69,12 +69,19 @@ ShapedText ShapeText(std::string_view text, const TextStyle& style, float maxWid
         }
     }
     layout->SetWordWrapping(style.wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
-    // A line height the document asked for spaces the lines the way the draw will space them, so
-    // the metrics below are the box the lines cover rather than the box the font would like.
+    // A line height the document asked for spaces the lines the way the draw will space them, and
+    // the letter spacing widens the run the way the draw widens it, so the metrics below are the
+    // box the lines cover rather than the box the font would like.
     Microsoft::WRL::ComPtr<IDWriteTextLayout1> layout1;
-    if (SUCCEEDED(layout.As(&layout1)) && style.lineHeight > 0.0f && style.fontSize > 0.0f) {
-        const float height = style.fontSize * style.lineHeight;
-        layout1->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, height, height * 0.8f);
+    if (SUCCEEDED(layout.As(&layout1))) {
+        if (style.letterSpacing != 0.0f || style.wordSpacing != 0.0f) {
+            layout1->SetCharacterSpacing(style.letterSpacing, style.letterSpacing, style.wordSpacing,
+                                         DWRITE_TEXT_RANGE{0, static_cast<UINT32>(wide.size())});
+        }
+        if (style.lineHeight > 0.0f && style.fontSize > 0.0f) {
+            const float height = style.fontSize * style.lineHeight;
+            layout1->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, height, height * 0.8f);
+        }
     }
     DWRITE_TEXT_METRICS metrics{};
     if (FAILED(layout->GetMetrics(&metrics))) {

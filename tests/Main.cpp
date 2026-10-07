@@ -2397,29 +2397,145 @@ void TestSvg(TestContext& test) {
         CHECK(test, std::fabs(missing->Bounds().width - 40.0f) < 0.01f && std::fabs(missing->Bounds().height - 40.0f) < 0.01f);
     }
 
-    // An SVG takes the values that place and recolour a shape, plus the file it draws. What the
-    // art holds is the art's own: its geometry, its outline, its corners and its view box are the
-    // file's, so a document that asks the node for them is told so rather than handed a node that
-    // quietly does something else.
+    // Art written into the node is the art of the node. An SVG that carries its own paths draws
+    // them and reads no file, so every path of it is a node of the document tree that can be picked
+    // and edited the way any other path is. The art is written in the view box of the node, and the
+    // size the art was authored at is the size of the node when the document gives no size.
+    std::unique_ptr<Element> written = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<svg id=\"drawn\" x=\"10\" y=\"10\" viewBox=\"0 0 24 24\">"
+        "<path id=\"stem\" d=\"M4 12 H20\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" stroke=\"#0E7AFF\" strokeWidth=\"2\"/>"
+        "<path id=\"leg\" d=\"M12 4 V20\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" stroke=\"#FF375F\" strokeWidth=\"2\"/>"
+        "</svg>"
+        "<svg id=\"turned\" y=\"60\" viewBox=\"0 0 24 24\" rotation=\"30\">"
+        "<path id=\"turnArt\" d=\"M4 12 H20\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" stroke=\"#30D158\"/>"
+        "</svg>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* drawn = written != nullptr ? written->FindById("drawn") : nullptr;
+    Element* turnedArt = written != nullptr ? written->FindById("turned") : nullptr;
+    CHECK(test, drawn != nullptr && turnedArt != nullptr);
+    if (drawn != nullptr && turnedArt != nullptr) {
+        CHECK(test, drawn->Kind() == NodeKind::SVG && dynamic_cast<SvgElement*>(drawn) != nullptr);
+        CHECK(test, drawn->Children().size() == 2);
+        for (const std::unique_ptr<Element>& child : drawn->Children()) {
+            CHECK(test, child->Kind() == NodeKind::PATH);
+        }
+        // The art was authored at the size of its view box, so a node the document gave no size is
+        // the size of that art rather than the square a shape falls back to.
+        CHECK(test, std::fabs(drawn->Bounds().width - 24.0f) < 0.01f && std::fabs(drawn->Bounds().height - 24.0f) < 0.01f);
+        Element* bottom = drawn->Children().empty() ? nullptr : drawn->Children().front().get();
+        Element* top = drawn->Children().empty() ? nullptr : drawn->Children().back().get();
+        CHECK(test, bottom != nullptr && top != nullptr && top != bottom);
+        RecordingRenderer renderer;
+        written->Paint(renderer);
+        // Both paths the document wrote are drawn, each one as the path it was written as. Both
+        // cover the box of the art, so each is looked for by the path it draws rather than by the
+        // box it was drawn into.
+        const auto paintOfPath = [](const RecordingRenderer& painted, const char* path) {
+            for (const PaintRecord& record : painted.records) {
+                if (record.vector && record.path == path) {
+                    return &record;
+                }
+            }
+            return static_cast<const PaintRecord*>(nullptr);
+        };
+        CHECK(test, paintOfPath(renderer, "M4 12 H20") != nullptr);
+        CHECK(test, paintOfPath(renderer, "M12 4 V20") != nullptr);
+        // A click inside the art lands on a path the document wrote, which is what makes each path
+        // of the art editable on its own, and the area the art does not reach still belongs to the
+        // SVG, so a click beside the art moves the whole node.
+        CHECK(test, drawn->HitTest(Point{drawn->Bounds().x + 12.0f, drawn->Bounds().y + 12.0f}) == top);
+        // A turn on the node turns the art written in it the way it turns the art of a file.
+        Element* turnArt = turnedArt->Children().empty() ? nullptr : turnedArt->Children().front().get();
+        const PaintRecord* turnPaint = turnArt == nullptr ? nullptr : PaintRecordFor(renderer, turnArt->Bounds());
+        CHECK(test, turnPaint != nullptr && turnPaint->vector && std::fabs(turnPaint->rotation - 30.0f) < 0.01f);
+    }
+
+    // A node that writes its art inside it draws that art, and a node that names a file and writes
+    // no art of its own draws the file. A node that does both draws what the document wrote: the art
+    // a document carries is the art a document can edit, so a file named beside it is never read for
+    // a node that already holds art.
+    std::unique_ptr<Element> both = Layout(
+        ("<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+         "<svg id=\"pick\" source=\"" + source + "\" viewBox=\"0 0 24 24\">"
+         "<path id=\"mine\" d=\"M0 0 H24\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" stroke=\"#0E7AFF\"/>"
+         "</svg>"
+         "</frame></window>").c_str(),
+        200.0f, 200.0f);
+    Element* pick = both != nullptr ? both->FindById("pick") : nullptr;
+    CHECK(test, pick != nullptr);
+    if (pick != nullptr) {
+        CHECK(test, pick->Children().size() == 1 && pick->FindById("mine") != nullptr);
+        CHECK(test, pick->Children().front()->Kind() == NodeKind::PATH);
+        // The art the document wrote is drawn, so the file's two paths are not the two paths here.
+        RecordingRenderer renderer;
+        both->Paint(renderer);
+        const PaintRecord* mine = PaintRecordFor(renderer, pick->Children().front()->Bounds());
+        CHECK(test, mine != nullptr && mine->vector && mine->path == "M0 0 H24");
+    }
+
+    // Where a document's art is looked for is not where the program happens to have been started
+    // from. A document names its files the way the project around it is laid out, and a document
+    // that keeps its art beside itself names it that way, so both are read from a directory that
+    // holds neither of them. The program is moved to a directory of its own for the reading,
+    // because the directory it was started from is the one place these files are not: reading art
+    // from wherever the program was launched is art that shows in one place and vanishes in another.
+    const std::filesystem::path elsewhere = std::filesystem::temp_directory_path() / "runtime_svg_elsewhere";
+    const std::filesystem::path besideItself = std::filesystem::temp_directory_path() / "runtime_svg_beside";
+    std::error_code error;
+    std::filesystem::create_directories(elsewhere, error);
+    std::filesystem::create_directories(besideItself, error);
+    {
+        std::ofstream file(besideItself / "Press.svg", std::ios::binary);
+        file << "<svg viewBox=\"0 0 12 12\"><path d=\"M1 1 L11 1 L11 11 Z\"/></svg>";
+    }
+    const std::filesystem::path started = std::filesystem::current_path(error);
+    std::filesystem::current_path(elsewhere, error);
+    const auto readArt = [&](const SourceFile& source) {
+        const CompileResult compiled = CompileUi(source);
+        CHECK(test, compiled.Ok());
+        return compiled.root.has_value() ? Instantiate(*compiled.root, {}) : nullptr;
+    };
+    std::unique_ptr<Element> fromProject =
+        readArt(Source("<window><svg id=\"art\" source=\"examples/Hello/Logo.svg\"/></window>"));
+    std::unique_ptr<Element> fromBeside = readArt(
+        SourceFile{(besideItself / "Doc.xml").string(), "<window><svg id=\"art\" source=\"Press.svg\"/></window>"});
+    std::unique_ptr<Element> fromNowhere =
+        readArt(Source("<window><svg id=\"art\" source=\"Nowhere.svg\"/></window>"));
+    std::filesystem::current_path(started, error);
+    const auto layersOf = [](const std::unique_ptr<Element>& root) {
+        Element* node = root == nullptr ? nullptr : root->FindById("art");
+        return node == nullptr ? -1 : static_cast<int>(node->Children().size());
+    };
+    // The mark the project keeps is two paths, the press the document keeps beside itself is one,
+    // and a file nobody keeps is no art at all.
+    CHECK(test, layersOf(fromProject) == 2);
+    CHECK(test, layersOf(fromBeside) == 1);
+    CHECK(test, layersOf(fromNowhere) == 0);
+    // A file that was found nowhere leaves the node saying the name the document wrote, so the node
+    // still answers for the file it was asked to draw.
+    Element* unwritten = fromNowhere == nullptr ? nullptr : fromNowhere->FindById("art");
+    const SvgElement* said = dynamic_cast<const SvgElement*>(unwritten);
+    CHECK(test, said != nullptr && said->Source() == "Nowhere.svg");
+
+    // An SVG takes everything a vector takes, because an SVG the document carries is a vector: the
+    // box, the fill, the stroke, the pattern to stroke it with, the corners, the geometry it draws of
+    // its own, the view box that geometry is written in, and the rule its fill follows. It adds the
+    // file it can draw instead, and it takes the art written inside it. What it still refuses is a
+    // box of content: no layout, no padding, no gap, no overflow to scroll.
     CHECK(test, CompileUi(Source("<window><svg source=\"logo.svg\" width=\"24\" height=\"24\" fill=\"#18181A\" background=\"#FFFFFF\" "
                                   "rotation=\"10\" cursor=\"pointer\" margin=\"4\" grow=\"1\" zIndex=\"2\"/></window>"))
                     .Ok());
-    CHECK(test, !CompileUi(Source("<window><svg stroke=\"#FFFFFF\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg strokeWidth=\"2\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg radius=\"8\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg radiusTopLeft=\"8\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg viewBox=\"0 0 12 12\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg d=\"M0 0 L8 8\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg shape=\"ellipse\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg fillRule=\"evenodd\"/></window>")).Ok());
-    // The pattern belongs to a stroke, and an SVG draws no outline of its own to stroke, so the
-    // pattern and its two companions are refused rather than accepted and then quietly ignored.
-    CHECK(test, !CompileUi(Source("<window><svg dash=\"4 2\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg dashGap=\"2\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg dashOffset=\"2\"/></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><svg stroke=\"#FFFFFF\" strokeWidth=\"2\" dash=\"4 2\" dashGap=\"2\" dashOffset=\"1\" "
+                                  "radius=\"8\" radiusTopLeft=\"8\" viewBox=\"0 0 12 12\" d=\"M0 0 L8 8\" shape=\"ellipse\" "
+                                  "fillRule=\"evenodd\"/></window>"))
+                    .Ok());
+    CHECK(test, CompileUi(Source("<window><svg viewBox=\"0 0 24 24\"><path d=\"M0 0 L8 8\"/><group><path d=\"M1 1 L2 2\"/></group></svg></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><svg layout=\"vertical\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><svg gap=\"8\"/></window>")).Ok());
-    CHECK(test, !CompileUi(Source("<window><svg><path d=\"M0 0\"/></svg></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg overflow=\"scroll\"/></window>")).Ok());
 
     Finish(test, "svg", before);
 }
@@ -3122,6 +3238,30 @@ void TestDesignDocumentEditsXml(TestContext& test) {
     CHECK(test, document.NodeAt(inserted) != nullptr);
     CHECK(test, document.NodeAt(inserted)->name == "frame");
     CHECK(test, document.DeleteNode(inserted));
+
+    // A component the editor adds is born in the shape the tool that draws it needs, and an SVG is
+    // born with its art written inside it rather than naming a file. That is what makes every path
+    // of a new SVG a layer of the document, and it keeps the art of a document the editor wrote
+    // editable path by path. A node that names a file instead is one attribute away.
+    std::vector<int> svgPath;
+    CHECK(test, document.InsertChild({0}, "svg", svgPath));
+    const XmlNode* svg = document.NodeAt(svgPath);
+    CHECK(test, svg != nullptr && svg->name == "svg");
+    if (svg != nullptr) {
+        CHECK(test, svg->children.size() == 1 && svg->children.front().name == "path");
+    }
+    CHECK(test, document.Text().find("source=") == std::string::npos);
+    // The path of the art is a node of the tree like any other, so the editor can name it, move it,
+    // and recolour it without knowing anything about where the art came from.
+    std::vector<int> artPath = svgPath;
+    artPath.push_back(0);
+    CHECK(test, document.SetAttribute(artPath, "name", "Artwork"));
+    CHECK(test, document.SetAttribute(artPath, "stroke", "#FF375F"));
+    CHECK(test, document.Text().find("Artwork") != std::string::npos);
+    // What the editor produced is a document the compiler accepts, so a new SVG is drawable the
+    // moment it is added.
+    CHECK(test, CompileUi(Source(document.Text())).Ok());
+    CHECK(test, document.DeleteNode(svgPath));
     Finish(test, "design document", before);
 }
 
@@ -3905,6 +4045,48 @@ void TestTextSizing(TestContext& test) {
         watched("<text text=\"Hugged\" width=\"80\" fontSize=\"14\" sizing=\"autoWidth\"/>");
     CHECK(test, !hugged.style.wrap);
     CHECK(test, hugged.measuredWidth >= UNBOUNDED_MEASURE);
+
+    // A block that hugs its width is the width of its one line, whatever width the document gave it
+    // and whatever the room around it offered. The box it covers is that line, so a line drawn
+    // loosely in a wider box still covers the same one line, and a line the document tracked is a
+    // wider line and so a wider box.
+    const CompileResult widthways = CompileUi(Source(
+        "<window>"
+        "<text id=\"hug\" text=\"Hugs its one line\" width=\"200\" fontSize=\"18\" lineHeight=\"1.42\" sizing=\"autoWidth\"/>"
+        "<text id=\"given\" text=\"Hugs its one line\" width=\"200\" fontSize=\"18\" lineHeight=\"1.42\"/>"
+        "<text id=\"tracked\" text=\"Hugs its one line\" width=\"200\" fontSize=\"18\" lineHeight=\"1.42\" letterSpacing=\"0.1\" sizing=\"autoWidth\"/>"
+        "</window>"));
+    CHECK(test, widthways.Ok());
+    if (widthways.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*widthways.root, {});
+        root->SetViewport(1200.0f, 800.0f);
+        ShapedMeasurer measurer;
+        root->Measure(measurer, 400.0f, 800.0f, true);
+        const Element* mixture = root->FindById("hug");
+        const Element* given = root->FindById("given");
+        const Element* tracked = root->FindById("tracked");
+        CHECK(test, mixture != nullptr && given != nullptr && tracked != nullptr);
+        if (mixture != nullptr && given != nullptr && tracked != nullptr) {
+            // The width the document gave is kept by a block that did not ask to hug, and left
+            // behind by one that did.
+            CHECK(test, std::fabs(given->Measured().width - 200.0f) < 0.01f);
+            CHECK(test, mixture->Measured().width < 200.0f);
+            // Hugging is one line, and one line of eighteen at one and a half is the height.
+            CHECK(test, std::fabs(mixture->Measured().height - 18.0f * 1.42f) < 0.05f);
+            // The box covers the line it holds: the line the same text is shaped into at the same
+            // size and the same line height is no wider than the box around it.
+            TextStyle line = TextStyle{};
+            line.fontSize = 18.0f;
+            line.lineHeight = 1.42f;
+            line.wrap = false;
+            CHECK(test, std::fabs(mixture->Measured().width - ShapeText("Hugs its one line", line, UNBOUNDED_MEASURE).width) < 0.5f);
+            // A tracked line is a wider line, and the box grew for it rather than staying the width
+            // of the untracked line, which is a box the run would hang out of.
+            line.letterSpacing = 1.8f;
+            CHECK(test, std::fabs(tracked->Measured().width - ShapeText("Hugs its one line", line, UNBOUNDED_MEASURE).width) < 0.5f);
+            CHECK(test, tracked->Measured().width > mixture->Measured().width + 20.0f);
+        }
+    }
     Finish(test, "text sizing", before);
 }
 

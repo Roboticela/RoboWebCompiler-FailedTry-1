@@ -1085,7 +1085,7 @@ If **this** works beautifully, you have the foundation for the rest.
     - Intersect [Done]
     - Exclude [Done]
 
-15. Text
+15. Text [Done]
 16. Rich Text
 17. Image
 18. Video

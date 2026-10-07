@@ -594,10 +594,19 @@
         </frame>
     </frame>
     <frame name="Svg" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
-        <text text="svg — art read from a file: the paths of the file, drawn in the box the node gives them" fontSize="13" textColor="#86868B"/>
+        <text text="svg — art written into the document, path by path, or read from a file the node names" fontSize="13" textColor="#86868B"/>
         <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
             <frame layout="vertical" gap="6" width="fill" heightMode="hug">
-                <text text="the file, at the size it was drawn for" fontSize="12" textColor="#86868B"/>
+                <text text="the art, written in the document: every path is a layer" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <svg name="Written" width="72" height="72" viewBox="0 0 32 32" fill="#0E7AFF">
+                        <path name="WrittenFrame" d="M4 6 H28 V26 H4 Z" width="72" height="72" viewBox="0 0 32 32" stroke="#0E7AFF" strokeWidth="2.5" lineCap="round" lineJoin="round"/>
+                        <path name="WrittenTick" d="M9 16.5 L14 21.5 L23 10.5" width="72" height="72" viewBox="0 0 32 32" stroke="#0E7AFF" strokeWidth="2.5" lineCap="round" lineJoin="round"/>
+                    </svg>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="the same art, read from a file, at the size it was drawn for" fontSize="12" textColor="#86868B"/>
                 <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
                     <svg name="Mark" source="examples/Hello/Logo.svg" fill="#0E7AFF"/>
                 </frame>

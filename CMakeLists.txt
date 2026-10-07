@@ -112,6 +112,10 @@ add_library(RuntimeUi STATIC
 )
 target_include_directories(RuntimeUi PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(RuntimeUi PUBLIC RuntimeCompiler dwrite)
+# A file a document names is looked for beside the project among the places it may be, since a
+# document written against the layout of the project names its art that way, and the fonts are read
+# from the same project. It is public because every program built here links the user interface.
+target_compile_definitions(RuntimeUi PUBLIC "RUNTIME_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
 
 add_library(RuntimePlatform STATIC
     platform/windows/Win32Window.cpp

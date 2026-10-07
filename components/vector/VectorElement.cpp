@@ -122,6 +122,13 @@ Size VectorElement::Measure(TextMeasurer& measurer, float availableWidth, float 
     // children cover together is the size the art was authored at, which is what Arrange scales
     // the art out of.
     natural = ChildrenExtent(measurer, availableWidth, availableHeight);
+    if (!Children().empty() && !HasOwnGeometry()) {
+        // Nothing but art is drawn here, so a size the document left open is the size the art was
+        // authored at rather than the default square a rectangle falls back to. That is the size an
+        // SVG file is drawn at when the document gives no size, so art written into the document and
+        // art read from a file take the same box for the same art.
+        return HuggedMeasure(availableWidth, availableHeight, natural);
+    }
     return RectangleElement::Measure(measurer, availableWidth, availableHeight, heightDefinite);
 }
 

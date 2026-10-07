@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -787,14 +788,45 @@ struct SvgArtwork {
     bool hasViewBox = false;
 };
 
+// The path a file a node names is read from. A document names its art the way the project around it
+// is laid out, which is not the directory the program happened to be started from: art read from
+// wherever the program was launched is art that shows in one place and vanishes in another. So the
+// name is looked for beside the document that wrote it, then beside the program, and last beside
+// the project the document belongs to, which is where a document written against the layout of the
+// project has always found its art. A name that is found nowhere is handed on as it was written, so
+// a reader of it says what it can about a file nobody keeps.
+std::string NamedFile(const std::string& name, const std::string& document) {
+    const std::filesystem::path named = name;
+    if (name.empty() || named.is_absolute()) {
+        return name;
+    }
+    std::error_code error;
+    std::vector<std::filesystem::path> places;
+    if (!document.empty()) {
+        places.push_back(std::filesystem::path(document).parent_path());
+    }
+    places.push_back(std::filesystem::current_path(error));
+    places.push_back(std::filesystem::path(RUNTIME_SOURCE_DIR));
+    for (const std::filesystem::path& place : places) {
+        if (place.empty()) {
+            continue;
+        }
+        const std::filesystem::path beside = place / named;
+        if (std::filesystem::exists(beside, error)) {
+            return beside.string();
+        }
+    }
+    return name;
+}
+
 // The markup the art is written in. Art that is written into the document is the markup itself,
 // which is how a document can carry an icon with no file beside it; anything else names a file,
 // the way an image is given one.
-std::string SvgMarkup(const std::string& source) {
+std::string SvgMarkup(const std::string& source, const std::string& document) {
     if (source.find("<svg") != std::string::npos) {
         return source;
     }
-    std::ifstream file(source, std::ios::binary);
+    std::ifstream file(NamedFile(source, document), std::ios::binary);
     std::ostringstream buffer;
     buffer << file.rdbuf();
     return buffer.str();
@@ -835,6 +867,12 @@ bool SizedByArt(const IrNode& node, const char* name) {
     return value == nullptr || value->length.unit == LengthUnit::FIT;
 }
 
+// The art a node draws, which is either the paths the document wrote inside it or the paths of
+// the file it names. The art written inside the node is the art the document can pick apart: every
+// path of it is a node of the document tree, drawn where the document placed it. The file is read
+// only for a node that carries no art of its own, so a node with children keeps them as its art and
+// a node with none draws the file it names. Both end up as the same tree, which is why one reader
+// of SVG documents feeds both of them.
 std::vector<IrNode> ApplySvg(SvgElement& svg, const IrNode& node) {
     if (const UiValue* value = FindProperty(node, "source")) {
         svg.SetSource(value->text);
@@ -842,7 +880,21 @@ std::vector<IrNode> ApplySvg(SvgElement& svg, const IrNode& node) {
     // Everything a shape reads, an SVG reads the same way, so a value the document wrote is already
     // on the node when the file is read for it.
     ApplyVector(svg, node);
-    const SvgArtwork art = ReadSvgArtwork(SvgMarkup(svg.Source()), svg.Fill());
+    if (!node.children.empty()) {
+        // The art is the document's own, so it belongs to the node where it was written and no file
+        // is read for it. The children themselves are built by the reader of every other child. A
+        // size the document left open is the size the art was authored at, the way the box a file
+        // was written for is the size of a node that draws that file; the size a shape falls back
+        // to of its own is only for a shape that draws an outline of its own.
+        if (SizedByArt(node, "width")) {
+            svg.SetWidth(Length::Fit());
+        }
+        if (SizedByArt(node, "height")) {
+            svg.SetHeight(Length::Fit());
+        }
+        return {};
+    }
+    const SvgArtwork art = ReadSvgArtwork(SvgMarkup(svg.Source(), node.location.path), svg.Fill());
     if (art.hasViewBox && !svg.HasViewBox()) {
         // The art was written in the view box of the file, so the node draws it in that one unless
         // the document said where it belongs.
@@ -922,7 +974,10 @@ void ApplyShape(ShapeElement& shape, const IrNode& node) {
         }
     }
     if (const UiValue* value = FindProperty(node, "source")) {
-        shape.SetSource(value->text);
+        // The file is read later, where the image is first drawn, so the name is settled here: a
+        // name read beside the document is what makes an image show whatever the program was
+        // started from, the way the art of an SVG does.
+        shape.SetSource(NamedFile(value->text, node.location.path));
     }
     if (const UiValue* value = FindProperty(node, "fit")) {
         shape.SetImageFit(value->text);
@@ -1317,8 +1372,10 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
 }
 
 void Populate(Element& element, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks, const IrNode& root) {
-    // The children an SVG draws are its file's, not the document's, so they are read here and
-    // take the place of the children the node declares, which an SVG has none of.
+    // The children of an SVG that names a file are the file's, not the document's: they are read
+    // here and take the place of the children the node declares, which such a node has none of. An
+    // SVG the document carries draws the children it declares, so the art it holds stays in the
+    // tree where the document can pick it apart. Either way the children are built below.
     std::vector<IrNode> artwork;
     if (TextElement* text = dynamic_cast<TextElement*>(&element)) {
         ApplyFrame(*text, node);

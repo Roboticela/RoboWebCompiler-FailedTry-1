@@ -360,17 +360,14 @@ std::vector<PropertySpec> VectorProperties() {
                                         {"lineJoin", TypeKind::STRING}});
 }
 
-// An SVG is a shape whose art comes from a file rather than from the document. It draws that art
-// as the paths the file holds, so it takes the values that place and recolour a shape, and the
-// file it draws. What it refuses is the geometry a shape draws of its own: an SVG has no outline
-// to stroke, no pattern to stroke it with, no corner to round and no path to write, and the view
-// box its art belongs in is the one the file was written in. Refusing them means a document that
-// asks for them is told so instead of being handed a node that quietly does something else.
+// An SVG is a vector whose art is drawn either from a file it names or from the paths written
+// inside it. Both are art written in a view box of its own, so it takes everything a vector takes:
+// the box, the fill, the stroke, the pattern to stroke it with, the geometry it draws of its own,
+// the rule its fill follows, and the way its ends and joins are drawn. What it adds is the file,
+// which is one of the two ways its art arrives rather than the only one. Nothing is refused here,
+// because an SVG the document carries is a vector in every way a document cares about.
 std::vector<PropertySpec> SvgProperties() {
-    return With(Without(RectangleProperties(), {"stroke", "strokeWidth", "dash", "dashGap", "dashOffset", "radius",
-                                                "radiusTopLeft", "radiusTopRight", "radiusBottomRight",
-                                                "radiusBottomLeft"}),
-                {{"source", TypeKind::STRING}});
+    return With(VectorProperties(), {{"source", TypeKind::STRING}});
 }
 
 std::vector<PropertySpec> PathProperties() {
@@ -604,7 +601,7 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"text", NodeKind::TEXT, true, TypographyProperties()},
         {"image", NodeKind::IMAGE, false, ImageProperties()},
         {"vector", NodeKind::VECTOR, true, VectorProperties()},
-        {"svg", NodeKind::SVG, false, SvgProperties()},
+        {"svg", NodeKind::SVG, true, SvgProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},
         {"ellipse", NodeKind::ELLIPSE, false, EllipseProperties(false)},
         {"polygon", NodeKind::POLYGON, false, PolygonProperties()},

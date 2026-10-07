@@ -204,10 +204,25 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "height", "64");
         AddDefaultAttribute(node, "fill", "#7EFFF5");
     } else if (name == "svg") {
-        AddDefaultAttribute(node, "source", "logo.svg");
+        // An SVG is a vector whose art the document carries, so a new one is born with the art
+        // written inside it rather than naming a file. That is what makes every path of it a node
+        // of the layer tree that can be picked, moved and recoloured the way any other path is,
+        // instead of part of a picture that has to be edited somewhere else. A file is the other
+        // way its art can arrive, and it is one attribute away: a node that names a source and
+        // holds no art of its own draws that file. It starts as a path, which the path component
+        // already describes, drawn in the view box the node is given.
         AddDefaultAttribute(node, "width", "64");
         AddDefaultAttribute(node, "height", "64");
-        AddDefaultAttribute(node, "fill", "#18181A");
+        AddDefaultAttribute(node, "viewBox", "0 0 24 24");
+        XmlNode art = MakeComponent("path");
+        AddAttribute(art, "name", "Art");
+        AddAttribute(art, "d", "M12 1.5 L22.5 12 L12 22.5 L1.5 12 Z");
+        AddAttribute(art, "width", "64");
+        AddAttribute(art, "height", "64");
+        AddAttribute(art, "viewBox", "0 0 24 24");
+        AddAttribute(art, "fill", "#0E7AFF");
+        AddAttribute(art, "stroke", "#0E7AFF");
+        node.children.push_back(std::move(art));
     } else if (name == "path") {
         AddDefaultAttribute(node, "d", "M0 40 L80 0 L80 40 Z");
         AddDefaultAttribute(node, "width", "80");
