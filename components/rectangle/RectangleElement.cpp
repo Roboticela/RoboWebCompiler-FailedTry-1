@@ -229,6 +229,11 @@ std::string RectangleElement::CornerPath(float boxWidth, float boxHeight) const 
 }
 
 void RectangleElement::PaintOutline(Renderer& renderer, const std::string& path) {
+    // A box-local outline is drawn in a view box that is the box itself, which is the default.
+    PaintOutline(renderer, path, OutlineStyle{});
+}
+
+void RectangleElement::PaintOutline(Renderer& renderer, const std::string& path, const OutlineStyle& style) {
     const Rect area = Bounds();
     if (area.width <= 0.0f || area.height <= 0.0f || path.empty()) {
         return;
@@ -245,15 +250,18 @@ void RectangleElement::PaintOutline(Renderer& renderer, const std::string& path)
     VectorPaint paint;
     paint.bounds = area;
     paint.data = path;
-    paint.viewX = 0.0f;
-    paint.viewY = 0.0f;
-    paint.viewWidth = area.width;
-    paint.viewHeight = area.height;
+    paint.viewX = style.viewX;
+    paint.viewY = style.viewY;
+    paint.viewWidth = style.viewWidth > 0.0f ? style.viewWidth : area.width;
+    paint.viewHeight = style.viewHeight > 0.0f ? style.viewHeight : area.height;
     paint.fill = fill;
     paint.stroke = stroke;
     paint.strokeWidth = strokeWidth;
     paint.fillEnabled = filled;
-    paint.lineJoin = 'r';
+    paint.evenOdd = style.evenOdd;
+    paint.lineCap = style.lineCap;
+    paint.lineJoin = style.lineJoin;
+    paint.dashes = style.dashes;
     renderer.DrawVector(paint);
     if (turned) {
         renderer.PopTransform();

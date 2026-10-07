@@ -163,6 +163,13 @@ protected:
     void PaintChildren(Renderer& renderer);
     void PaintChrome(Renderer& renderer);
     Element* HitTestChildren(Point point);
+    // The size the children cover together when each one keeps the size it declares, which is
+    // the size their layout was authored at. A container holds it so it can compare the box it
+    // was finally given with the box the content was written for.
+    Size ChildrenExtent(TextMeasurer& measurer, float availableWidth, float availableHeight);
+    // Places children inside a box: each one keeps its share of the authored extent, so growing
+    // or shrinking the box grows or shrinks the whole of its content with it.
+    void ArrangeChildrenScaled(const Rect& box, Size authored);
     Size FinishMeasure(float availableWidth, float availableHeight);
     Rect BorderBox(const Rect& outer) const;
     void UpdateKey(const std::string& key);

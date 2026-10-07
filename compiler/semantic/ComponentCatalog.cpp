@@ -326,18 +326,24 @@ std::vector<PropertySpec> ImageProperties() {
                                        {"rotation", TypeKind::FLOAT}});
 }
 
+// A vector is a shape, so it takes the values that describe a shape and nothing that describes a
+// box of content: no layout, no padding, no gap, no overflow, no scrolling. It draws path
+// geometry, so it also takes the path it draws, the view box that path is written in, the rule
+// its fill follows, and the way its ends and joins are drawn.
 std::vector<PropertySpec> VectorProperties() {
-    return With(IdentityProperties(), {{"shape", TypeKind::STRING},
-                                       {"viewBox", TypeKind::STRING},
-                                       {"fill", TypeKind::COLOR},
-                                       {"stroke", TypeKind::COLOR},
-                                       {"strokeWidth", TypeKind::FLOAT},
-                                       {"strokeOpacity", TypeKind::FLOAT},
-                                       {"lineCap", TypeKind::STRING},
-                                       {"lineJoin", TypeKind::STRING},
-                                       {"fillRule", TypeKind::STRING},
-                                       {"transform", TypeKind::STRING},
-                                       {"radius", TypeKind::LENGTH}});
+    return With(RectangleProperties(), {{"shape", TypeKind::STRING},
+                                        {"d", TypeKind::STRING},
+                                        {"viewBox", TypeKind::STRING},
+                                        {"fillRule", TypeKind::STRING},
+                                        {"lineCap", TypeKind::STRING},
+                                        {"lineJoin", TypeKind::STRING}});
+}
+
+// An SVG is a shape whose art comes from a file rather than from the document, so it takes the
+// values that describe a shape and the file it draws, and nothing that describes the geometry
+// itself: the paths, the fill rule and the line style are the file's, not the node's.
+std::vector<PropertySpec> SvgProperties() {
+    return With(RectangleProperties(), {{"source", TypeKind::STRING}, {"viewBox", TypeKind::STRING}});
 }
 
 std::vector<PropertySpec> PathProperties() {
@@ -455,6 +461,23 @@ std::vector<PropertySpec> PolygonProperties() {
     return properties;
 }
 
+// A star is a polygon whose ring holds two radii instead of one, so it accepts everything a
+// polygon accepts. The number of sides a polygon counts says how many corners it has; a star
+// counts its points and always has two corners per point, so `sides` is dropped here rather than
+// being accepted and then quietly ignored.
+std::vector<PropertySpec> StarProperties() {
+    std::vector<PropertySpec> properties;
+    for (const PropertySpec& property : PolygonProperties()) {
+        if (std::string_view(property.name) == "sides") {
+            continue;
+        }
+        properties.push_back(property);
+    }
+    properties.push_back({"points", TypeKind::INT});
+    properties.push_back({"innerRadius", TypeKind::FLOAT});
+    return properties;
+}
+
 // An arrow is a line with a head, so it accepts everything a line accepts and the three
 // values that shape the head on top of it. Anything the line rejects, the arrow rejects too.
 std::vector<PropertySpec> ArrowProperties() {
@@ -532,9 +555,11 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"text", NodeKind::TEXT, true, TypographyProperties()},
         {"image", NodeKind::IMAGE, false, ImageProperties()},
         {"vector", NodeKind::VECTOR, true, VectorProperties()},
+        {"svg", NodeKind::SVG, false, SvgProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},
         {"ellipse", NodeKind::ELLIPSE, false, EllipseProperties(false)},
         {"polygon", NodeKind::POLYGON, false, PolygonProperties()},
+        {"star", NodeKind::STAR, false, StarProperties()},
         {"circle", NodeKind::ELLIPSE, false, EllipseProperties(true)},
         {"line", NodeKind::LINE, false, LineProperties()},
         {"arrow", NodeKind::ARROW, false, ArrowProperties()},

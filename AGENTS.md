@@ -1,5 +1,7 @@
 The filenames must be PascalCase. The functions, classes, and structs must be PascalCase. Variable names must be camelCase. Constants must be CAPITAL_CASE.
 
+IMPORTANT RULE: Every component must be made of others components if possible instead of everything from scratch.
+
 # 2. Your core component/node system
 
 Don't make every visual thing a separate React component.
@@ -1071,9 +1073,9 @@ If **this** works beautifully, you have the foundation for the rest.
 6.  Rounded Rectangle [Done]
 7.  Ellipse / Circle [Done]
 8.  Line [Done]
-9.  Arrow
-10. Polygon
-11. Star
+9.  Arrow [Done]
+10. Polygon [Done]
+11. Star [Done]
 
 12. Vector
 13. SVG

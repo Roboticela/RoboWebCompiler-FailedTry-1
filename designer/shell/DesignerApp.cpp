@@ -983,6 +983,13 @@ void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& n
         renderer.FillRectangle(Rect{x + 2.0f, y + size - 6.0f, size - 4.0f, 3.0f}, quiet, 1.0f);
     } else if (name == "vector") {
         renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, size - 4.0f, size - 4.0f}, ink, 1.5f, (size - 4.0f) * 0.5f);
+    } else if (name == "svg") {
+        // A file of art: the box it is drawn in, with a stroke drawn across it.
+        renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
+        for (int step = 0; step < 6; ++step) {
+            const float t = static_cast<float>(step) / 5.0f;
+            renderer.FillRectangle(Rect{x + 3.0f + t * (size - 8.0f), y + size - 4.0f - t * (size - 8.0f), 2.0f, 2.0f}, quiet, 1.0f);
+        }
     } else if (name == "path") {
         renderer.FillRectangle(Rect{x, y + size - 4.0f, 3.0f, 3.0f}, ink, 1.5f);
         renderer.FillRectangle(Rect{x + size * 0.45f, y + 2.0f, 3.0f, 3.0f}, ink, 1.5f);
@@ -2170,7 +2177,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             const std::vector<LibraryItem> items = {{"Window", "window"}, {"Board", "board"},
                                                      {"Frame", "frame"},  {"Shape", "rectangle"},
                                                      {"Shape", "ellipse"}, {"Shape", "vector"},
-                                                     {"Shape", "line"},   {"Scrollbar", "scrollbar"}};
+                                                     {"Shape", "svg"},    {"Shape", "line"},
+                                                     {"Scrollbar", "scrollbar"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;
@@ -2741,6 +2749,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Rectangle", "R", 49, activeTool == EditorTool::RECTANGLE);
                 addCommand("Ellipse", "O", 56, activeTool == EditorTool::ELLIPSE);
                 addCommand("Polygon", "P", 58, activeTool == EditorTool::POLYGON);
+                addCommand("Star", "S", 59, activeTool == EditorTool::STAR);
                 addCommand("Text", "T", 44, activeTool == EditorTool::TEXT);
                 addCommand("Image", "I", 45, activeTool == EditorTool::IMAGE);
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
@@ -3745,6 +3754,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             activeTool = EditorTool::ELLIPSE;
         } else if (action == 58) {
             activeTool = EditorTool::POLYGON;
+        } else if (action == 59) {
+            activeTool = EditorTool::STAR;
         } else if (action == 44) {
             activeTool = EditorTool::TEXT;
         } else if (action == 45) {
@@ -3788,7 +3799,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
             MessageBoxW(window.Hwnd(), L"RoboUIDesigner\nA visual editor for Runtime XML.", L"About RoboUIDesigner", MB_OK);
         } else if (action == 61) {
             MessageBoxW(window.Hwnd(),
-                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nF5  Run\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   R Rectangle   O Ellipse   P Polygon   T Text\nI Image   L Line   A Arrow   H Hand   Z Zoom\n\nDrag with a shape tool to draw it at the size you want.",
+                        L"Ctrl+N  New File\nCtrl+O  Open File\nCtrl+S  Save\nCtrl+Shift+S  Save As\nF5  Run\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nCtrl+C  Copy\nCtrl+V  Paste\nCtrl+D  Duplicate\n\nV Select   F Frame   R Rectangle   O Ellipse   P Polygon   S Star   T Text\nI Image   L Line   A Arrow   H Hand   Z Zoom\n\nDrag with a shape tool to draw it at the size you want.",
                         L"Keyboard Shortcuts", MB_OK);
         } else if (action >= 70 && action <= 77) {
             const char* names[] = {"frame", "text", "image", "vector", "path", "line", "group", "scroll"};
@@ -5522,6 +5533,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 paintDirty = true;
                 return true;
             }
+            if (key == 'S') {
+                activeTool = EditorTool::STAR;
+                paintDirty = true;
+                return true;
+            }
             if (key == 'T') {
                 activeTool = EditorTool::TEXT;
                 paintDirty = true;
@@ -6669,7 +6685,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         // Every component a shape tool can draw has to survive that trip, because the
         // editor writes defaults of its own for each of them and a default the component
         // does not declare would leave a document that no longer compiles.
-        const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "frame", "text", "image", "line", "arrow", "vector", "group"};
+        const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "star", "frame", "text", "image", "line", "arrow", "vector", "svg", "group"};
         for (const char* component : drawable) {
             std::vector<int> drawnShape;
             if (!document.InsertChild({0}, component, drawnShape) || !document.SetAttribute(drawnShape, "id", "drawnShape") ||

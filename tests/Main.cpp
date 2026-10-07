@@ -11,7 +11,10 @@
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
 #include "components/rectangle/RectangleElement.h"
+#include "components/star/StarElement.h"
+#include "components/svg/SvgElement.h"
 #include "components/text/TextElement.h"
+#include "components/vector/VectorElement.h"
 #include "designer/model/DesignDocument.h"
 #include "engine/motion/Motion.h"
 #include "rendering/image/ImageDecoder.h"
@@ -41,6 +44,7 @@
 #include <cstring>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -66,6 +70,14 @@ struct PaintRecord {
     // path itself is kept so a test can measure the curve that was actually drawn.
     bool vector = false;
     std::string path;
+    // What a vector draw was asked for, so a shape that carries a line style of its own can be
+    // told apart from one that takes the default. The dash pattern and the offset the pattern
+    // starts at are kept so a dashed stroke can be told apart from a solid one.
+    bool evenOdd = false;
+    char lineCap = 'b';
+    char lineJoin = 'r';
+    std::vector<float> dashes;
+    float dashOffset = 0.0f;
 };
 
 // Records what a paint pass handed to each draw, so a group can be checked for passing its
@@ -85,6 +97,11 @@ public:
         Record(paint.bounds);
         records.back().vector = true;
         records.back().path.assign(paint.data);
+        records.back().evenOdd = paint.evenOdd;
+        records.back().lineCap = paint.lineCap;
+        records.back().lineJoin = paint.lineJoin;
+        records.back().dashes = paint.dashes;
+        records.back().dashOffset = paint.dashOffset;
     }
     void PushClip(const Rect& rect) override { clips.push_back(rect); }
     void PopClip() override {
@@ -1489,6 +1506,707 @@ void TestPolygon(TestContext& test) {
     Finish(test, "polygon", before);
 }
 
+void TestStar(TestContext& test) {
+    const int before = test.failed;
+
+    // A star is a polygon whose ring holds two radii instead of one, so it is a polygon and a
+    // rectangle to anything that asks, and it measures and holds nothing the way those do.
+    std::unique_ptr<Element> plain = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<star id=\"mark\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* mark = plain != nullptr ? plain->FindById("mark") : nullptr;
+    CHECK(test, mark != nullptr && mark->Kind() == NodeKind::STAR);
+    if (mark != nullptr) {
+        CHECK(test, std::fabs(mark->Bounds().width - 100.0f) < 0.01f);
+        CHECK(test, std::fabs(mark->Bounds().height - 100.0f) < 0.01f);
+        CHECK(test, mark->Children().empty());
+        // Nothing was written twice: the star is the polygon, and through it the rectangle.
+        CHECK(test, dynamic_cast<PolygonElement*>(mark) != nullptr);
+        CHECK(test, dynamic_cast<RectangleElement*>(mark) != nullptr);
+        StarElement* star = dynamic_cast<StarElement*>(mark);
+        CHECK(test, star != nullptr);
+        if (star != nullptr) {
+            CHECK(test, star->Points() == 5);
+            CHECK(test, std::fabs(star->InnerRadius() - 0.382f) < 0.001f);
+            // The values of the shapes underneath still arrive on the star.
+            star->ApplyBound("fill", "#FF0000");
+            CHECK(test, star->Fill().r > 0.9f && star->Fill().g < 0.1f);
+            star->ApplyBound("stroke", "#00FF00");
+            star->ApplyBound("strokeWidth", "3");
+            CHECK(test, star->StrokeColor().g > 0.9f && std::fabs(star->StrokeWidth() - 3.0f) < 0.01f);
+            star->ApplyBound("radius", "6");
+            CHECK(test, std::fabs(star->Radius() - 6.0f) < 0.01f);
+            star->ApplyBound("rotation", "45");
+            CHECK(test, std::fabs(star->Rotation() - 45.0f) < 0.01f);
+            // The two values the star owns, each kept inside what a ring can be.
+            star->ApplyBound("points", "7");
+            CHECK(test, star->Points() == 7);
+            star->ApplyBound("innerRadius", "0.5");
+            CHECK(test, std::fabs(star->InnerRadius() - 0.5f) < 0.001f);
+            star->ApplyBound("points", "1");
+            CHECK(test, star->Points() == 3);
+            star->ApplyBound("points", "900");
+            CHECK(test, star->Points() == 64);
+            star->ApplyBound("innerRadius", "-4");
+            CHECK(test, star->InnerRadius() == 0.0f);
+            star->ApplyBound("innerRadius", "9");
+            CHECK(test, star->InnerRadius() == 1.0f);
+        }
+    }
+
+    // A star is a ring of two radii, so it holds one corner more than twice its points, every
+    // point of the ring reaches the box the handles describe, and the ring closes on itself.
+    std::unique_ptr<Element> drawn = Layout(
+        "<window width=\"400\" height=\"300\"><frame layout=\"none\" width=\"400\" height=\"300\">"
+        "<star id=\"five\" x=\"0\" y=\"0\" width=\"100\" height=\"100\" fill=\"#0E7AFF\"/>"
+        "<star id=\"six\" x=\"120\" y=\"0\" width=\"100\" height=\"100\" points=\"6\" fill=\"#0E7AFF\"/>"
+        "</frame></window>",
+        400.0f, 300.0f);
+    Element* five = drawn != nullptr ? drawn->FindById("five") : nullptr;
+    Element* six = drawn != nullptr ? drawn->FindById("six") : nullptr;
+    CHECK(test, five != nullptr && six != nullptr);
+    if (five != nullptr && six != nullptr) {
+        RecordingRenderer renderer;
+        drawn->Paint(renderer);
+        const PaintRecord* fivePaint = PaintRecordFor(renderer, five->Bounds());
+        const PaintRecord* sixPaint = PaintRecordFor(renderer, six->Bounds());
+        CHECK(test, fivePaint != nullptr && sixPaint != nullptr);
+        if (fivePaint != nullptr && sixPaint != nullptr) {
+            CHECK(test, fivePaint->vector && sixPaint->vector);
+            // Five points make ten corners, and the path closes back on the first of them.
+            const std::vector<PathSample> fiveRing = SampleContours(fivePaint->path).front().points;
+            CHECK(test, fiveRing.size() == 11);
+            if (fiveRing.size() == 11) {
+                // The first corner of the ring is one of the outer points, standing on the
+                // middle of the top edge.
+                CHECK(test, std::fabs(fiveRing[0].x - 50.0f) < 0.5f && std::fabs(fiveRing[0].y) < 0.5f);
+            }
+            // However many points there are, the ring reaches every edge of its box.
+            const PaintRecord* boxes[2] = {fivePaint, sixPaint};
+            for (const PaintRecord* record : boxes) {
+                const std::vector<PathSample> spanRing = SampleContours(record->path).front().points;
+                float minX = 100000.0f;
+                float maxX = -100000.0f;
+                float minY = 100000.0f;
+                float maxY = -100000.0f;
+                for (const PathSample& sample : spanRing) {
+                    minX = std::min(minX, sample.x);
+                    maxX = std::max(maxX, sample.x);
+                    minY = std::min(minY, sample.y);
+                    maxY = std::max(maxY, sample.y);
+                }
+                CHECK(test, std::fabs(minX) < 0.5f && std::fabs(minY) < 0.5f);
+                CHECK(test, std::fabs(maxX - record->rect.width) < 0.5f);
+                CHECK(test, std::fabs(maxY - record->rect.height) < 0.5f);
+            }
+        }
+    }
+
+    // The inner radius is how far the valleys of the ring are pulled toward its middle, so a
+    // smaller one makes a spikier star and a larger one a flatter one.
+    std::unique_ptr<Element> depth = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<star id=\"deep\" x=\"0\" y=\"0\" width=\"100\" height=\"100\" innerRadius=\"0.2\" fill=\"#0E7AFF\"/>"
+        "<star id=\"flat\" x=\"120\" y=\"0\" width=\"100\" height=\"100\" innerRadius=\"0.9\" fill=\"#0E7AFF\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* deep = depth != nullptr ? depth->FindById("deep") : nullptr;
+    Element* flat = depth != nullptr ? depth->FindById("flat") : nullptr;
+    CHECK(test, deep != nullptr && flat != nullptr);
+    if (deep != nullptr && flat != nullptr) {
+        RecordingRenderer renderer;
+        depth->Paint(renderer);
+        const PaintRecord* deepPaint = PaintRecordFor(renderer, deep->Bounds());
+        const PaintRecord* flatPaint = PaintRecordFor(renderer, flat->Bounds());
+        CHECK(test, deepPaint != nullptr && flatPaint != nullptr);
+        if (deepPaint != nullptr && flatPaint != nullptr) {
+            CHECK(test, deepPaint->path != flatPaint->path);
+        }
+    }
+
+    // A radius rounds every corner of the ring, the inward valleys included, and a corner turned
+    // the wrong way would leave the box it is drawn in.
+    std::unique_ptr<Element> rounded = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<star id=\"soft\" x=\"0\" y=\"0\" width=\"100\" height=\"100\" radius=\"10\" fill=\"#0E7AFF\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* soft = rounded != nullptr ? rounded->FindById("soft") : nullptr;
+    CHECK(test, soft != nullptr);
+    if (soft != nullptr) {
+        RecordingRenderer renderer;
+        rounded->Paint(renderer);
+        const PaintRecord* softPaint = PaintRecordFor(renderer, soft->Bounds());
+        CHECK(test, softPaint != nullptr);
+        if (softPaint != nullptr) {
+            CHECK(test, softPaint->path.find("A ") != std::string::npos);
+            const std::vector<PathSample> roundedRing = SampleContours(softPaint->path).front().points;
+            CHECK(test, roundedRing.size() > 11);
+            bool insideBox = true;
+            for (const PathSample& sample : roundedRing) {
+                if (sample.x < -0.5f || sample.y < -0.5f || sample.x > softPaint->rect.width + 0.5f || sample.y > softPaint->rect.height + 0.5f) {
+                    insideBox = false;
+                }
+            }
+            CHECK(test, insideBox);
+        }
+    }
+
+    // The star is hit where it is drawn: the middle of the ring is inside, and the empty part of
+    // the box between two points is not.
+    std::unique_ptr<Element> hits = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<star id=\"mark\" x=\"0\" y=\"0\" width=\"100\" height=\"100\" fill=\"#0E7AFF\"/>"
+        "<star id=\"spun\" x=\"0\" y=\"120\" width=\"60\" height=\"60\" rotation=\"45\" fill=\"#0E7AFF\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* hitStar = hits != nullptr ? hits->FindById("mark") : nullptr;
+    Element* spun = hits != nullptr ? hits->FindById("spun") : nullptr;
+    CHECK(test, hitStar != nullptr && spun != nullptr);
+    if (hitStar != nullptr && spun != nullptr) {
+        const Rect hitBox = hitStar->Bounds();
+        CHECK(test, hitStar->HitTest(Point{hitBox.x + 50.0f, hitBox.y + 50.0f}) == hitStar);
+        CHECK(test, hitStar->HitTest(Point{hitBox.x + 95.0f, hitBox.y + 5.0f}) == nullptr);
+        const Rect spunBox = spun->Bounds();
+        CHECK(test, spun->HitTest(Point{spunBox.x + 2.0f, spunBox.y + 2.0f}) == spun);
+    }
+
+    // Hidden and display="none" stars measure to nothing, paint nothing, and are not hit.
+    std::unique_ptr<Element> hidden = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<star id=\"gone\" width=\"80\" height=\"80\" points=\"5\" display=\"none\"/>"
+        "<star id=\"away\" x=\"90\" y=\"0\" width=\"80\" height=\"80\" points=\"5\" visible=\"false\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* gone = hidden != nullptr ? hidden->FindById("gone") : nullptr;
+    Element* away = hidden != nullptr ? hidden->FindById("away") : nullptr;
+    CHECK(test, gone != nullptr && away != nullptr);
+    if (gone != nullptr && away != nullptr) {
+        CHECK(test, !gone->Visible() && !away->Visible());
+        CHECK(test, gone->Measured().width == 0.0f && gone->Measured().height == 0.0f);
+        CHECK(test, away->Measured().width == 0.0f && away->Measured().height == 0.0f);
+        CHECK(test, gone->HitTest(Point{gone->Bounds().x + 40.0f, gone->Bounds().y + 40.0f}) == nullptr);
+        RecordingRenderer renderer;
+        hidden->Paint(renderer);
+        bool paintedStar = false;
+        for (const PaintRecord& record : renderer.records) {
+            if (std::fabs(record.rect.width - 80.0f) < 0.01f) {
+                paintedStar = true;
+            }
+        }
+        CHECK(test, !paintedStar);
+    }
+
+    // A star takes what a polygon takes except a number of sides, which the two radii of the ring
+    // replace, plus the number of points and the inner radius. Everything a shape has no use for
+    // is refused rather than accepted and then quietly ignored.
+    CHECK(test, CompileUi(Source("<window><star width=\"80\" height=\"60\" points=\"6\" innerRadius=\"0.4\" fill=\"#FFFFFF\" stroke=\"#000000\" strokeWidth=\"2\" radius=\"6\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><star sides=\"5\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><star points=\"4\" radiusTopLeft=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><star layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><star padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><star gap=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><star overflow=\"scroll\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><star><frame/></star></window>")).Ok());
+
+    Finish(test, "star", before);
+}
+
+void TestVector(TestContext& test) {
+    const int before = test.failed;
+
+    // A vector is a shape, so it is a rectangle to anything that asks and it measures, turns and
+    // is hit the way one is. What it brings is the geometry it draws.
+    std::unique_ptr<Element> plain = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<vector id=\"mark\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* mark = plain != nullptr ? plain->FindById("mark") : nullptr;
+    CHECK(test, mark != nullptr && mark->Kind() == NodeKind::VECTOR);
+    if (mark != nullptr) {
+        CHECK(test, std::fabs(mark->Bounds().width - 100.0f) < 0.01f);
+        CHECK(test, std::fabs(mark->Bounds().height - 100.0f) < 0.01f);
+        CHECK(test, mark->Children().empty());
+        // Nothing was written twice: the vector is the rectangle underneath.
+        CHECK(test, dynamic_cast<RectangleElement*>(mark) != nullptr);
+        VectorElement* vector = dynamic_cast<VectorElement*>(mark);
+        CHECK(test, vector != nullptr);
+        if (vector != nullptr) {
+            // A vector with neither a path nor a named shape draws no art of its own, so a bare
+            // element is not the blue box a rectangle would be.
+            CHECK(test, !vector->HasOwnGeometry());
+            CHECK(test, !vector->HasViewBox());
+            RecordingRenderer renderer;
+            plain->Paint(renderer);
+            CHECK(test, PaintRecordFor(renderer, mark->Bounds()) == nullptr);
+        }
+    }
+
+    // A named shape draws the outline that shape already has: the ellipse the ellipse component
+    // draws, and the box the rectangle underneath draws.
+    std::unique_ptr<Element> shapes = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<vector id=\"oval\" x=\"0\" y=\"0\" width=\"120\" height=\"80\" shape=\"ellipse\" fill=\"#0E7AFF\"/>"
+        "<vector id=\"box\" x=\"140\" y=\"0\" width=\"100\" height=\"100\" shape=\"rect\" fill=\"#30D158\" radius=\"12\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* oval = shapes != nullptr ? shapes->FindById("oval") : nullptr;
+    Element* box = shapes != nullptr ? shapes->FindById("box") : nullptr;
+    CHECK(test, oval != nullptr && box != nullptr);
+    if (oval != nullptr && box != nullptr) {
+        VectorElement* ovalVector = dynamic_cast<VectorElement*>(oval);
+        VectorElement* boxVector = dynamic_cast<VectorElement*>(box);
+        CHECK(test, ovalVector != nullptr && boxVector != nullptr);
+        if (ovalVector != nullptr && boxVector != nullptr) {
+            CHECK(test, ovalVector->HasOwnGeometry() && ovalVector->DrawsEllipse() && !ovalVector->DrawsBox());
+            CHECK(test, boxVector->HasOwnGeometry() && boxVector->DrawsBox() && !boxVector->DrawsEllipse());
+            RecordingRenderer renderer;
+            shapes->Paint(renderer);
+            const PaintRecord* ovalPaint = PaintRecordFor(renderer, oval->Bounds());
+            CHECK(test, ovalPaint != nullptr);
+            if (ovalPaint != nullptr) {
+                // A box wider than it is tall is a stadium unless it is drawn as a path, so an
+                // ellipse is always a path.
+                CHECK(test, ovalPaint->vector);
+                CHECK(test, ovalPaint->path.find("A ") != std::string::npos);
+                const std::vector<PathSample> ovalRing = SampleContours(ovalPaint->path).front().points;
+                bool insideBox = true;
+                for (const PathSample& sample : ovalRing) {
+                    if (sample.x < -0.5f || sample.y < -0.5f || sample.x > ovalPaint->rect.width + 0.5f || sample.y > ovalPaint->rect.height + 0.5f) {
+                        insideBox = false;
+                    }
+                }
+                CHECK(test, insideBox);
+            }
+            // A box is the primitive the platform already draws, so it does not go through a path.
+            const PaintRecord* boxPaint = PaintRecordFor(renderer, box->Bounds());
+            CHECK(test, boxPaint != nullptr && !boxPaint->vector);
+        }
+    }
+
+    // A path of its own is written in the view box and drawn in the box, so the same path at two
+    // sizes keeps the shape it was written with.
+    std::unique_ptr<Element> drawn = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<vector id=\"small\" x=\"0\" y=\"0\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" d=\"M0 0 L24 0 L24 24 Z\" fill=\"#0E7AFF\"/>"
+        "<vector id=\"large\" x=\"40\" y=\"0\" width=\"72\" height=\"72\" viewBox=\"0 0 24 24\" d=\"M0 0 L24 0 L24 24 Z\" fill=\"#0E7AFF\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* smallShape = drawn != nullptr ? drawn->FindById("small") : nullptr;
+    Element* largeShape = drawn != nullptr ? drawn->FindById("large") : nullptr;
+    CHECK(test, smallShape != nullptr && largeShape != nullptr);
+    if (smallShape != nullptr && largeShape != nullptr) {
+        VectorElement* smallVector = dynamic_cast<VectorElement*>(smallShape);
+        VectorElement* largeVector = dynamic_cast<VectorElement*>(largeShape);
+        CHECK(test, smallVector != nullptr && largeVector != nullptr);
+        if (smallVector != nullptr && largeVector != nullptr) {
+            CHECK(test, smallVector->HasOwnGeometry() && smallVector->HasViewBox());
+            CHECK(test, std::fabs(smallVector->ViewBox().width - 24.0f) < 0.01f);
+            CHECK(test, std::fabs(smallVector->ViewBox().height - 24.0f) < 0.01f);
+            CHECK(test, smallVector->PathData() == "M0 0 L24 0 L24 24 Z");
+            RecordingRenderer renderer;
+            drawn->Paint(renderer);
+            const PaintRecord* smallPaint = PaintRecordFor(renderer, smallShape->Bounds());
+            const PaintRecord* largePaint = PaintRecordFor(renderer, largeShape->Bounds());
+            CHECK(test, smallPaint != nullptr && largePaint != nullptr);
+            if (smallPaint != nullptr && largePaint != nullptr) {
+                // The path travels to the renderer exactly as it was written, with the view box
+                // that says how to lay it into the box.
+                CHECK(test, smallPaint->vector && largePaint->vector);
+                CHECK(test, smallPaint->path == smallVector->PathData() && largePaint->path == smallPaint->path);
+                CHECK(test, std::fabs(smallPaint->rect.width - 24.0f) < 0.01f);
+                CHECK(test, std::fabs(largePaint->rect.width - 72.0f) < 0.01f);
+            }
+        }
+    }
+
+    // The values that shape the geometry arrive on the node, and the rectangle underneath still
+    // answers for the box, the fill, the stroke, the radius and the turn.
+    std::unique_ptr<Element> props = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<vector id=\"mark\" x=\"0\" y=\"0\" width=\"50\" height=\"50\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* target = props != nullptr ? props->FindById("mark") : nullptr;
+    VectorElement* vector = target != nullptr ? dynamic_cast<VectorElement*>(target) : nullptr;
+    CHECK(test, vector != nullptr);
+    if (vector != nullptr) {
+        vector->ApplyBound("shape", " ellipse ");
+        CHECK(test, vector->DrawsEllipse());
+        vector->ApplyBound("d", "M0 0 L8 0 L8 8 Z");
+        CHECK(test, vector->PathData() == "M0 0 L8 0 L8 8 Z");
+        vector->ApplyBound("viewBox", "0 0 8 8");
+        CHECK(test, vector->HasViewBox() && std::fabs(vector->ViewBox().width - 8.0f) < 0.01f);
+        // A view box with no area in it says nothing about where the geometry is written, and one
+        // that is not four numbers says nothing either, so both leave the box that was already set.
+        vector->ApplyBound("viewBox", "0 0 0 8");
+        CHECK(test, std::fabs(vector->ViewBox().width - 8.0f) < 0.01f);
+        vector->ApplyBound("viewBox", "0 0 8 nope");
+        CHECK(test, std::fabs(vector->ViewBox().width - 8.0f) < 0.01f);
+        vector->ApplyBound("fill", "#FF0000");
+        CHECK(test, vector->Fill().r > 0.9f && vector->Fill().g < 0.1f);
+        vector->ApplyBound("stroke", "#00FF00");
+        vector->ApplyBound("strokeWidth", "3");
+        CHECK(test, vector->StrokeColor().g > 0.9f && std::fabs(vector->StrokeWidth() - 3.0f) < 0.01f);
+        vector->ApplyBound("radius", "6");
+        CHECK(test, std::fabs(vector->Radius() - 6.0f) < 0.01f);
+        vector->ApplyBound("rotation", "45");
+        CHECK(test, std::fabs(vector->Rotation() - 45.0f) < 0.01f);
+    }
+
+    // The rule the fill follows and the way the ends and joins are drawn reach the path that is
+    // handed to the renderer, and each one can arrive on its own.
+    std::unique_ptr<Element> styled = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<vector id=\"cut\" x=\"0\" y=\"0\" width=\"80\" height=\"80\" d=\"M0 0 L80 0 L80 80 Z\" fill=\"#0E7AFF\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* cut = styled != nullptr ? styled->FindById("cut") : nullptr;
+    VectorElement* cutVector = cut != nullptr ? dynamic_cast<VectorElement*>(cut) : nullptr;
+    CHECK(test, cutVector != nullptr);
+    if (cutVector != nullptr) {
+        cutVector->ApplyBound("fillRule", "evenodd");
+        cutVector->ApplyBound("lineCap", "round");
+        cutVector->ApplyBound("lineJoin", "bevel");
+        RecordingRenderer renderer;
+        styled->Paint(renderer);
+        const PaintRecord* cutPaint = PaintRecordFor(renderer, cut->Bounds());
+        CHECK(test, cutPaint != nullptr);
+        if (cutPaint != nullptr) {
+            CHECK(test, cutPaint->evenOdd);
+            CHECK(test, cutPaint->lineCap == 'r');
+            CHECK(test, cutPaint->lineJoin == 'b');
+        }
+    }
+
+    // The art a vector holds is scaled with the box: the same child written at 8 x 8 is drawn at
+    // 24 x 24 in a 24 x 24 vector and at 72 x 72 in a 72 x 72 one, so one icon is drawn at any
+    // size instead of the art sitting at one size inside a box that grew around it.
+    std::unique_ptr<Element> scaled = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<vector id=\"small\" x=\"0\" y=\"0\" width=\"24\" height=\"24\">"
+        "<path id=\"smallArt\" d=\"M3 12 L12 12\" width=\"8\" height=\"8\" stroke=\"#F5F5F7\" strokeWidth=\"2\"/>"
+        "</vector>"
+        "<vector id=\"large\" x=\"40\" y=\"0\" width=\"72\" height=\"72\">"
+        "<path id=\"largeArt\" d=\"M3 12 L12 12\" width=\"8\" height=\"8\" stroke=\"#F5F5F7\" strokeWidth=\"2\"/>"
+        "</vector>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* smallVector = scaled != nullptr ? scaled->FindById("small") : nullptr;
+    Element* largeVector = scaled != nullptr ? scaled->FindById("large") : nullptr;
+    Element* smallArt = scaled != nullptr ? scaled->FindById("smallArt") : nullptr;
+    Element* largeArt = scaled != nullptr ? scaled->FindById("largeArt") : nullptr;
+    CHECK(test, smallVector != nullptr && largeVector != nullptr && smallArt != nullptr && largeArt != nullptr);
+    if (smallVector != nullptr && largeVector != nullptr && smallArt != nullptr && largeArt != nullptr) {
+        CHECK(test, std::fabs(smallArt->Bounds().width - smallVector->Bounds().width) < 0.01f);
+        CHECK(test, std::fabs(smallArt->Bounds().height - smallVector->Bounds().height) < 0.01f);
+        CHECK(test, std::fabs(largeArt->Bounds().width - largeVector->Bounds().width) < 0.01f);
+        CHECK(test, std::fabs(largeArt->Bounds().height - largeVector->Bounds().height) < 0.01f);
+        // Both children were written at the same size, so the ratio of the sizes they were drawn
+        // at is the ratio of the boxes they were drawn in.
+        CHECK(test, std::fabs((largeArt->Bounds().width / smallArt->Bounds().width) -
+                              (largeVector->Bounds().width / smallVector->Bounds().width)) < 0.01f);
+    }
+
+    // A vector left at the size its art was written for places that art exactly where it was
+    // declared, so an icon that was not resized draws no differently than before.
+    std::unique_ptr<Element> authored = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<vector id=\"icon\" x=\"0\" y=\"0\" width=\"8\" height=\"8\">"
+        "<path id=\"art\" d=\"M3 12 L12 12\" width=\"8\" height=\"8\" stroke=\"#F5F5F7\" strokeWidth=\"2\"/>"
+        "</vector>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* authoredVector = authored != nullptr ? authored->FindById("icon") : nullptr;
+    Element* authoredArt = authored != nullptr ? authored->FindById("art") : nullptr;
+    CHECK(test, authoredVector != nullptr && authoredArt != nullptr);
+    if (authoredVector != nullptr && authoredArt != nullptr) {
+        CHECK(test, std::fabs(authoredArt->Bounds().width - 8.0f) < 0.01f);
+        CHECK(test, std::fabs(authoredArt->Bounds().height - 8.0f) < 0.01f);
+    }
+
+    // A path is stroked the way a line is stroked, so a dash pattern written in the dash attribute
+    // is read, held, and handed to the paint pass instead of being accepted and then ignored.
+    std::unique_ptr<Element> dashed = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<vector id=\"cut\" x=\"0\" y=\"0\" width=\"80\" height=\"80\">"
+        "<path id=\"cutArt\" d=\"M0 0 L80 0\" width=\"80\" height=\"80\" stroke=\"#0E7AFF\" strokeWidth=\"2\" dash=\"6 4\" dashOffset=\"3\"/>"
+        "</vector>"
+        "<vector id=\"solid\" x=\"100\" y=\"0\" width=\"80\" height=\"80\">"
+        "<path id=\"solidArt\" d=\"M0 0 L80 0\" width=\"80\" height=\"80\" stroke=\"#0E7AFF\" strokeWidth=\"2\"/>"
+        "</vector>"
+        "<vector id=\"even\" x=\"200\" y=\"0\" width=\"80\" height=\"80\">"
+        "<path id=\"evenArt\" d=\"M0 0 L80 0\" width=\"80\" height=\"80\" stroke=\"#0E7AFF\" strokeWidth=\"2\" dash=\"5\"/>"
+        "</vector>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* dashedArt = dashed != nullptr ? dashed->FindById("cutArt") : nullptr;
+    Element* solidArt = dashed != nullptr ? dashed->FindById("solidArt") : nullptr;
+    Element* evenArt = dashed != nullptr ? dashed->FindById("evenArt") : nullptr;
+    CHECK(test, dashedArt != nullptr && solidArt != nullptr && evenArt != nullptr);
+    if (dashedArt != nullptr && solidArt != nullptr && evenArt != nullptr) {
+        ShapeElement* cutPath = dynamic_cast<ShapeElement*>(dashedArt);
+        ShapeElement* solidPath = dynamic_cast<ShapeElement*>(solidArt);
+        ShapeElement* evenPath = dynamic_cast<ShapeElement*>(evenArt);
+        CHECK(test, cutPath != nullptr && solidPath != nullptr && evenPath != nullptr);
+        if (cutPath != nullptr && solidPath != nullptr && evenPath != nullptr) {
+            // Several numbers alternate on and off, and the offset is where in the pattern the
+            // stroke begins.
+            CHECK(test, cutPath->Dashes().size() == 2);
+            CHECK(test, cutPath->Dashes().size() == 2 && std::fabs(cutPath->Dashes()[0] - 6.0f) < 0.01f &&
+                        std::fabs(cutPath->Dashes()[1] - 4.0f) < 0.01f);
+            CHECK(test, std::fabs(cutPath->DashOffset() - 3.0f) < 0.01f);
+            // One number is a dash length whose gap is the dash itself, and no pattern at all is
+            // the solid stroke a path always had.
+            CHECK(test, evenPath->Dashes().size() == 2 && std::fabs(evenPath->Dashes()[0] - 5.0f) < 0.01f &&
+                        std::fabs(evenPath->Dashes()[1] - 5.0f) < 0.01f);
+            CHECK(test, solidPath->Dashes().empty() && std::fabs(solidPath->DashOffset()) < 0.01f);
+            RecordingRenderer renderer;
+            dashed->Paint(renderer);
+            const PaintRecord* cutPaint = PaintRecordFor(renderer, dashedArt->Bounds());
+            const PaintRecord* solidPaint = PaintRecordFor(renderer, solidArt->Bounds());
+            const PaintRecord* evenPaint = PaintRecordFor(renderer, evenArt->Bounds());
+            CHECK(test, cutPaint != nullptr && solidPaint != nullptr && evenPaint != nullptr);
+            if (cutPaint != nullptr && solidPaint != nullptr && evenPaint != nullptr) {
+                // The pattern and the offset reach the paint pass rather than being dropped on the
+                // way, so a dashed path is drawn dashed and a solid one is drawn solid.
+                CHECK(test, cutPaint->vector && cutPaint->dashes.size() == 2 &&
+                            std::fabs(cutPaint->dashes[0] - 6.0f) < 0.01f && std::fabs(cutPaint->dashes[1] - 4.0f) < 0.01f);
+                CHECK(test, std::fabs(cutPaint->dashOffset - 3.0f) < 0.01f);
+                CHECK(test, evenPaint->dashes.size() == 2 && std::fabs(evenPaint->dashes[0] - 5.0f) < 0.01f);
+                CHECK(test, solidPaint->dashes.empty() && std::fabs(solidPaint->dashOffset) < 0.01f);
+            }
+            // The same values driven at the node reach the same places, so a binding that writes
+            // them changes the stroke the way a written attribute does.
+            cutPath->ApplyBound("dash", "2 8");
+            cutPath->ApplyBound("dashOffset", "1");
+            CHECK(test, cutPath->Dashes().size() == 2 && std::fabs(cutPath->Dashes()[0] - 2.0f) < 0.01f &&
+                        std::fabs(cutPath->Dashes()[1] - 8.0f) < 0.01f);
+            CHECK(test, std::fabs(cutPath->DashOffset() - 1.0f) < 0.01f);
+            // A pattern with nothing readable in it leaves the stroke solid rather than asking the
+            // renderer for a dash of no length.
+            cutPath->ApplyBound("dash", "solid");
+            CHECK(test, cutPath->Dashes().empty());
+        }
+    }
+
+    // The path children of an imported icon are measured, placed, scaled, drawn and hit. A vector
+    // holding children paints no box of its own, so the fill an imported icon carries does not
+    // become a slab of colour behind its art.
+    std::unique_ptr<Element> icon = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<vector id=\"icon\" x=\"20\" y=\"20\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"#18181A\">"
+        "<path id=\"stem\" d=\"M3 12 L12 12\" width=\"8\" height=\"8\" viewBox=\"0 0 24 24\" stroke=\"#F5F5F7\" strokeWidth=\"2\"/>"
+        "</vector>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* iconElement = icon != nullptr ? icon->FindById("icon") : nullptr;
+    Element* stem = icon != nullptr ? icon->FindById("stem") : nullptr;
+    CHECK(test, iconElement != nullptr && stem != nullptr);
+    if (iconElement != nullptr && stem != nullptr) {
+        VectorElement* iconVector = dynamic_cast<VectorElement*>(iconElement);
+        CHECK(test, iconVector != nullptr);
+        if (iconVector != nullptr) {
+            CHECK(test, !iconVector->HasOwnGeometry());
+            CHECK(test, iconElement->Children().size() == 1);
+            // The art is drawn at the size of the box: the path was written at 8 x 8 and the
+            // icon is 24 x 24, so the art is drawn at three times the size it was written at.
+            CHECK(test, std::fabs(stem->Bounds().x - iconElement->Bounds().x) < 0.01f);
+            CHECK(test, std::fabs(stem->Bounds().y - iconElement->Bounds().y) < 0.01f);
+            CHECK(test, std::fabs(stem->Bounds().width - iconElement->Bounds().width) < 0.01f);
+            CHECK(test, std::fabs(stem->Bounds().height - iconElement->Bounds().height) < 0.01f);
+            RecordingRenderer renderer;
+            icon->Paint(renderer);
+            // The art is the first thing drawn in the icon box, and it is all that is drawn there:
+            // nothing is laid down behind it, so the fill an imported icon carries does not become
+            // a slab of colour back there.
+            const PaintRecord* art = PaintRecordFor(renderer, iconElement->Bounds());
+            CHECK(test, art != nullptr && art->vector);
+            CHECK(test, art != nullptr && art->path == "M3 12 L12 12");
+            CHECK(test, PaintRecordFor(renderer, stem->Bounds()) == art);
+            // A click on the art lands on the path that was drawn, and the art owns the box it was
+            // drawn into, so the icon is moved by grabbing its art.
+            CHECK(test, iconElement->HitTest(Point{iconElement->Bounds().x + 2.0f, iconElement->Bounds().y + 2.0f}) == stem);
+            CHECK(test, iconElement->HitTest(Point{iconElement->Bounds().x + 20.0f, iconElement->Bounds().y + 20.0f}) == stem);
+            // The art reaches no further than the box it was drawn in, so a click beside the icon
+            // lands on neither the art nor the vector.
+            CHECK(test, iconElement->HitTest(Point{iconElement->Bounds().x - 1.0f, iconElement->Bounds().y - 1.0f}) == nullptr);
+        }
+    }
+
+    // Hidden and display="none" vectors measure to nothing, paint nothing, and are not hit.
+    std::unique_ptr<Element> hidden = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<vector id=\"gone\" width=\"80\" height=\"80\" shape=\"ellipse\" fill=\"#0E7AFF\" display=\"none\"/>"
+        "<vector id=\"away\" x=\"90\" y=\"0\" width=\"80\" height=\"80\" shape=\"ellipse\" fill=\"#0E7AFF\" visible=\"false\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* gone = hidden != nullptr ? hidden->FindById("gone") : nullptr;
+    Element* away = hidden != nullptr ? hidden->FindById("away") : nullptr;
+    CHECK(test, gone != nullptr && away != nullptr);
+    if (gone != nullptr && away != nullptr) {
+        CHECK(test, !gone->Visible() && !away->Visible());
+        CHECK(test, gone->Measured().width == 0.0f && gone->Measured().height == 0.0f);
+        CHECK(test, away->Measured().width == 0.0f && away->Measured().height == 0.0f);
+        CHECK(test, gone->HitTest(Point{gone->Bounds().x + 40.0f, gone->Bounds().y + 40.0f}) == nullptr);
+        RecordingRenderer renderer;
+        hidden->Paint(renderer);
+        CHECK(test, PaintRecordFor(renderer, gone->Bounds()) == nullptr);
+    }
+
+    // A vector takes what a rectangle takes plus the geometry it draws. The values that belong to
+    // a box of content, and the two that a shape has no use for, are refused rather than accepted
+    // and then quietly ignored, and so are children on a path, which draws no children at all.
+    CHECK(test, CompileUi(Source("<window><vector width=\"80\" height=\"80\" shape=\"ellipse\" fill=\"#FFFFFF\" stroke=\"#000000\" strokeWidth=\"2\" radius=\"6\" d=\"M0 0 L16 16\" viewBox=\"0 0 16 16\" fillRule=\"evenodd\" lineCap=\"round\" lineJoin=\"bevel\"/></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><vector><path d=\"M0 0 L8 8\"/></vector></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><vector layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><vector padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><vector gap=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><vector overflow=\"scroll\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><vector transform=\"scale(2)\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><vector strokeOpacity=\"0.5\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><path d=\"M0 0 L8 8\"><frame/></path></window>")).Ok());
+
+    Finish(test, "vector", before);
+}
+
+void TestSvg(TestContext& test) {
+    const int before = test.failed;
+
+    // The art of an SVG is the art of the file it names, read once into the paths of the document.
+    // A file of two strokes is written where a temporary file belongs, so the test reads a file
+    // the way a document does.
+    const std::filesystem::path fixture = std::filesystem::temp_directory_path() / "runtime_svg_artwork.svg";
+    {
+        std::ofstream file(fixture, std::ios::binary);
+        file << "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\">"
+                "<path d=\"M3.5 13h6\"/><path d=\"M18 7v9\"/></svg>";
+    }
+
+    // An SVG is a shape whose art comes from a file, so it is a rectangle to anything that asks,
+    // and it draws the paths the file holds. The size the art was drawn for is the size of the
+    // node when the document does not give one.
+    const std::string source = fixture.string();
+    const std::string document = "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+                                 "<svg id=\"art\" source=\"" + source + "\"/>"
+                                 "</frame></window>";
+    std::unique_ptr<Element> plain = Layout(document.c_str(), 200.0f, 200.0f);
+    Element* art = plain != nullptr ? plain->FindById("art") : nullptr;
+    CHECK(test, art != nullptr && art->Kind() == NodeKind::SVG);
+    if (art != nullptr) {
+        SvgElement* svg = dynamic_cast<SvgElement*>(art);
+        // Nothing was written twice: an SVG is the vector underneath, which is the rectangle.
+        CHECK(test, svg != nullptr && dynamic_cast<VectorElement*>(art) != nullptr && dynamic_cast<RectangleElement*>(art) != nullptr);
+        if (svg != nullptr) {
+            CHECK(test, svg->Source() == source);
+            CHECK(test, svg->HasViewBox() && std::fabs(svg->ViewBox().width - 24.0f) < 0.01f && std::fabs(svg->ViewBox().height - 24.0f) < 0.01f);
+            CHECK(test, std::fabs(art->Bounds().width - 24.0f) < 0.01f && std::fabs(art->Bounds().height - 24.0f) < 0.01f);
+            CHECK(test, art->Children().size() == 2);
+            for (const std::unique_ptr<Element>& child : art->Children()) {
+                CHECK(test, child->Kind() == NodeKind::PATH);
+            }
+            Element* stroke = art->Children().empty() ? nullptr : art->Children().front().get();
+            // The art was authored at the size of the view box, so a node left at that size draws
+            // every path exactly where the file placed it.
+            CHECK(test, stroke != nullptr && std::fabs(stroke->Bounds().width - 24.0f) < 0.01f && std::fabs(stroke->Bounds().height - 24.0f) < 0.01f);
+            ShapeElement* shape = stroke == nullptr ? nullptr : dynamic_cast<ShapeElement*>(stroke);
+            CHECK(test, shape != nullptr);
+            if (shape != nullptr) {
+                // The stroke width of the file reaches the path, and the colour the artwork calls
+                // its current colour is the fill the node draws in.
+                CHECK(test, std::fabs(shape->StrokeWidth() - 2.0f) < 0.01f);
+                CHECK(test, std::fabs(shape->StrokeColor().r - svg->Fill().r) < 0.01f && std::fabs(shape->StrokeColor().g - svg->Fill().g) < 0.01f &&
+                            std::fabs(shape->StrokeColor().b - svg->Fill().b) < 0.01f);
+            }
+            // The art is what is drawn: an SVG paints no slab of its own behind it.
+            RecordingRenderer renderer;
+            plain->Paint(renderer);
+            const PaintRecord* drawn = PaintRecordFor(renderer, art->Bounds());
+            CHECK(test, drawn != nullptr && drawn->vector);
+            CHECK(test, drawn != nullptr && drawn->path == "M3.5 13h6");
+            // A click on the art lands on a path that was drawn rather than on the SVG around it.
+            // The paths of a file are each written in the box of the file, so they all cover it,
+            // and the one drawn last is the one a click inside that box lands on.
+            Element* top = art->Children().empty() ? nullptr : art->Children().back().get();
+            CHECK(test, top != nullptr && top != stroke);
+            CHECK(test, art->HitTest(Point{art->Bounds().x + 4.0f, art->Bounds().y + 13.0f}) == top);
+        }
+    }
+
+    // A size the document writes is the size the art is scaled into, so one file draws at any
+    // size rather than sitting at the size it was written at inside a box that grew around it.
+    std::unique_ptr<Element> scaled = Layout(
+        ("<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+         "<svg id=\"big\" source=\"" + source + "\" width=\"48\" height=\"48\"/>"
+         "</frame></window>").c_str(),
+        200.0f, 200.0f);
+    Element* big = scaled != nullptr ? scaled->FindById("big") : nullptr;
+    CHECK(test, big != nullptr);
+    if (big != nullptr) {
+        CHECK(test, std::fabs(big->Bounds().width - 48.0f) < 0.01f && std::fabs(big->Bounds().height - 48.0f) < 0.01f);
+        Element* first = big->Children().empty() ? nullptr : big->Children().front().get();
+        CHECK(test, first != nullptr && std::fabs(first->Bounds().width - 48.0f) < 0.01f && std::fabs(first->Bounds().height - 48.0f) < 0.01f);
+    }
+
+    // The colour of the art is the colour the node draws in, so a document can recolour a file
+    // that leaves its colour open, and a view box the document writes is the box the art is drawn
+    // in rather than the one the file was written in.
+    std::unique_ptr<Element> recoloured = Layout(
+        ("<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+         "<svg id=\"record\" source=\"" + source + "\" fill=\"#FF0000\" viewBox=\"0 0 12 12\"/>"
+         "</frame></window>").c_str(),
+        200.0f, 200.0f);
+    Element* record = recoloured != nullptr ? recoloured->FindById("record") : nullptr;
+    CHECK(test, record != nullptr);
+    if (record != nullptr) {
+        SvgElement* svg = dynamic_cast<SvgElement*>(record);
+        CHECK(test, svg != nullptr && std::fabs(svg->ViewBox().width - 12.0f) < 0.01f);
+        Element* first = record->Children().empty() ? nullptr : record->Children().front().get();
+        ShapeElement* shape = first == nullptr ? nullptr : dynamic_cast<ShapeElement*>(first);
+        CHECK(test, shape != nullptr);
+        if (shape != nullptr) {
+            CHECK(test, shape->StrokeColor().r > 0.9f && shape->StrokeColor().g < 0.1f && shape->StrokeColor().b < 0.1f);
+        }
+    }
+
+    // Art written into the document is the markup itself, so a document can carry an icon with no
+    // file beside it, and art that cannot be read leaves the node with no paths rather than with
+    // an art of its own.
+    std::unique_ptr<Element> carried = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<svg id=\"markup\" source=\"&lt;svg viewBox=&quot;0 0 8 8&quot;&gt;&lt;rect width=&quot;8&quot; height=&quot;8&quot; fill=&quot;#00FF00&quot;/&gt;&lt;/svg&gt;\"/>"
+        "<svg id=\"missing\" source=\"no/such/file.svg\" width=\"40\" height=\"40\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* markup = carried != nullptr ? carried->FindById("markup") : nullptr;
+    Element* missing = carried != nullptr ? carried->FindById("missing") : nullptr;
+    CHECK(test, markup != nullptr && missing != nullptr);
+    if (markup != nullptr && missing != nullptr) {
+        CHECK(test, markup->Children().size() == 1 && markup->Children().front()->Kind() == NodeKind::PATH);
+        // The size of art written in the document is the view box the document wrote it in.
+        CHECK(test, std::fabs(markup->Bounds().width - 8.0f) < 0.01f && std::fabs(markup->Bounds().height - 8.0f) < 0.01f);
+        CHECK(test, missing->Children().empty());
+        CHECK(test, std::fabs(missing->Bounds().width - 40.0f) < 0.01f && std::fabs(missing->Bounds().height - 40.0f) < 0.01f);
+    }
+
+    // An SVG takes what a shape takes plus the file it draws. The geometry of the art belongs to
+    // the file, so the values that describe geometry, and children, are refused rather than
+    // accepted and then quietly ignored.
+    CHECK(test, CompileUi(Source("<window><svg source=\"logo.svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"#18181A\" stroke=\"#FFFFFF\" "
+                                  "strokeWidth=\"2\" radius=\"8\" rotation=\"10\" display=\"none\"/></window>"))
+                    .Ok());
+    CHECK(test, !CompileUi(Source("<window><svg d=\"M0 0 L8 8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg shape=\"ellipse\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg fillRule=\"evenodd\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg><path d=\"M0 0\"/></svg></window>")).Ok());
+
+    Finish(test, "svg", before);
+}
+
 void TestLine(TestContext& test) {
     const int before = test.failed;
 
@@ -2526,6 +3244,9 @@ int RunUnitTests() {
     TestRectangle(test);
     TestEllipse(test);
     TestPolygon(test);
+    TestStar(test);
+    TestVector(test);
+    TestSvg(test);
     TestLine(test);
     TestArrow(test);
     TestBoards(test);

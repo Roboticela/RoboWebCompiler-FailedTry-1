@@ -4,6 +4,7 @@
 #include "rendering/image/ImageDecoder.h"
 
 #include <string>
+#include <vector>
 
 namespace Runtime {
 
@@ -26,8 +27,15 @@ public:
     void SetShapeName(std::string value);
     void SetFill(Color value);
     void SetStroke(Color value, float thickness);
+    Color Fill() const { return fill; }
+    Color StrokeColor() const { return stroke; }
+    float StrokeWidth() const { return strokeWidth; }
     void SetViewBox(float x, float y, float boxWidth, float boxHeight);
     void SetLineStyle(const std::string& cap, const std::string& join, bool evenOdd);
+    void SetDash(std::string value, float gap);
+    void SetDashOffset(float value);
+    const std::vector<float>& Dashes() const { return dashes; }
+    float DashOffset() const { return dashOffset; }
     void SetFont(float size, int weight, Color color, TextAlign align);
     void SetTextColor(Color value);
     void SetUnderline(bool value);
@@ -61,6 +69,10 @@ private:
     char lineCap = 'b';
     char lineJoin = 'm';
     bool evenOdd = false;
+    // Alternating painted and unpainted lengths in pixels, and where in the stroke the pattern
+    // starts. An empty pattern strokes solid.
+    std::vector<float> dashes;
+    float dashOffset = 0.0f;
     Color textColor{0.094f, 0.094f, 0.102f, 1.0f};
     float strokeWidth = 1.0f;
     float fontSize = 16.0f;

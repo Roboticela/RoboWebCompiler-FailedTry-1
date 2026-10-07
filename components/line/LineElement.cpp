@@ -3,6 +3,7 @@
 #include "compiler/types/ValueParser.h"
 #include "engine/math/Geometry.h"
 #include "rendering/renderer/Renderer.h"
+#include "rendering/renderer/StrokePattern.h"
 
 #include <algorithm>
 #include <cctype>
@@ -22,8 +23,6 @@ constexpr float TURN_EPSILON = 0.01f;
 
 // A thin line is hard to hit exactly, so the stroke is inflated to a comfortable band.
 constexpr float LINE_HIT_TOLERANCE = 1.5f;
-
-constexpr float LINE_MAX_DASH = 512.0f;
 
 void AppendNumber(std::string& path, float value) {
     char buffer[32];
@@ -94,43 +93,9 @@ void LineElement::SetLineCap(std::string value) {
 }
 
 void LineElement::SetDash(std::string value, float gap) {
-    // A dash is a pattern of painted and unpainted runs. One number plus a gap is the short
-    // form; several numbers alternate on and off; anything else leaves the line solid.
-    dashes.clear();
-    const std::string text = TrimView(std::move(value));
-    if (text.empty() || text == "none" || text == "solid") {
-        return;
-    }
-    std::vector<float> numbers;
-    const char* scan = text.c_str();
-    char* end = nullptr;
-    while (*scan != '\0') {
-        const float number = std::strtof(scan, &end);
-        if (end == scan) {
-            // A separator or anything unreadable moves the scan along; a pattern with no
-            // number in it at all was already treated as solid above.
-            ++scan;
-            continue;
-        }
-        if (number > 0.0f) {
-            numbers.push_back(std::min(number, LINE_MAX_DASH));
-        }
-        scan = end;
-    }
-    if (numbers.empty()) {
-        return;
-    }
-    if (numbers.size() == 1) {
-        const float on = numbers.front();
-        const float off = gap > 0.0f ? std::min(gap, LINE_MAX_DASH) : on;
-        dashes = {on, off};
-        return;
-    }
-    // The pattern has to alternate, so an odd count repeats itself once to close the pair.
-    dashes = numbers;
-    if (dashes.size() % 2 != 0) {
-        dashes.push_back(numbers.front());
-    }
+    // A line and a path are stroked the same way, so the pattern written in the dash attribute is
+    // read by the one reader they share rather than by each of them in turn.
+    dashes = ParseDashPattern(value, gap);
 }
 
 void LineElement::SetRotation(float degrees) {

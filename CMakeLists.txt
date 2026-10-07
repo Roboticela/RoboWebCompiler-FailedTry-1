@@ -63,6 +63,12 @@ add_library(RuntimeUi STATIC
     components/rectangle/RectangleElement.h
     components/polygon/PolygonElement.cpp
     components/polygon/PolygonElement.h
+    components/star/StarElement.cpp
+    components/star/StarElement.h
+    components/vector/VectorElement.cpp
+    components/vector/VectorElement.h
+    components/svg/SvgElement.cpp
+    components/svg/SvgElement.h
     components/ellipse/EllipseElement.cpp
     components/ellipse/EllipseElement.h
     components/line/LineElement.cpp
@@ -78,6 +84,8 @@ add_library(RuntimeUi STATIC
     components/text/TextElement.cpp
     components/text/TextElement.h
     rendering/renderer/Renderer.h
+    rendering/renderer/StrokePattern.cpp
+    rendering/renderer/StrokePattern.h
     rendering/text/TextMeasurer.h
     rendering/text/TextLayout.cpp
     rendering/text/TextLayout.h

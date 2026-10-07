@@ -452,6 +452,107 @@
             </frame>
         </frame>
     </frame>
+    <frame name="Vector" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="vector — a shape whose outline is a path: written in a view box, drawn in the box" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="an imported icon: paths, no slab" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <vector name="Icon" width="72" height="72" viewBox="0 0 24 24" fill="#18181A">
+                        <path name="Frame" d="M3 4 L21 4 L21 20 L3 20 Z" width="72" height="72" viewBox="0 0 24 24" fill="#0E7AFF"/>
+                        <path name="Play" d="M10 8 L17 12 L10 16 Z" width="72" height="72" viewBox="0 0 24 24" fill="#FFFFFF"/>
+                    </vector>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="shape=ellipse, 120 x 72" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <vector name="Oval" shape="ellipse" width="120" height="72" fill="#FF9F0A" stroke="#1D1D1F" strokeWidth="4"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="shape=rect, radius 24" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <vector name="Tile" shape="rect" width="88" height="88" radius="24" fill="#30D158"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="one path, two sizes" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" gap="12" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <vector name="Small" width="36" height="36" viewBox="0 0 24 24" d="M12 2 L22 20 L2 20 Z" fill="#BF5AF2"/>
+                    <vector name="Large" width="72" height="72" viewBox="0 0 24 24" d="M12 2 L22 20 L2 20 Z" fill="#BF5AF2"/>
+                </frame>
+            </frame>
+        </frame>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="art scales with the box: one path, two icons" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" gap="12" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <vector name="ScaledSmall" width="36" height="36" viewBox="0 0 24 24">
+                        <path name="Art" d="M8 5 L19 12 L8 19 Z" width="72" height="72" viewBox="0 0 24 24" fill="#BF5AF2"/>
+                    </vector>
+                    <vector name="ScaledLarge" width="72" height="72" viewBox="0 0 24 24">
+                        <path name="Art" d="M8 5 L19 12 L8 19 Z" width="72" height="72" viewBox="0 0 24 24" fill="#BF5AF2"/>
+                    </vector>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="a dashed path: dash 5 3, offset 2" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <vector name="Dashed" width="72" height="72" viewBox="0 0 24 24">
+                        <path name="Dash" d="M2 12 L22 12" width="72" height="72" viewBox="0 0 24 24" stroke="#0E7AFF" strokeWidth="3" lineCap="round" dash="5 3" dashOffset="2"/>
+                    </vector>
+                </frame>
+            </frame>
+        </frame>
+    </frame>
+    <frame name="Svg" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="svg — art read from a file: the paths of the file, drawn in the box the node gives them" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="the file, at the size it was drawn for" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <svg name="Mark" source="examples/Hello/Logo.svg" fill="#0E7AFF"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="one file, drawn in another colour and at another size" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" gap="16" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <svg name="MarkInk" source="examples/Hello/Logo.svg" width="48" height="48" fill="#1D1D1F"/>
+                    <svg name="MarkPink" source="examples/Hello/Logo.svg" width="72" height="72" fill="#FF375F"/>
+                </frame>
+            </frame>
+        </frame>
+    </frame>
+    <frame name="Star" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="star — a polygon whose ring holds two radii: a point, then a valley, all the way round" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="five points, the default" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <star name="Five" width="88" height="88" fill="#0E7AFF"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="six points, deeper valleys" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <star name="Six" width="88" height="88" points="6" innerRadius="0.25" fill="#30D158"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="four points, radius 20" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <star name="Soft" width="88" height="88" points="4" radius="20" fill="#FF9F0A"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="outlined, stroke 4" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <star name="Outline" width="88" height="88" points="7" innerRadius="0.45" fill="#FFFFFF" stroke="#1D1D1F" strokeWidth="4"/>
+                </frame>
+            </frame>
+        </frame>
+    </frame>
     <frame name="Polygon" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
         <text text="polygon — a rectangle with a different outline: as many sides as it is given, and a radius to round them" fontSize="13" textColor="#86868B"/>
         <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">

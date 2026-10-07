@@ -33,6 +33,17 @@ protected:
     // winding and replaces this list.
     virtual std::vector<Point> Corners(const Rect& area) const;
 
+    // A ring of corners read off a circle: equal steps starting at the top and running clockwise,
+    // each step at its own radius in turn. A regular polygon asks for every step at the same
+    // radius; a star alternates a point with a valley. Keeping the step and the first corner here
+    // is what makes a shape standing on a polygon agree with it about which way round it is drawn.
+    static std::vector<Point> RingOnCircle(int count, float firstRadius, float secondRadius);
+
+    // A ring mapped onto the box, one axis at a time, so whatever the ring is made of it reaches
+    // every edge of the box it was drawn in. An axis the ring has no run on keeps the middle of
+    // the box instead.
+    static std::vector<Point> StretchToBox(const std::vector<Point>& ring, const Rect& area);
+
 private:
     // The outline in box-local pixels, in the path syntax the renderer reads.
     std::string OutlinePath(const Rect& area) const;

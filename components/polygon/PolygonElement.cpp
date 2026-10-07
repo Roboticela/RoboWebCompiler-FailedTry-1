@@ -79,32 +79,43 @@ RoundedCorner RoundCorner(Point vertex, Point before, Point after, float radius)
     // corner that stands out, which is the positive cross product of those two directions.
     const float turn = -ux * wy + uy * wx;
     const float interior = turn >= 0.0f ? opening : FULL_TURN - opening;
-    const float half = interior * 0.5f;
-    const float tangentOfHalf = std::tan(half);
-    float lead = radius / tangentOfHalf;
+    // Everything below is measured off the narrow angle between the two edges, which is half a turn
+    // at its widest. Reading the corner off that angle rather than off the interior angle is what
+    // lets one piece of arithmetic round a corner that stands out and one that folds in: they have
+    // the same narrow angle, and only the way the arc sweeps and the width of the gap it leaves
+    // behind differ between them.
+    const float halfOpening = opening * 0.5f;
+    // The arc meets each edge at the same distance from the vertex, which the angle it has to fit
+    // fixes: a wide corner needs a long lead-in and a nearly straight one needs almost none. That
+    // distance is capped at half the shorter edge, which keeps two neighbouring arcs apart.
+    float along = radius / std::tan(halfOpening);
     const float limit = std::min(inLength, outLength) * 0.5f;
-    if (std::fabs(lead) > limit) {
-        lead = std::copysign(limit, lead);
+    if (along > limit) {
+        along = limit;
     }
-    if (std::fabs(lead) <= LENGTH_EPSILON) {
+    if (along <= LENGTH_EPSILON) {
         return corner;
     }
-    // Where the arc meets each edge, and the centre it turns about: on the bisector, far enough
-    // out that the arc holds exactly its own radius away from both edges.
-    corner.entry = Point{vertex.x + ux * lead, vertex.y + uy * lead};
-    corner.exit = Point{vertex.x + wx * lead, vertex.y + wy * lead};
     const float bisectorX = ux + wx;
     const float bisectorY = uy + wy;
     const float bisectorLength = std::hypot(bisectorX, bisectorY);
     if (bisectorLength <= LENGTH_EPSILON) {
         return corner;
     }
-    const float reach = lead / std::cos(half);
+    // The centre sits on the bisector, far enough out that the arc holds exactly its radius away
+    // from both edges. The bisector always points between the two edges, which is the side the
+    // arc has to join them from, so a corner that folds in is rounded from the gap side and the
+    // arc stays tangent to both edges instead of running past them.
+    const float reach = along / std::cos(halfOpening);
+    corner.entry = Point{vertex.x + ux * along, vertex.y + uy * along};
+    corner.exit = Point{vertex.x + wx * along, vertex.y + wy * along};
     corner.center = Point{vertex.x + bisectorX / bisectorLength * reach, vertex.y + bisectorY / bisectorLength * reach};
     // A lead-in that had to be shortened leaves a smaller arc behind, so the radius is read back
     // from the lead-in that survived rather than from the one that was asked for.
-    corner.radius = std::fabs(lead * tangentOfHalf);
-    // The arc turns through whatever angle the corner itself did not use.
+    corner.radius = along * std::tan(halfOpening);
+    // The arc turns through whatever angle the corner itself did not use, and the sign of that turn
+    // is the way round the arc runs: a corner that stands out sweeps with the ring, one that folds
+    // in sweeps against it.
     corner.sweep = HALF_TURN - interior;
     return corner;
 }
@@ -119,30 +130,42 @@ void PolygonElement::SetSides(int count) {
     sideCount = std::clamp(count, POLYGON_MIN_SIDES, POLYGON_MAX_SIDES);
 }
 
-std::vector<Point> PolygonElement::Corners(const Rect& area) const {
-    const int count = Sides();
-    // A regular polygon is a ring of equal steps around a circle. The first corner sits at the
-    // top and the ring runs clockwise from there, so a triangle points up and a four-sided
-    // polygon stands on one corner.
-    const float step = FULL_TURN / static_cast<float>(count);
+std::vector<Point> PolygonElement::RingOnCircle(int count, float firstRadius, float secondRadius) {
     std::vector<Point> ring;
+    if (count < 1) {
+        return ring;
+    }
+    // The first corner sits at the top and the ring runs clockwise from there, so a triangle points
+    // up, a four-sided polygon stands on one corner, and a star stands on one of its points. Steps
+    // alternate between the two radii, so a ring asked for at one radius is even all the way round
+    // and a ring asked for at two is a star.
+    const float step = FULL_TURN / static_cast<float>(count);
     ring.reserve(static_cast<std::size_t>(count));
-    float minX = 1.0f;
-    float maxX = -1.0f;
-    float minY = 1.0f;
-    float maxY = -1.0f;
     for (int index = 0; index < count; ++index) {
+        const float radius = index % 2 == 0 ? firstRadius : secondRadius;
         const float angle = -QUARTER_TURN + step * static_cast<float>(index);
-        const Point point{std::cos(angle), std::sin(angle)};
-        ring.push_back(point);
+        ring.push_back(Point{std::cos(angle) * radius, std::sin(angle) * radius});
+    }
+    return ring;
+}
+
+std::vector<Point> PolygonElement::StretchToBox(const std::vector<Point>& ring, const Rect& area) {
+    if (ring.empty()) {
+        return {};
+    }
+    float minX = ring.front().x;
+    float maxX = ring.front().x;
+    float minY = ring.front().y;
+    float maxY = ring.front().y;
+    for (const Point& point : ring) {
         minX = std::min(minX, point.x);
         maxX = std::max(maxX, point.x);
         minY = std::min(minY, point.y);
         maxY = std::max(maxY, point.y);
     }
-    // The circle the ring was read off is then stretched onto the box, one axis at a time. A
-    // shape left inside its circle instead would sit away from the handles of the box it was
-    // dragged out to, and a three-sided ring would look narrow for no reason.
+    // The ring is stretched onto the box one axis at a time. A shape left inside the circle it was
+    // read from would sit away from the handles of the box it was dragged out to, and a three-sided
+    // ring would look narrow for no reason.
     const float spanX = maxX - minX;
     const float spanY = maxY - minY;
     std::vector<Point> corners;
@@ -153,6 +176,11 @@ std::vector<Point> PolygonElement::Corners(const Rect& area) const {
         corners.push_back(Point{area.x + unitX * area.width, area.y + unitY * area.height});
     }
     return corners;
+}
+
+std::vector<Point> PolygonElement::Corners(const Rect& area) const {
+    // A regular polygon is a ring of equal steps at one radius: as many corners as it has sides.
+    return StretchToBox(RingOnCircle(Sides(), 1.0f, 1.0f), area);
 }
 
 std::string PolygonElement::OutlinePath(const Rect& area) const {

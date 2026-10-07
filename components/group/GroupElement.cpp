@@ -133,17 +133,9 @@ Size GroupElement::Measure(TextMeasurer& measurer, float availableWidth, float a
     // The group box covers the children, so the parent treats the whole group as one item.
     // Children keep the position they were given, which means wrapping a frame in a group
     // leaves it exactly where it was. Scale grows the box, which keeps the space the group
-    // claims honest.
-    float unionWidth = 0.0f;
-    float unionHeight = 0.0f;
-    for (const std::unique_ptr<Element>& child : children) {
-        child->Measure(measurer, availableWidth, availableHeight, false);
-        const float childRight = child->OffsetX().Resolve(availableWidth, 0.0f, true) + child->Measured().width;
-        const float childBottom = child->OffsetY().Resolve(availableHeight, 0.0f, true) + child->Measured().height;
-        unionWidth = std::max(unionWidth, childRight);
-        unionHeight = std::max(unionHeight, childBottom);
-    }
-    natural = Size{std::max(1.0f, unionWidth), std::max(1.0f, unionHeight)};
+    // claims honest. The size the children cover together is kept as the size the group was
+    // authored at, which is what Arrange scales the children out of.
+    natural = ChildrenExtent(measurer, availableWidth, availableHeight);
 
     float resolvedWidth = natural.width * std::fabs(scaleX);
     float resolvedHeight = natural.height * std::fabs(scaleY);
@@ -164,13 +156,7 @@ void GroupElement::Arrange(const Rect& rect) {
 
     // Children scale with the group box, so growing or shrinking the group moves and
     // resizes all of them together instead of only moving the box around them.
-    const float placeX = natural.width > 0.5f ? bounds.width / natural.width : 1.0f;
-    const float placeY = natural.height > 0.5f ? bounds.height / natural.height : 1.0f;
-    for (const std::unique_ptr<Element>& child : children) {
-        const float localX = child->OffsetX().Resolve(natural.width, 0.0f, true) * placeX;
-        const float localY = child->OffsetY().Resolve(natural.height, 0.0f, true) * placeY;
-        child->Arrange(Rect{bounds.x + localX, bounds.y + localY, child->Measured().width * placeX, child->Measured().height * placeY});
-    }
+    ArrangeChildrenScaled(bounds, natural);
 }
 
 Element* GroupElement::HitTest(Point point) {

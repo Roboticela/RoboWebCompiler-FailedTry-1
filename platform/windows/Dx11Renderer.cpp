@@ -580,6 +580,9 @@ void Dx11Renderer::DrawVector(const VectorPaint& paint) {
         style.miterLimit = 4.0f;
         if (!paint.dashes.empty()) {
             style.dashStyle = D2D1_DASH_STYLE_CUSTOM;
+            // The pattern is written in pixels and so is the offset, but the platform measures an
+            // offset in multiples of the stroke width, so it is converted on the way in.
+            style.dashOffset = paint.strokeWidth > 0.0f ? paint.dashOffset / paint.strokeWidth : 0.0f;
         }
         Microsoft::WRL::ComPtr<ID2D1StrokeStyle> strokeStyle;
         d2dFactory->CreateStrokeStyle(style, paint.dashes.empty() ? nullptr : paint.dashes.data(),

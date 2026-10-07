@@ -3,6 +3,7 @@
 #include "ui/element/Element.h"
 
 #include <string>
+#include <vector>
 
 namespace Runtime {
 
@@ -36,12 +37,28 @@ public:
     const std::string& Cursor() const { return cursor; }
 
 protected:
+    // The view box one outline is written in and the way its stroke is drawn. A rectangle and the
+    // shapes built on it write their outline in box-local pixels, which is the box itself, so they
+    // take the default. A vector writes its geometry in a view box of its own and says so.
+    struct OutlineStyle {
+        float viewX = 0.0f;
+        float viewY = 0.0f;
+        // Zero means the box itself: the space box-local pixels are written in.
+        float viewWidth = 0.0f;
+        float viewHeight = 0.0f;
+        bool evenOdd = false;
+        char lineCap = 'b';
+        char lineJoin = 'r';
+        std::vector<float> dashes;
+    };
+
     void OnPaint(Renderer& renderer) override;
 
     // Paints one closed path as this shape: under this shape's turn, in this shape's fill, and
     // with this shape's stroke. A shape that is not a box builds its own outline instead of
     // the box's, and hands it here, so being filled and stroked is decided in one place.
     void PaintOutline(Renderer& renderer, const std::string& path);
+    void PaintOutline(Renderer& renderer, const std::string& path, const OutlineStyle& style);
 
 private:
     // A rounded box is four independent corner arcs, so it only goes through a path when

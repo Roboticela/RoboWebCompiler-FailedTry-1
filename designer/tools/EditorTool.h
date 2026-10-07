@@ -8,6 +8,7 @@ enum class EditorTool {
     RECTANGLE,
     ELLIPSE,
     POLYGON,
+    STAR,
     TEXT,
     IMAGE,
     LINE,
@@ -28,6 +29,8 @@ inline const char* EditorToolName(EditorTool tool) {
         return "Ellipse";
     case EditorTool::POLYGON:
         return "Polygon";
+    case EditorTool::STAR:
+        return "Star";
     case EditorTool::TEXT:
         return "Text";
     case EditorTool::IMAGE:
@@ -54,6 +57,8 @@ inline const char* EditorToolComponent(EditorTool tool) {
         return "ellipse";
     case EditorTool::POLYGON:
         return "polygon";
+    case EditorTool::STAR:
+        return "star";
     case EditorTool::TEXT:
         return "text";
     case EditorTool::IMAGE:
@@ -82,6 +87,8 @@ inline const char* EditorToolShortcut(EditorTool tool) {
         return "O";
     case EditorTool::POLYGON:
         return "P";
+    case EditorTool::STAR:
+        return "S";
     case EditorTool::TEXT:
         return "T";
     case EditorTool::IMAGE:

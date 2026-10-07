@@ -857,6 +857,33 @@ const std::vector<std::unique_ptr<Element>>& Element::Children() const {
     return children;
 }
 
+Size Element::ChildrenExtent(TextMeasurer& measurer, float availableWidth, float availableHeight) {
+    float extentWidth = 0.0f;
+    float extentHeight = 0.0f;
+    for (const std::unique_ptr<Element>& child : children) {
+        child->Measure(measurer, availableWidth, availableHeight, false);
+        const float childRight = child->OffsetX().Resolve(availableWidth, 0.0f, true) + child->Measured().width;
+        const float childBottom = child->OffsetY().Resolve(availableHeight, 0.0f, true) + child->Measured().height;
+        extentWidth = std::max(extentWidth, childRight);
+        extentHeight = std::max(extentHeight, childBottom);
+    }
+    // A box that covers nothing would make the scale that follows divide by zero, so the
+    // extent of no content is the smallest box a child could still be placed in.
+    return Size{std::max(1.0f, extentWidth), std::max(1.0f, extentHeight)};
+}
+
+void Element::ArrangeChildrenScaled(const Rect& box, Size authored) {
+    // The box the content was authored for is the reference the given box is measured against,
+    // so a container that is left at its authored size places every child exactly as declared.
+    const float placeX = authored.width > 0.5f ? box.width / authored.width : 1.0f;
+    const float placeY = authored.height > 0.5f ? box.height / authored.height : 1.0f;
+    for (const std::unique_ptr<Element>& child : children) {
+        const float localX = child->OffsetX().Resolve(authored.width, 0.0f, true) * placeX;
+        const float localY = child->OffsetY().Resolve(authored.height, 0.0f, true) * placeY;
+        child->Arrange(Rect{box.x + localX, box.y + localY, child->Measured().width * placeX, child->Measured().height * placeY});
+    }
+}
+
 void Element::PaintChildren(Renderer& renderer) {
     std::vector<Element*> order;
     order.reserve(children.size());

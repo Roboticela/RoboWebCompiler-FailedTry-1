@@ -124,7 +124,7 @@ Element* EllipseElement::HitTest(Point point) {
     return normalizedX * normalizedX + normalizedY * normalizedY <= 1.0f ? this : nullptr;
 }
 
-std::string EllipseElement::EllipsePath(float boxWidth, float boxHeight) const {
+std::string EllipseOutline(float boxWidth, float boxHeight) {
     const float radiusX = boxWidth * 0.5f;
     const float radiusY = boxHeight * 0.5f;
     // Two half arcs, left pole to right pole and back. Each arc's chord is the full width,
@@ -200,7 +200,7 @@ void EllipseElement::OnPaint(Renderer& renderer) {
     } else {
         // Only a path can turn a box into a true ellipse: a rounded rectangle with the same
         // radii would come out a stadium, not an ellipse.
-        const std::string path = EllipsePath(area.width, area.height);
+        const std::string path = EllipseOutline(area.width, area.height);
         VectorPaint paint;
         paint.bounds = area;
         paint.data = path;

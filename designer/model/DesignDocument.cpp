@@ -178,6 +178,13 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "height", "100");
         AddDefaultAttribute(node, "fill", "#0E7AFF");
         AddDefaultAttribute(node, "sides", "3");
+    } else if (name == "star") {
+        // A star starts as the same box a polygon does, with five points on it.
+        AddDefaultAttribute(node, "width", "100");
+        AddDefaultAttribute(node, "height", "100");
+        AddDefaultAttribute(node, "fill", "#0E7AFF");
+        AddDefaultAttribute(node, "points", "5");
+        AddDefaultAttribute(node, "innerRadius", "0.382");
     } else if (name == "shadow") {
         AddDefaultAttribute(node, "shadowX", "0");
         AddDefaultAttribute(node, "shadowY", "4");
@@ -196,6 +203,11 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "width", "64");
         AddDefaultAttribute(node, "height", "64");
         AddDefaultAttribute(node, "fill", "#7EFFF5");
+    } else if (name == "svg") {
+        AddDefaultAttribute(node, "source", "logo.svg");
+        AddDefaultAttribute(node, "width", "64");
+        AddDefaultAttribute(node, "height", "64");
+        AddDefaultAttribute(node, "fill", "#18181A");
     } else if (name == "path") {
         AddDefaultAttribute(node, "d", "M0 40 L80 0 L80 40 Z");
         AddDefaultAttribute(node, "width", "80");

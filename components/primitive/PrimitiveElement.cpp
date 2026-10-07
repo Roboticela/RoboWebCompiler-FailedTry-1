@@ -4,6 +4,7 @@
 #include "rendering/image/ImageDecoder.h"
 #include "rendering/path/PathCurve.h"
 #include "rendering/renderer/Renderer.h"
+#include "rendering/renderer/StrokePattern.h"
 
 #include <windows.h>
 
@@ -98,6 +99,16 @@ void ShapeElement::SetLineStyle(const std::string& cap, const std::string& join,
     lineCap = cap == "round" ? 'r' : cap == "square" ? 's' : 'b';
     lineJoin = join == "round" ? 'r' : join == "bevel" ? 'b' : 'm';
     evenOdd = odd;
+}
+
+void ShapeElement::SetDash(std::string value, float gap) {
+    // A path is stroked the way a line is stroked, so the pattern written in the dash attribute is
+    // read by the one reader the two of them share rather than by each of them in turn.
+    dashes = ParseDashPattern(value, gap);
+}
+
+void ShapeElement::SetDashOffset(float value) {
+    dashOffset = value;
 }
 
 void ShapeElement::SetStroke(Color value, float thickness) {
@@ -205,6 +216,15 @@ void ShapeElement::ApplyBound(const std::string& property, const std::string& va
         }
     } else if (property == "underline") {
         underline = value != "false" && value != "0" && value != "hidden";
+    } else if (property == "dash") {
+        SetDash(value, 0.0f);
+    } else if (property == "dashGap") {
+        const float gap = std::strtof(value.c_str(), nullptr);
+        if (!dashes.empty()) {
+            SetDash(std::to_string(dashes.front()), gap);
+        }
+    } else if (property == "dashOffset") {
+        SetDashOffset(std::strtof(value.c_str(), nullptr));
     }
 }
 
@@ -370,6 +390,10 @@ void ShapeElement::OnPaint(Renderer& renderer) {
         paint.fillEnabled = fillSpecified && fill.a > 0.0f;
         paint.lineCap = lineCap;
         paint.lineJoin = lineJoin;
+        // A dashed outline is drawn the way a dashed line is drawn: the pattern, and where in the
+        // stroke it starts, reach the renderer with the geometry.
+        paint.dashes = dashes;
+        paint.dashOffset = dashOffset;
         renderer.DrawVector(paint);
         return;
     }

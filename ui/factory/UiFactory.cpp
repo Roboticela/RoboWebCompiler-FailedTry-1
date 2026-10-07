@@ -1,5 +1,6 @@
 #include "ui/factory/UiFactory.h"
 
+#include "compiler/semantic/UiCompiler.h"
 #include "components/arrow/ArrowElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
@@ -10,10 +11,17 @@
 #include "components/line/LineElement.h"
 #include "components/polygon/PolygonElement.h"
 #include "components/rectangle/RectangleElement.h"
+#include "components/star/StarElement.h"
+#include "components/svg/SvgElement.h"
 #include "components/text/TextElement.h"
+#include "components/vector/VectorElement.h"
+#include "rendering/image/ImageDecoder.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 
 namespace Runtime {
 namespace {
@@ -684,6 +692,121 @@ void ApplyPolygon(PolygonElement& polygon, const IrNode& node) {
     }
 }
 
+void ApplyStar(StarElement& star, const IrNode& node) {
+    // A star reads everything a polygon reads, because it is a polygon whose ring holds two radii.
+    // Only the two values that shape that ring are read here.
+    ApplyPolygon(star, node);
+    if (const UiValue* value = FindProperty(node, "points")) {
+        star.SetPoints(static_cast<int>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "innerRadius")) {
+        star.SetInnerRadius(static_cast<float>(value->number));
+    }
+}
+
+void ApplyVector(VectorElement& vector, const IrNode& node) {
+    // A vector reads everything a rectangle reads, because it is a shape with a fill and a stroke.
+    // Only the values that describe the geometry it draws are read here.
+    ApplyRectangle(vector, node);
+    if (const UiValue* value = FindProperty(node, "d")) {
+        vector.SetPathData(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "shape")) {
+        vector.SetShape(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "viewBox")) {
+        vector.SetViewBox(value->text);
+    }
+    std::string cap;
+    std::string join;
+    std::string rule;
+    if (const UiValue* value = FindProperty(node, "lineCap")) {
+        cap = value->text;
+    }
+    if (const UiValue* value = FindProperty(node, "lineJoin")) {
+        join = value->text;
+    }
+    if (const UiValue* value = FindProperty(node, "fillRule")) {
+        rule = value->text;
+    }
+    vector.SetLineStyle(cap, join, rule);
+}
+
+// The art an SVG document holds: the nodes that draw it, and the view box it was written in.
+struct SvgArtwork {
+    std::vector<IrNode> layers;
+    std::string viewBox;
+    bool hasViewBox = false;
+};
+
+// The markup the art is written in. Art that is written into the document is the markup itself,
+// which is how a document can carry an icon with no file beside it; anything else names a file,
+// the way an image is given one.
+std::string SvgMarkup(const std::string& source) {
+    if (source.find("<svg") != std::string::npos) {
+        return source;
+    }
+    std::ifstream file(source, std::ios::binary);
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+// The art of an SVG document read into the nodes that draw it. The paths of the file become the
+// same <path> nodes, and the same <group> nodes around them, that an imported icon is made of, so
+// the one reader of SVG documents feeds both of them and neither is written twice. The colour the
+// artwork calls its current colour is handed over as the colour the node draws in.
+SvgArtwork ReadSvgArtwork(const std::string& markup, const Color& ink) {
+    SvgArtwork art;
+    const auto channel = [](float value) {
+        return static_cast<unsigned char>(std::clamp(value, 0.0f, 1.0f) * 255.0f);
+    };
+    const std::string xml = VectorXmlFromSvg(markup, "Artwork", channel(ink.r), channel(ink.g), channel(ink.b));
+    if (xml.empty()) {
+        return art;
+    }
+    // The art comes back in the language of the document it was written for, so it is read by the
+    // same compiler every other node is read by rather than by a reader of its own.
+    const CompileResult compiled = CompileUi(SourceFile{"svg.xml", "<window>" + xml + "</window>"});
+    if (!compiled.Ok() || !compiled.root.has_value() || compiled.root->children.size() != 1) {
+        return art;
+    }
+    const IrNode& root = compiled.root->children.front();
+    if (const UiValue* value = FindProperty(root, "viewBox")) {
+        art.viewBox = value->text;
+        art.hasViewBox = true;
+    }
+    art.layers = root.children;
+    return art;
+}
+
+std::vector<IrNode> ApplySvg(SvgElement& svg, const IrNode& node) {
+    if (const UiValue* value = FindProperty(node, "source")) {
+        svg.SetSource(value->text);
+    }
+    // Everything a shape reads, an SVG reads the same way, so a value the document wrote is already
+    // on the node when the file is read for it.
+    ApplyVector(svg, node);
+    const SvgArtwork art = ReadSvgArtwork(SvgMarkup(svg.Source()), svg.Fill());
+    if (art.hasViewBox && !svg.HasViewBox()) {
+        // The art was written in the view box of the file, so the node draws it in that one unless
+        // the document said where it belongs.
+        svg.SetViewBox(art.viewBox);
+    }
+    const Rect box = svg.ViewBox();
+    if (box.width > 0.0f && box.height > 0.0f) {
+        // The box the art was written for is the size of the node when the document gave none, so
+        // a size the document wrote is the size the art is scaled into.
+        if (FindProperty(node, "width") == nullptr) {
+            svg.SetWidth(Length::Pixels(box.width));
+        }
+        if (FindProperty(node, "height") == nullptr) {
+            svg.SetHeight(Length::Pixels(box.height));
+        }
+    }
+    return art.layers;
+}
+
 void ApplyLine(LineElement& line, const IrNode& node) {
     ApplyCommon(line, node);
     ApplyShapeBox(line, node);
@@ -808,6 +931,15 @@ void ApplyShape(ShapeElement& shape, const IrNode& node) {
         strokeWidth = static_cast<float>(value->number);
     }
     shape.SetStroke(stroke, strokeWidth);
+    // A path is stroked the way a line is stroked, so it reads the dash pattern and the offset the
+    // pattern starts at. A pattern written as several numbers carries its own gaps, so none is
+    // read here.
+    if (const UiValue* value = FindProperty(node, "dash")) {
+        shape.SetDash(value->text, 0.0f);
+    }
+    if (const UiValue* value = FindProperty(node, "dashOffset")) {
+        shape.SetDashOffset(static_cast<float>(value->number));
+    }
     if (const UiValue* value = FindProperty(node, "radius")) {
         shape.SetCornerRadius(value->length.value);
     }
@@ -1074,6 +1206,12 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<EllipseElement>();
     case NodeKind::POLYGON:
         return std::make_unique<PolygonElement>();
+    case NodeKind::STAR:
+        return std::make_unique<StarElement>();
+    case NodeKind::VECTOR:
+        return std::make_unique<VectorElement>();
+    case NodeKind::SVG:
+        return std::make_unique<SvgElement>();
     case NodeKind::LINE:
         return std::make_unique<LineElement>();
     case NodeKind::ARROW:
@@ -1085,7 +1223,6 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
     case NodeKind::GROUP:
         return std::make_unique<GroupElement>();
     case NodeKind::IMAGE:
-    case NodeKind::VECTOR:
     case NodeKind::PATH:
     case NodeKind::COMPONENT:
     case NodeKind::INSTANCE:
@@ -1098,6 +1235,9 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
 }
 
 void Populate(Element& element, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks, const IrNode& root) {
+    // The children an SVG draws are its file's, not the document's, so they are read here and
+    // take the place of the children the node declares, which an SVG has none of.
+    std::vector<IrNode> artwork;
     if (TextElement* text = dynamic_cast<TextElement*>(&element)) {
         ApplyFrame(*text, node);
         ApplyCommon(*text, node);
@@ -1115,6 +1255,18 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         }
     } else if (GroupElement* group = dynamic_cast<GroupElement*>(&element)) {
         ApplyGroup(*group, node);
+    } else if (StarElement* star = dynamic_cast<StarElement*>(&element)) {
+        // A star is a polygon, so it has to be asked first: the polygon branch below would
+        // otherwise take it and leave the points of the ring unsaid.
+        ApplyStar(*star, node);
+    } else if (SvgElement* svg = dynamic_cast<SvgElement*>(&element)) {
+        // An SVG is a vector whose art comes from a file, so it is asked before the vector
+        // underneath: the vector branch would otherwise take it and leave the file unread.
+        artwork = ApplySvg(*svg, node);
+    } else if (VectorElement* vector = dynamic_cast<VectorElement*>(&element)) {
+        // A vector is a rectangle, so it has to be asked first: the rectangle branch below would
+        // otherwise take it and leave the path it draws unsaid.
+        ApplyVector(*vector, node);
     } else if (PolygonElement* polygon = dynamic_cast<PolygonElement*>(&element)) {
         // A polygon is a rectangle, so it has to be asked first: the rectangle branch below
         // would otherwise take it and leave the sides unsaid.
@@ -1140,7 +1292,7 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
             definition = FindNamedComponent(root, value->text);
         }
     }
-    const std::vector<IrNode>& children = definition == nullptr ? node.children : definition->children;
+    const std::vector<IrNode>& children = !artwork.empty() ? artwork : (definition == nullptr ? node.children : definition->children);
     for (const IrNode& child : children) {
         if (child.kind == NodeKind::SHADOW) {
             if (Frame* frame = dynamic_cast<Frame*>(&element)) {

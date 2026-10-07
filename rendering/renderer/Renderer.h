@@ -54,6 +54,9 @@ struct VectorPaint {
     // Alternating painted and unpainted lengths in pixels. An empty pattern strokes solid,
     // so a caller that never sets one keeps the plain line it always drew.
     std::vector<float> dashes;
+    // Where in the pattern the stroke begins, in pixels. Zero begins it at the first point of the
+    // geometry, so a caller that never sets one keeps the stroke starting where it always did.
+    float dashOffset = 0.0f;
 };
 
 class Renderer : public TextMeasurer {
