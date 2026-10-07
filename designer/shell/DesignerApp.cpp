@@ -2752,6 +2752,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Star", "S", 59, activeTool == EditorTool::STAR);
                 addCommand("Text", "T", 44, activeTool == EditorTool::TEXT);
                 addCommand("Image", "I", 45, activeTool == EditorTool::IMAGE);
+                addCommand("Svg", "", 62, activeTool == EditorTool::SVG);
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
                 addCommand("Arrow", "A", 57, activeTool == EditorTool::ARROW);
                 addCommand("Hand", "H", 47, activeTool == EditorTool::HAND);
@@ -3760,6 +3761,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             activeTool = EditorTool::TEXT;
         } else if (action == 45) {
             activeTool = EditorTool::IMAGE;
+        } else if (action == 62) {
+            activeTool = EditorTool::SVG;
         } else if (action == 46) {
             activeTool = EditorTool::LINE;
         } else if (action == 57) {

@@ -1077,8 +1077,8 @@ If **this** works beautifully, you have the foundation for the rest.
 10. Polygon [Done]
 11. Star [Done]
 
-12. Vector
-13. SVG
+12. Vector [Done]
+13. SVG [Done]
 14. Boolean Group
     - Union
     - Subtract

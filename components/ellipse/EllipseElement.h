@@ -3,6 +3,7 @@
 #include "ui/element/Element.h"
 
 #include <string>
+#include <vector>
 
 namespace Runtime {
 
@@ -39,6 +40,13 @@ public:
     // A circle is an ellipse whose two radii match, which is the only case that can be drawn
     // as a rounded rectangle instead of a sampled path.
     bool IsCircle() const;
+    // The pattern the outline is stroked with, and where in it the stroke begins. An empty pattern
+    // strokes solid. A pattern is drawn only along a path, so a patterned outline is the other
+    // case that cannot be drawn as a rounded rectangle.
+    void SetDash(std::string value, float gap);
+    void SetDashOffset(float value);
+    const std::vector<float>& Dashes() const { return dashes; }
+    float DashOffset() const { return dashOffset; }
 
 protected:
     void OnPaint(Renderer& renderer) override;
@@ -49,6 +57,8 @@ private:
     float strokeWidth = 0.0f;
     float rotationZ = 0.0f;
     std::string cursor;
+    std::vector<float> dashes;
+    float dashOffset = 0.0f;
 };
 
 }  // namespace Runtime

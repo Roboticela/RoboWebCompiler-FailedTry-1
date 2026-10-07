@@ -3,6 +3,7 @@
 #include "compiler/types/ValueParser.h"
 #include "engine/math/Geometry.h"
 #include "rendering/renderer/Renderer.h"
+#include "rendering/renderer/StrokePattern.h"
 
 #include <algorithm>
 #include <cctype>
@@ -57,6 +58,16 @@ void EllipseElement::SetStroke(Color value, float thickness) {
 
 void EllipseElement::SetStrokeWidth(float thickness) {
     strokeWidth = thickness < 0.0f ? 0.0f : thickness;
+}
+
+void EllipseElement::SetDash(std::string value, float gap) {
+    // A shape's outline is stroked the way a line and a path are stroked, so the pattern written in
+    // the dash attribute is read by the one reader they all share rather than by each of them in turn.
+    dashes = ParseDashPattern(value, gap);
+}
+
+void EllipseElement::SetDashOffset(float value) {
+    dashOffset = value;
 }
 
 void EllipseElement::SetRotation(float degrees) {
@@ -168,6 +179,17 @@ void EllipseElement::ApplyBound(const std::string& property, const std::string& 
     }
     if (property == "strokeWidth") {
         SetStrokeWidth(std::strtof(value.c_str(), nullptr));
+    } else if (property == "dash") {
+        SetDash(value, 0.0f);
+    } else if (property == "dashGap") {
+        // The gap a single-number pattern is stroked with. A pattern written as several numbers
+        // carries its own gaps, so only the first number is read back here.
+        const float gap = std::strtof(value.c_str(), nullptr);
+        if (!dashes.empty()) {
+            SetDash(std::to_string(dashes.front()), gap);
+        }
+    } else if (property == "dashOffset") {
+        dashOffset = std::strtof(value.c_str(), nullptr);
     } else if (property == "rotation") {
         rotationZ = std::strtof(value.c_str(), nullptr);
     }
@@ -187,7 +209,10 @@ void EllipseElement::OnPaint(Renderer& renderer) {
     if (turned) {
         renderer.PushRotation(rotationZ, area.x + area.width * 0.5f, area.y + area.height * 0.5f);
     }
-    if (IsCircle()) {
+    // A pattern is drawn only along a path, so a patterned stroke takes the path even when equal
+    // radii would have let the platform primitive draw the circle.
+    const bool patterned = stroked && !dashes.empty();
+    if (IsCircle() && !patterned) {
         // Equal radii mean a rounded rectangle whose radius is half the box, which is the
         // same circle drawn by the platform primitive instead of a sampled path.
         const float radius = std::min(area.width, area.height) * 0.5f;
@@ -199,7 +224,8 @@ void EllipseElement::OnPaint(Renderer& renderer) {
         }
     } else {
         // Only a path can turn a box into a true ellipse: a rounded rectangle with the same
-        // radii would come out a stadium, not an ellipse.
+        // radii would come out a stadium, not an ellipse. A square box written this way is the
+        // circle's outline as well, so the patterned stroke is drawn against the same curve.
         const std::string path = EllipseOutline(area.width, area.height);
         VectorPaint paint;
         paint.bounds = area;
@@ -213,6 +239,8 @@ void EllipseElement::OnPaint(Renderer& renderer) {
         paint.strokeWidth = strokeWidth;
         paint.fillEnabled = filled;
         paint.lineJoin = 'r';
+        paint.dashes = dashes;
+        paint.dashOffset = dashOffset;
         renderer.DrawVector(paint);
     }
     if (turned) {

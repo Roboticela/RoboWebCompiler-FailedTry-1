@@ -11,6 +11,7 @@ enum class EditorTool {
     STAR,
     TEXT,
     IMAGE,
+    SVG,
     LINE,
     ARROW,
     HAND,
@@ -35,6 +36,8 @@ inline const char* EditorToolName(EditorTool tool) {
         return "Text";
     case EditorTool::IMAGE:
         return "Image";
+    case EditorTool::SVG:
+        return "Svg";
     case EditorTool::LINE:
         return "Line";
     case EditorTool::ARROW:
@@ -63,6 +66,8 @@ inline const char* EditorToolComponent(EditorTool tool) {
         return "text";
     case EditorTool::IMAGE:
         return "image";
+    case EditorTool::SVG:
+        return "svg";
     case EditorTool::LINE:
         return "line";
     case EditorTool::ARROW:
@@ -93,6 +98,10 @@ inline const char* EditorToolShortcut(EditorTool tool) {
         return "T";
     case EditorTool::IMAGE:
         return "I";
+    // The letters a vector file would be named by are already spoken for, so the tool is reached
+    // through the command list rather than by a key of its own.
+    case EditorTool::SVG:
+        return "";
     case EditorTool::LINE:
         return "L";
     case EditorTool::ARROW:

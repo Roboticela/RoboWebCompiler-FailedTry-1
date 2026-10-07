@@ -3,6 +3,7 @@
 #include "compiler/types/ValueParser.h"
 #include "engine/math/Geometry.h"
 #include "rendering/renderer/Renderer.h"
+#include "rendering/renderer/StrokePattern.h"
 
 #include <algorithm>
 #include <cctype>
@@ -65,6 +66,16 @@ void RectangleElement::SetRotation(float degrees) {
 
 void RectangleElement::SetCursor(std::string value) {
     cursor = std::move(value);
+}
+
+void RectangleElement::SetDash(std::string value, float gap) {
+    // A shape's outline is stroked the way a line and a path are stroked, so the pattern written in
+    // the dash attribute is read by the one reader they all share rather than by each of them in turn.
+    dashes = ParseDashPattern(value, gap);
+}
+
+void RectangleElement::SetDashOffset(float value) {
+    dashOffset = value;
 }
 
 bool RectangleElement::WantsHandCursor() const {
@@ -172,6 +183,17 @@ void RectangleElement::ApplyBound(const std::string& property, const std::string
         SetStroke(stroke, std::strtof(value.c_str(), nullptr));
     } else if (property == "radius") {
         SetRadius(std::strtof(value.c_str(), nullptr));
+    } else if (property == "dash") {
+        SetDash(value, 0.0f);
+    } else if (property == "dashGap") {
+        // The gap a single-number pattern is stroked with. A pattern written as several numbers
+        // carries its own gaps, so only the first number is read back here.
+        const float gap = std::strtof(value.c_str(), nullptr);
+        if (!dashes.empty()) {
+            SetDash(std::to_string(dashes.front()), gap);
+        }
+    } else if (property == "dashOffset") {
+        dashOffset = std::strtof(value.c_str(), nullptr);
     } else if (property == "rotation") {
         rotationZ = std::strtof(value.c_str(), nullptr);
     }
@@ -261,7 +283,8 @@ void RectangleElement::PaintOutline(Renderer& renderer, const std::string& path,
     paint.evenOdd = style.evenOdd;
     paint.lineCap = style.lineCap;
     paint.lineJoin = style.lineJoin;
-    paint.dashes = style.dashes;
+    paint.dashes = dashes;
+    paint.dashOffset = dashOffset;
     renderer.DrawVector(paint);
     if (turned) {
         renderer.PopTransform();
@@ -278,8 +301,10 @@ void RectangleElement::OnPaint(Renderer& renderer) {
     if (!filled && !stroked) {
         return;
     }
-    if (UniformCorners()) {
-        // A uniform radius is the one case the platform can draw without a path, so it does.
+    if (UniformCorners() && (dashes.empty() || !stroked)) {
+        // A uniform radius is the one case the platform can draw without a path, so it does. A
+        // patterned stroke is not that case: the platform draws a pattern only along a path, so a
+        // shape that was given one takes the path even when its corners would not have needed it.
         const bool turned = std::fabs(rotationZ) > TURN_EPSILON;
         if (turned) {
             renderer.PushRotation(rotationZ, area.x + area.width * 0.5f, area.y + area.height * 0.5f);

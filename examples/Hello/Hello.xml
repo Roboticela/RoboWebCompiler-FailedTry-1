@@ -428,6 +428,13 @@
                 </frame>
             </frame>
         </frame>
+        <text text="the outline takes a pattern — dash 6 4, or one number whose gap comes from dashGap" fontSize="12" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+            <rectangle name="DashBox" width="140" height="72" fill="#FFFFFF" stroke="#1D1D1F" strokeWidth="3" radius="10" dash="6 4"/>
+            <rectangle name="DashPill" width="120" height="48" fill="#FFFFFF" stroke="#0E7AFF" strokeWidth="3" radius="24" dash="6" dashGap="4" dashOffset="3"/>
+            <circle name="DashRing" diameter="72" fill="#FFFFFF" stroke="#FF3B30" strokeWidth="4" dash="8"/>
+            <star name="DashStar" width="72" height="72" fill="#FFFFFF" stroke="#30D158" strokeWidth="3" dash="5 3"/>
+        </frame>
     </frame>
     <frame name="Ellipse" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
         <text text="ellipse — two radii from one box, so a square box is a circle" fontSize="13" textColor="#86868B"/>
@@ -516,10 +523,11 @@
                 </frame>
             </frame>
             <frame layout="vertical" gap="6" width="fill" heightMode="hug">
-                <text text="one file, drawn in another colour and at another size" fontSize="12" textColor="#86868B"/>
+                <text text="one file, drawn in another colour, at another size, and turned" fontSize="12" textColor="#86868B"/>
                 <frame layout="horizontal" alignItems="center" justify="center" gap="16" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
                     <svg name="MarkInk" source="examples/Hello/Logo.svg" width="48" height="48" fill="#1D1D1F"/>
                     <svg name="MarkPink" source="examples/Hello/Logo.svg" width="72" height="72" fill="#FF375F"/>
+                    <svg name="MarkTurned" source="examples/Hello/Logo.svg" width="56" height="56" fill="#30D158" rotation="30"/>
                 </frame>
             </frame>
         </frame>

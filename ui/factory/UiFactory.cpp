@@ -570,6 +570,16 @@ void ApplyRectangle(RectangleElement& rectangle, const IrNode& node) {
         strokeWidth = static_cast<float>(value->number);
     }
     rectangle.SetStroke(stroke, strokeWidth);
+    // The outline is stroked the way a line and a path are stroked, so it reads the pattern and the
+    // offset the pattern starts at. A pattern written as several numbers carries its own gaps, so
+    // the gap read here is the one a single-number pattern is stroked with.
+    if (const UiValue* value = FindProperty(node, "dash")) {
+        const float gap = NumberOf(node, "dashGap", 0.0f);
+        rectangle.SetDash(value->text, gap);
+    }
+    if (const UiValue* value = FindProperty(node, "dashOffset")) {
+        rectangle.SetDashOffset(static_cast<float>(value->number));
+    }
     if (const UiValue* value = FindProperty(node, "radius")) {
         rectangle.SetRadius(value->length.value);
     }
@@ -660,6 +670,16 @@ void ApplyEllipse(EllipseElement& ellipse, const IrNode& node) {
         strokeWidth = static_cast<float>(value->number);
     }
     ellipse.SetStroke(stroke, strokeWidth);
+    // The outline is stroked the way a line and a path are stroked, so it reads the pattern and the
+    // offset the pattern starts at. A pattern written as several numbers carries its own gaps, so
+    // the gap read here is the one a single-number pattern is stroked with.
+    if (const UiValue* value = FindProperty(node, "dash")) {
+        const float gap = NumberOf(node, "dashGap", 0.0f);
+        ellipse.SetDash(value->text, gap);
+    }
+    if (const UiValue* value = FindProperty(node, "dashOffset")) {
+        ellipse.SetDashOffset(static_cast<float>(value->number));
+    }
     if (const UiValue* value = FindProperty(node, "rotation")) {
         ellipse.SetRotation(static_cast<float>(value->number));
     }
@@ -780,6 +800,13 @@ SvgArtwork ReadSvgArtwork(const std::string& markup, const Color& ink) {
     return art;
 }
 
+// True when the size of a node is left to the art it draws: the document either said nothing or
+// asked the size to fit the art, and for an SVG the art is the size its drawing was written for.
+bool SizedByArt(const IrNode& node, const char* name) {
+    const UiValue* value = FindProperty(node, name);
+    return value == nullptr || value->length.unit == LengthUnit::FIT;
+}
+
 std::vector<IrNode> ApplySvg(SvgElement& svg, const IrNode& node) {
     if (const UiValue* value = FindProperty(node, "source")) {
         svg.SetSource(value->text);
@@ -795,12 +822,12 @@ std::vector<IrNode> ApplySvg(SvgElement& svg, const IrNode& node) {
     }
     const Rect box = svg.ViewBox();
     if (box.width > 0.0f && box.height > 0.0f) {
-        // The box the art was written for is the size of the node when the document gave none, so
-        // a size the document wrote is the size the art is scaled into.
-        if (FindProperty(node, "width") == nullptr) {
+        // The box the art was written for is the size of the node unless the document gave a size
+        // of its own, so a size the document wrote is the size the art is scaled into.
+        if (SizedByArt(node, "width")) {
             svg.SetWidth(Length::Pixels(box.width));
         }
-        if (FindProperty(node, "height") == nullptr) {
+        if (SizedByArt(node, "height")) {
             svg.SetHeight(Length::Pixels(box.height));
         }
     }

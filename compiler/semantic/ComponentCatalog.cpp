@@ -1,5 +1,9 @@
 #include "compiler/semantic/ComponentCatalog.h"
 
+#include <algorithm>
+#include <initializer_list>
+#include <string_view>
+
 namespace Runtime {
 namespace {
 
@@ -193,6 +197,18 @@ std::vector<PropertySpec> With(std::vector<PropertySpec> base, std::vector<Prope
     return base;
 }
 
+// The same values a component already declares, less the ones it has no use for. A component that
+// takes the values of the component it is built on still has to refuse the ones it cannot draw
+// with, so the list it starts from is carried over by name rather than written out again.
+std::vector<PropertySpec> Without(std::vector<PropertySpec> base, std::initializer_list<std::string_view> removed) {
+    base.erase(std::remove_if(base.begin(), base.end(),
+                              [&](const PropertySpec& property) {
+                                  return std::find(removed.begin(), removed.end(), std::string_view(property.name)) != removed.end();
+                              }),
+               base.end());
+    return base;
+}
+
 // A group combines its children into one node. It takes everything that a single node
 // can carry and hand to its children, and nothing that belongs to layout: no padding,
 // no gap, no direction, no background. Properties outside this list are rejected by the
@@ -240,7 +256,9 @@ std::vector<PropertySpec> GroupProperties() {
 }
 
 // A rectangle is a shape, so it takes the values that describe a shape and nothing that
-// describes a box of content: no layout, no padding, no gap, no overflow, no scrolling.
+// describes a box of content: no layout, no padding, no gap, no overflow, no scrolling. The
+// pattern its outline is stroked with is one of those values, so it is taken here and every shape
+// built on a rectangle inherits it rather than repeating it.
 std::vector<PropertySpec> RectangleProperties() {
     return With(IdentityProperties(), {{"minWidth", TypeKind::LENGTH},
                                        {"maxWidth", TypeKind::LENGTH},
@@ -258,6 +276,9 @@ std::vector<PropertySpec> RectangleProperties() {
                                        {"backgroundColor", TypeKind::COLOR},
                                        {"stroke", TypeKind::COLOR},
                                        {"strokeWidth", TypeKind::FLOAT},
+                                       {"dash", TypeKind::STRING},
+                                       {"dashGap", TypeKind::FLOAT},
+                                       {"dashOffset", TypeKind::FLOAT},
                                        {"radius", TypeKind::LENGTH},
                                        {"radiusTopLeft", TypeKind::LENGTH},
                                        {"radiusTopRight", TypeKind::LENGTH},
@@ -339,11 +360,17 @@ std::vector<PropertySpec> VectorProperties() {
                                         {"lineJoin", TypeKind::STRING}});
 }
 
-// An SVG is a shape whose art comes from a file rather than from the document, so it takes the
-// values that describe a shape and the file it draws, and nothing that describes the geometry
-// itself: the paths, the fill rule and the line style are the file's, not the node's.
+// An SVG is a shape whose art comes from a file rather than from the document. It draws that art
+// as the paths the file holds, so it takes the values that place and recolour a shape, and the
+// file it draws. What it refuses is the geometry a shape draws of its own: an SVG has no outline
+// to stroke, no pattern to stroke it with, no corner to round and no path to write, and the view
+// box its art belongs in is the one the file was written in. Refusing them means a document that
+// asks for them is told so instead of being handed a node that quietly does something else.
 std::vector<PropertySpec> SvgProperties() {
-    return With(RectangleProperties(), {{"source", TypeKind::STRING}, {"viewBox", TypeKind::STRING}});
+    return With(Without(RectangleProperties(), {"stroke", "strokeWidth", "dash", "dashGap", "dashOffset", "radius",
+                                                "radiusTopLeft", "radiusTopRight", "radiusBottomRight",
+                                                "radiusBottomLeft"}),
+                {{"source", TypeKind::STRING}});
 }
 
 std::vector<PropertySpec> PathProperties() {
@@ -376,26 +403,28 @@ std::vector<PropertySpec> EllipseProperties(bool circle) {
                                                                        {"zIndex", TypeKind::INT},
                                                                        {"fill", TypeKind::COLOR},
                                                                        {"background", TypeKind::COLOR},
-                                                                       {"backgroundColor", TypeKind::COLOR},
-                                                                       {"stroke", TypeKind::COLOR},
-                                                                       {"strokeWidth", TypeKind::FLOAT},
-                                                                       {"rotation", TypeKind::FLOAT},
-                                                                       {"cursor", TypeKind::STRING},
-                                                                       {"display", TypeKind::STRING},
-                                                                       {"visibility", TypeKind::STRING},
-                                                                       {"locked", TypeKind::BOOL},
-                                                                       {"left", TypeKind::STRING},
-                                                                       {"right", TypeKind::STRING},
-                                                                       {"top", TypeKind::STRING},
-                                                                       {"bottom", TypeKind::STRING},
-                                                                       {"centerX", TypeKind::STRING},
-                                                                       {"centerY", TypeKind::STRING},
-                                                                       {"horizontal", TypeKind::STRING},
-                                                                       {"vertical", TypeKind::STRING},
-                                                                       {"minScreen", TypeKind::FLOAT},
-                                                                       {"maxScreen", TypeKind::FLOAT},
-                                                                       {"orientation", TypeKind::STRING},
-                                                                       {"minContainer", TypeKind::FLOAT}});
+                                                                       {"backgroundColor", TypeKind::COLOR},                                       {"stroke", TypeKind::COLOR},
+                                       {"strokeWidth", TypeKind::FLOAT},
+                                       {"dash", TypeKind::STRING},
+                                       {"dashGap", TypeKind::FLOAT},
+                                       {"dashOffset", TypeKind::FLOAT},
+                                       {"rotation", TypeKind::FLOAT},
+                                       {"cursor", TypeKind::STRING},
+                                       {"display", TypeKind::STRING},
+                                       {"visibility", TypeKind::STRING},
+                                       {"locked", TypeKind::BOOL},
+                                       {"left", TypeKind::STRING},
+                                       {"right", TypeKind::STRING},
+                                       {"top", TypeKind::STRING},
+                                       {"bottom", TypeKind::STRING},
+                                       {"centerX", TypeKind::STRING},
+                                       {"centerY", TypeKind::STRING},
+                                       {"horizontal", TypeKind::STRING},
+                                       {"vertical", TypeKind::STRING},
+                                       {"minScreen", TypeKind::FLOAT},
+                                       {"maxScreen", TypeKind::FLOAT},
+                                       {"orientation", TypeKind::STRING},
+                                       {"minContainer", TypeKind::FLOAT}});
     if (circle) {
         properties.push_back({"diameter", TypeKind::LENGTH});
     }

@@ -24,9 +24,14 @@ public:
     NodeKind Kind() const override;
     // The file the art is read from, or the markup itself when the document carries it. It is kept
     // so the node still says where its art came from once the art has been placed.
+    //
+    // The file is read where the node is built and not again, so a binding that writes a new
+    // source is not one of the values the node answers for: the art would stay the art it was
+    // built from, and a node that changed its name while keeping the old art would be lying about
+    // where the art came from. A document that changes the file is built again instead, which is
+    // what an editor does with every value it writes.
     void SetSource(std::string value);
     const std::string& Source() const;
-    void ApplyBound(const std::string& property, const std::string& value) override;
 
 private:
     std::string source;

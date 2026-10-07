@@ -1,4 +1,5 @@
 #include "compiler/ir/UiIr.h"
+#include "compiler/semantic/ComponentCatalog.h"
 #include "compiler/semantic/UiCompiler.h"
 #include "compiler/types/ValueParser.h"
 #include "components/arrow/ArrowElement.h"
@@ -16,6 +17,7 @@
 #include "components/text/TextElement.h"
 #include "components/vector/VectorElement.h"
 #include "designer/model/DesignDocument.h"
+#include "designer/tools/EditorTool.h"
 #include "engine/motion/Motion.h"
 #include "rendering/image/ImageDecoder.h"
 #include "rendering/renderer/Renderer.h"
@@ -1065,9 +1067,47 @@ void TestRectangle(TestContext& test) {
         CHECK(test, !paintedSquare);
     }
 
+    // The outline is stroked with the pattern the document gave it. A pattern is drawn only along
+    // a path, so a patterned box takes the path even when a uniform radius would have kept the
+    // platform primitive, and the box with no pattern still does not.
+    std::unique_ptr<Element> patterns = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<rectangle id=\"pat\" x=\"10\" y=\"10\" width=\"120\" height=\"60\" radius=\"12\" fill=\"#00000000\" stroke=\"#1D1D1F\" strokeWidth=\"2\" dash=\"6 4\"/>"
+        "<rectangle id=\"gap\" x=\"10\" y=\"90\" width=\"120\" height=\"40\" fill=\"#00000000\" stroke=\"#1D1D1F\" strokeWidth=\"2\" dash=\"6\" dashGap=\"3\" dashOffset=\"2\"/>"
+        "<rectangle id=\"plain\" x=\"160\" y=\"10\" width=\"120\" height=\"60\" radius=\"12\" fill=\"#00000000\" stroke=\"#1D1D1F\" strokeWidth=\"2\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* pat = patterns != nullptr ? patterns->FindById("pat") : nullptr;
+    Element* gap = patterns != nullptr ? patterns->FindById("gap") : nullptr;
+    Element* plainBox = patterns != nullptr ? patterns->FindById("plain") : nullptr;
+    CHECK(test, pat != nullptr && gap != nullptr && plainBox != nullptr);
+    if (pat != nullptr && gap != nullptr && plainBox != nullptr) {
+        RecordingRenderer renderer;
+        patterns->Paint(renderer);
+        const PaintRecord* patPaint = PaintRecordFor(renderer, pat->Bounds());
+        const PaintRecord* gapPaint = PaintRecordFor(renderer, gap->Bounds());
+        const PaintRecord* plainPaint = PaintRecordFor(renderer, plainBox->Bounds());
+        CHECK(test, patPaint != nullptr && patPaint->vector);
+        if (patPaint != nullptr) {
+            // The pattern is read as written, and the box is still the box: the same rounded
+            // outline, broken into dashes rather than drawn another way.
+            CHECK(test, static_cast<int>(patPaint->dashes.size()) == 2);
+            CHECK(test, patPaint->dashes.size() == 2 && std::fabs(patPaint->dashes[0] - 6.0f) < 0.01f &&
+                            std::fabs(patPaint->dashes[1] - 4.0f) < 0.01f);
+            CHECK(test, std::fabs(patPaint->dashOffset) < 0.01f);
+            CHECK(test, patPaint->path.find("A 12.000") != std::string::npos);
+        }
+        // One number is a dash length, its gap comes from dashGap, and the stroke starts wherever
+        // dashOffset says it does.
+        CHECK(test, gapPaint != nullptr && gapPaint->dashes.size() == 2 && std::fabs(gapPaint->dashes[0] - 6.0f) < 0.01f &&
+                        std::fabs(gapPaint->dashes[1] - 3.0f) < 0.01f);
+        CHECK(test, gapPaint != nullptr && std::fabs(gapPaint->dashOffset - 2.0f) < 0.01f);
+        CHECK(test, plainPaint != nullptr && !plainPaint->vector && plainPaint->dashes.empty());
+    }
+
     // The compiler rejects what a rectangle is not: no layout, no padding, no gap, no
     // background image, no overflow, no scrolling, and no children.
-    CHECK(test, CompileUi(Source("<window><rectangle width=\"10\" fill=\"#FFFFFF\" radius=\"4\"/></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><rectangle width=\"10\" fill=\"#FFFFFF\" radius=\"4\" dash=\"6 4\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><rectangle layout=\"vertical\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><rectangle padding=\"8\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><rectangle gap=\"8\"/></window>")).Ok());
@@ -1266,9 +1306,43 @@ void TestEllipse(TestContext& test) {
         CHECK(test, goneEllipse->HitTest(Point{goneEllipse->Bounds().x + 4.0f, goneEllipse->Bounds().y + 4.0f}) == nullptr);
     }
 
+    // The outline is stroked with the pattern the document gave it. A pattern is drawn only along
+    // a path, so a patterned circle takes the path the platform primitive would otherwise have
+    // drawn, while the same circle with no pattern still goes through the primitive.
+    std::unique_ptr<Element> patterns = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<ellipse id=\"round\" x=\"10\" y=\"10\" width=\"80\" height=\"80\" fill=\"#00000000\" stroke=\"#1D1D1F\" strokeWidth=\"2\" dash=\"8\"/>"
+        "<ellipse id=\"oval\" x=\"120\" y=\"10\" width=\"120\" height=\"40\" fill=\"#00000000\" stroke=\"#1D1D1F\" strokeWidth=\"2\" dash=\"8 4\" dashOffset=\"3\"/>"
+        "<ellipse id=\"plain\" x=\"10\" y=\"110\" width=\"80\" height=\"80\" fill=\"#00000000\" stroke=\"#1D1D1F\" strokeWidth=\"2\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* patCircle = patterns != nullptr ? patterns->FindById("round") : nullptr;
+    Element* patOval = patterns != nullptr ? patterns->FindById("oval") : nullptr;
+    Element* plainEllipse = patterns != nullptr ? patterns->FindById("plain") : nullptr;
+    CHECK(test, patCircle != nullptr && patOval != nullptr && plainEllipse != nullptr);
+    if (patCircle != nullptr && patOval != nullptr && plainEllipse != nullptr) {
+        RecordingRenderer renderer;
+        patterns->Paint(renderer);
+        const PaintRecord* patCirclePaint = PaintRecordFor(renderer, patCircle->Bounds());
+        const PaintRecord* patOvalPaint = PaintRecordFor(renderer, patOval->Bounds());
+        const PaintRecord* plainPaint = PaintRecordFor(renderer, plainEllipse->Bounds());
+        CHECK(test, patCirclePaint != nullptr && patCirclePaint->vector);
+        if (patCirclePaint != nullptr) {
+            // One number is a dash length whose gap is the dash itself, and a patterned circle is
+            // still the circle: the path is the ellipse's own outline.
+            CHECK(test, patCirclePaint->dashes.size() == 2 && std::fabs(patCirclePaint->dashes[0] - 8.0f) < 0.01f &&
+                            std::fabs(patCirclePaint->dashes[1] - 8.0f) < 0.01f);
+            CHECK(test, patCirclePaint->path.find("A 40.000 40.000") != std::string::npos);
+        }
+        CHECK(test, patOvalPaint != nullptr && patOvalPaint->vector && patOvalPaint->dashes.size() == 2 &&
+                        std::fabs(patOvalPaint->dashes[0] - 8.0f) < 0.01f && std::fabs(patOvalPaint->dashes[1] - 4.0f) < 0.01f);
+        CHECK(test, patOvalPaint != nullptr && std::fabs(patOvalPaint->dashOffset - 3.0f) < 0.01f);
+        CHECK(test, plainPaint != nullptr && !plainPaint->vector && plainPaint->dashes.empty());
+    }
+
     // The compiler rejects what an ellipse is not: no layout, no padding, no radius (it has
     // no corners to round), no overflow, and no children.
-    CHECK(test, CompileUi(Source("<window><ellipse width=\"10\" fill=\"#FFFFFF\" stroke=\"#000000\" strokeWidth=\"1\"/></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><ellipse width=\"10\" fill=\"#FFFFFF\" stroke=\"#000000\" strokeWidth=\"1\" dash=\"4 2\"/></window>")).Ok());
     CHECK(test, CompileUi(Source("<window><circle diameter=\"10\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><ellipse layout=\"vertical\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><ellipse padding=\"8\"/></window>")).Ok());
@@ -1339,6 +1413,25 @@ void TestPolygon(TestContext& test) {
         CHECK(test, std::fabs(six->Rotation() - 90.0f) < 0.01f);
         six->ApplyBound("sides", "5");
         CHECK(test, six->Sides() == 5);
+    }
+
+    // A polygon is stroked with the pattern the document gave it, because the pattern belongs to
+    // the stroke the rectangle underneath already owns rather than to the outline the polygon
+    // brings.
+    std::unique_ptr<Element> patterned = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<polygon id=\"ring\" x=\"10\" y=\"10\" width=\"80\" height=\"80\" sides=\"6\" fill=\"#00000000\" stroke=\"#1D1D1F\" strokeWidth=\"2\" dash=\"5 3\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* patternedRing = patterned != nullptr ? patterned->FindById("ring") : nullptr;
+    CHECK(test, patternedRing != nullptr);
+    if (patternedRing != nullptr) {
+        RecordingRenderer renderer;
+        patterned->Paint(renderer);
+        const PaintRecord* patternedPaint = PaintRecordFor(renderer, patternedRing->Bounds());
+        CHECK(test, patternedPaint != nullptr && patternedPaint->vector);
+        CHECK(test, patternedPaint != nullptr && patternedPaint->dashes.size() == 2 &&
+                        std::fabs(patternedPaint->dashes[0] - 5.0f) < 0.01f && std::fabs(patternedPaint->dashes[1] - 3.0f) < 0.01f);
     }
 
     // What is drawn is the ring: one corner per side, spread over the whole box. A shape left
@@ -1554,6 +1647,25 @@ void TestStar(TestContext& test) {
             star->ApplyBound("innerRadius", "9");
             CHECK(test, star->InnerRadius() == 1.0f);
         }
+    }
+
+    // A star is stroked with the pattern the document gave it, the same way the polygon and the
+    // rectangle underneath it are.
+    std::unique_ptr<Element> patterns = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<star id=\"ring\" x=\"10\" y=\"10\" width=\"80\" height=\"80\" fill=\"#00000000\" stroke=\"#1D1D1F\" strokeWidth=\"2\" dash=\"4\"/>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    Element* patternStar = patterns != nullptr ? patterns->FindById("ring") : nullptr;
+    CHECK(test, patternStar != nullptr);
+    if (patternStar != nullptr) {
+        RecordingRenderer renderer;
+        patterns->Paint(renderer);
+        const PaintRecord* patternPaint = PaintRecordFor(renderer, patternStar->Bounds());
+        CHECK(test, patternPaint != nullptr && patternPaint->vector);
+        // One number is a dash length whose gap is the dash itself, so the two are the same.
+        CHECK(test, patternPaint != nullptr && patternPaint->dashes.size() == 2 &&
+                        std::fabs(patternPaint->dashes[0] - 4.0f) < 0.01f && std::fabs(patternPaint->dashes[1] - 4.0f) < 0.01f);
     }
 
     // A star is a ring of two radii, so it holds one corner more than twice its points, every
@@ -1882,6 +1994,28 @@ void TestVector(TestContext& test) {
         }
     }
 
+    // A path of its own is stroked with the pattern the document gave it, the way a path node and
+    // a line are, so a vector can draw a dashed outline as well as a solid one. The geometry the
+    // stroke follows does not change: it is the same path, broken into dashes.
+    std::unique_ptr<Element> patterned = Layout(
+        "<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+        "<vector id=\"dashes\" x=\"0\" y=\"0\" width=\"60\" height=\"60\" viewBox=\"0 0 24 24\" d=\"M0 0 L24 0 L24 24 Z\" fill=\"#00000000\" "
+        "stroke=\"#1D1D1F\" strokeWidth=\"2\" dash=\"4\" dashGap=\"2\" dashOffset=\"1\"/>"
+        "</frame></window>",
+        200.0f, 200.0f);
+    Element* patternedVector = patterned != nullptr ? patterned->FindById("dashes") : nullptr;
+    CHECK(test, patternedVector != nullptr);
+    if (patternedVector != nullptr) {
+        RecordingRenderer renderer;
+        patterned->Paint(renderer);
+        const PaintRecord* patternedPaint = PaintRecordFor(renderer, patternedVector->Bounds());
+        CHECK(test, patternedPaint != nullptr && patternedPaint->vector);
+        CHECK(test, patternedPaint != nullptr && patternedPaint->path == "M0 0 L24 0 L24 24 Z");
+        CHECK(test, patternedPaint != nullptr && patternedPaint->dashes.size() == 2 &&
+                        std::fabs(patternedPaint->dashes[0] - 4.0f) < 0.01f && std::fabs(patternedPaint->dashes[1] - 2.0f) < 0.01f);
+        CHECK(test, patternedPaint != nullptr && std::fabs(patternedPaint->dashOffset - 1.0f) < 0.01f);
+    }
+
     // The art a vector holds is scaled with the box: the same child written at 8 x 8 is drawn at
     // 24 x 24 in a 24 x 24 vector and at 72 x 72 in a 72 x 72 one, so one icon is drawn at any
     // size instead of the art sitting at one size inside a box that grew around it.
@@ -2152,24 +2286,47 @@ void TestSvg(TestContext& test) {
     }
 
     // The colour of the art is the colour the node draws in, so a document can recolour a file
-    // that leaves its colour open, and a view box the document writes is the box the art is drawn
-    // in rather than the one the file was written in.
+    // that leaves its colour open. The view box the art belongs in is the one the file was written
+    // in, whether or not the colour changed.
     std::unique_ptr<Element> recoloured = Layout(
         ("<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
-         "<svg id=\"record\" source=\"" + source + "\" fill=\"#FF0000\" viewBox=\"0 0 12 12\"/>"
+         "<svg id=\"record\" source=\"" + source + "\" fill=\"#FF0000\"/>"
          "</frame></window>").c_str(),
         200.0f, 200.0f);
     Element* record = recoloured != nullptr ? recoloured->FindById("record") : nullptr;
     CHECK(test, record != nullptr);
     if (record != nullptr) {
         SvgElement* svg = dynamic_cast<SvgElement*>(record);
-        CHECK(test, svg != nullptr && std::fabs(svg->ViewBox().width - 12.0f) < 0.01f);
+        CHECK(test, svg != nullptr && svg->HasViewBox() && std::fabs(svg->ViewBox().width - 24.0f) < 0.01f);
         Element* first = record->Children().empty() ? nullptr : record->Children().front().get();
         ShapeElement* shape = first == nullptr ? nullptr : dynamic_cast<ShapeElement*>(first);
         CHECK(test, shape != nullptr);
         if (shape != nullptr) {
             CHECK(test, shape->StrokeColor().r > 0.9f && shape->StrokeColor().g < 0.1f && shape->StrokeColor().b < 0.1f);
         }
+    }
+
+    // A turn on the node turns the art with it, the way a turn on a group turns what the group
+    // holds, and a size that fits the art is the size the art was drawn for.
+    std::unique_ptr<Element> turned = Layout(
+        ("<window width=\"200\" height=\"200\"><frame layout=\"none\" width=\"200\" height=\"200\">"
+         "<svg id=\"turn\" source=\"" + source + "\" rotation=\"30\"/>"
+         "<svg id=\"fit\" y=\"60\" source=\"" + source + "\" width=\"fit\" height=\"fit\"/>"
+         "</frame></window>").c_str(),
+        200.0f, 200.0f);
+    Element* turning = turned != nullptr ? turned->FindById("turn") : nullptr;
+    Element* fitting = turned != nullptr ? turned->FindById("fit") : nullptr;
+    CHECK(test, turning != nullptr && fitting != nullptr);
+    if (turning != nullptr && fitting != nullptr) {
+        SvgElement* turnedSvg = dynamic_cast<SvgElement*>(turning);
+        CHECK(test, turnedSvg != nullptr && std::fabs(turnedSvg->Rotation() - 30.0f) < 0.01f);
+        Element* turnArt = turning->Children().empty() ? nullptr : turning->Children().front().get();
+        RecordingRenderer renderer;
+        turned->Paint(renderer);
+        const PaintRecord* turnPaint = turnArt == nullptr ? nullptr : PaintRecordFor(renderer, turnArt->Bounds());
+        // The art is drawn inside the turn the node was given rather than left unturned.
+        CHECK(test, turnPaint != nullptr && turnPaint->vector && std::fabs(turnPaint->rotation - 30.0f) < 0.01f);
+        CHECK(test, std::fabs(fitting->Bounds().width - 24.0f) < 0.01f && std::fabs(fitting->Bounds().height - 24.0f) < 0.01f);
     }
 
     // Art written into the document is the markup itself, so a document can carry an icon with no
@@ -2192,16 +2349,28 @@ void TestSvg(TestContext& test) {
         CHECK(test, std::fabs(missing->Bounds().width - 40.0f) < 0.01f && std::fabs(missing->Bounds().height - 40.0f) < 0.01f);
     }
 
-    // An SVG takes what a shape takes plus the file it draws. The geometry of the art belongs to
-    // the file, so the values that describe geometry, and children, are refused rather than
-    // accepted and then quietly ignored.
-    CHECK(test, CompileUi(Source("<window><svg source=\"logo.svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"#18181A\" stroke=\"#FFFFFF\" "
-                                  "strokeWidth=\"2\" radius=\"8\" rotation=\"10\" display=\"none\"/></window>"))
+    // An SVG takes the values that place and recolour a shape, plus the file it draws. What the
+    // art holds is the art's own: its geometry, its outline, its corners and its view box are the
+    // file's, so a document that asks the node for them is told so rather than handed a node that
+    // quietly does something else.
+    CHECK(test, CompileUi(Source("<window><svg source=\"logo.svg\" width=\"24\" height=\"24\" fill=\"#18181A\" background=\"#FFFFFF\" "
+                                  "rotation=\"10\" cursor=\"pointer\" margin=\"4\" grow=\"1\" zIndex=\"2\"/></window>"))
                     .Ok());
+    CHECK(test, !CompileUi(Source("<window><svg stroke=\"#FFFFFF\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg strokeWidth=\"2\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg radius=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg radiusTopLeft=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg viewBox=\"0 0 12 12\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><svg d=\"M0 0 L8 8\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><svg shape=\"ellipse\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><svg fillRule=\"evenodd\"/></window>")).Ok());
+    // The pattern belongs to a stroke, and an SVG draws no outline of its own to stroke, so the
+    // pattern and its two companions are refused rather than accepted and then quietly ignored.
+    CHECK(test, !CompileUi(Source("<window><svg dash=\"4 2\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg dashGap=\"2\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg dashOffset=\"2\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><svg layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><svg gap=\"8\"/></window>")).Ok());
     CHECK(test, !CompileUi(Source("<window><svg><path d=\"M0 0\"/></svg></window>")).Ok());
 
     Finish(test, "svg", before);
@@ -2708,6 +2877,21 @@ void TestCompilerSurface(TestContext& test) {
             CHECK(test, click != nullptr && click->kind == TypeKind::EVENT_HANDLER);
             CHECK(test, card->visual.used);
             CHECK(test, card->visual.extraPhases.count("loading") == 1);
+        }
+    }
+
+    // Every tool that draws a shape names a component the compiler knows, and every tool has a
+    // name, so the editor can only ever insert a node a document can hold. A tool whose component
+    // is not in the catalog would draw a shape the editor cannot compile.
+    const EditorTool tools[] = {EditorTool::SELECT, EditorTool::FRAME,     EditorTool::RECTANGLE, EditorTool::ELLIPSE,
+                                EditorTool::POLYGON, EditorTool::STAR,     EditorTool::TEXT,      EditorTool::IMAGE,
+                                EditorTool::SVG,     EditorTool::LINE,     EditorTool::ARROW,     EditorTool::HAND,
+                                EditorTool::ZOOM};
+    for (const EditorTool tool : tools) {
+        CHECK(test, std::string(EditorToolName(tool)).size() > 0);
+        if (const char* component = EditorToolComponent(tool)) {
+            CHECK(test, FindComponent(component) != nullptr);
+            CHECK(test, ComponentAcceptsProperty(component, "width"));
         }
     }
     Finish(test, "compiler surface", before);

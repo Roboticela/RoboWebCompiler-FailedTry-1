@@ -5,11 +5,15 @@
 #include "rendering/renderer/Renderer.h"
 
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <string_view>
 
 namespace Runtime {
 namespace {
+
+// A turn of less than this is the same as no turn at all, so it is not worth a transform.
+constexpr float TURN_EPSILON = 0.01f;
 
 std::string_view TrimView(std::string_view text) {
     std::size_t begin = 0;
@@ -185,7 +189,19 @@ void VectorElement::OnPaint(Renderer& renderer) {
             RectangleElement::OnPaint(renderer);
         }
     }
+    // The art a vector holds turns with the vector the way the art a group holds turns with the
+    // group, so a turned icon draws the paths it was made of turned rather than leaving them at
+    // the position they were placed at. The path a vector draws of its own already turns with the
+    // box it is drawn in, so only the children are turned here.
+    const float turn = Rotation();
+    const bool turned = std::fabs(turn) > TURN_EPSILON;
+    if (turned) {
+        renderer.PushRotation(turn, area.x + area.width * 0.5f, area.y + area.height * 0.5f);
+    }
     PaintChildren(renderer);
+    if (turned) {
+        renderer.PopTransform();
+    }
 }
 
 }  // namespace Runtime

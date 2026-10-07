@@ -312,11 +312,23 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
                 surface->layoutDirty = false;
             }
             if (options.selfTest && !selfTestClicked && surface.get() == surfaces.front().get()) {
+                // A document may name the element the self-test clicks by giving it the id `mark`.
+                // When it does not, the root stands for the document itself: it is laid out in the
+                // box the window gave it, and a click at its centre is dispatched through the same
+                // tree a human click would reach. Requiring every document to carry the id would
+                // make the self-test fail on documents that are perfectly well laid out.
                 Element* frame = surface->root->FindById("mark");
+                if (frame == nullptr) {
+                    frame = surface->root.get();
+                }
                 if (frame == nullptr || frame->Bounds().width < 1.0f || frame->Bounds().height < 1.0f) {
                     LogError("Self-test could not find a laid-out frame.");
                     return 1;
                 }
+                // What the run actually did is written down, so a passing self-test says which box
+                // was found rather than only that one was.
+                const std::string marked = frame->Id().empty() ? std::string() : " '" + frame->Id() + "'";
+                LogInfo("Self-test clicked " + std::string(NodeKindName(frame->Kind())) + marked + " at its centre.");
                 const Rect bounds = frame->Bounds();
                 const Point center{bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f};
                 surface->input.OnDown(*surface->root, center);

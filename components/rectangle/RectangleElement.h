@@ -35,11 +35,19 @@ public:
     float Radius() const;
     float Rotation() const { return rotationZ; }
     const std::string& Cursor() const { return cursor; }
+    // The pattern the outline is stroked with, and where in it the stroke begins. An empty pattern
+    // strokes solid.
+    void SetDash(std::string value, float gap);
+    void SetDashOffset(float value);
+    const std::vector<float>& Dashes() const { return dashes; }
+    float DashOffset() const { return dashOffset; }
 
 protected:
     // The view box one outline is written in and the way its stroke is drawn. A rectangle and the
     // shapes built on it write their outline in box-local pixels, which is the box itself, so they
-    // take the default. A vector writes its geometry in a view box of its own and says so.
+    // take the default. A vector writes its geometry in a view box of its own and says so. The
+    // pattern the stroke is drawn with is not here: a pattern belongs to the stroke, and a shape
+    // has one stroke, so every outline it draws is patterned with the same one.
     struct OutlineStyle {
         float viewX = 0.0f;
         float viewY = 0.0f;
@@ -49,7 +57,6 @@ protected:
         bool evenOdd = false;
         char lineCap = 'b';
         char lineJoin = 'r';
-        std::vector<float> dashes;
     };
 
     void OnPaint(Renderer& renderer) override;
@@ -62,7 +69,8 @@ protected:
 
 private:
     // A rounded box is four independent corner arcs, so it only goes through a path when
-    // the corners differ. A uniform radius keeps the platform rectangle primitive.
+    // the corners differ. A uniform radius keeps the platform rectangle primitive, unless the
+    // stroke was given a pattern: a pattern is drawn by the platform only along a path.
     bool UniformCorners() const;
     std::string CornerPath(float boxWidth, float boxHeight) const;
 
@@ -72,6 +80,8 @@ private:
     float cornerRadius[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float rotationZ = 0.0f;
     std::string cursor;
+    std::vector<float> dashes;
+    float dashOffset = 0.0f;
 };
 
 }  // namespace Runtime
