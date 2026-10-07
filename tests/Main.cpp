@@ -58,9 +58,38 @@ namespace {
 
 class FakeMeasurer : public TextMeasurer {
 public:
-    Size MeasureText(std::string_view, float fontSize, float) override {
-        return Size{fontSize, fontSize};
+    Size MeasureText(std::string_view, const TextStyle& style, float) override {
+        return Size{style.fontSize, style.fontSize};
     }
+};
+
+// Measures a block the way the platform does: the layout is built from the style the block is
+// drawn with, so the lines it wraps into and the line height they are set on are both in the box
+// the block is told it covers.
+class ShapedMeasurer : public TextMeasurer {
+public:
+    Size MeasureText(std::string_view text, const TextStyle& style, float maxWidth) override {
+        TextStyle shaped = style;
+        shaped.wrap = style.wrap && maxWidth < UNBOUNDED_MEASURE;
+        const ShapedText measured = ShapeText(text, shaped, shaped.wrap ? maxWidth : UNBOUNDED_MEASURE);
+        return Size{measured.width, measured.height};
+    }
+};
+
+// Deliberately poor at measuring and good at remembering: the style a block hands over can be
+// compared with the style it draws with, which is where the height of a wrapped block went wrong.
+class StyleWatchingMeasurer : public TextMeasurer {
+public:
+    Size MeasureText(std::string_view text, const TextStyle& watched, float maxWidth) override {
+        style = watched;
+        measuredText.assign(text);
+        measuredWidth = maxWidth;
+        return Size{watched.fontSize, watched.fontSize};
+    }
+
+    TextStyle style;
+    std::string measuredText;
+    float measuredWidth = 0.0f;
 };
 
 struct PaintRecord {
@@ -97,7 +126,7 @@ struct PaintRecord {
 // own opacity, clip, rotation, and translation down to every child it holds.
 class RecordingRenderer : public Renderer {
 public:
-    Size MeasureText(std::string_view, float fontSize, float) override { return Size{fontSize, fontSize}; }
+    Size MeasureText(std::string_view, const TextStyle& style, float) override { return Size{style.fontSize, style.fontSize}; }
     void SetDpi(float) override {}
     void SetTransform(float, float, float) override {}
     void BeginFrame(Color) override {}
@@ -3807,6 +3836,78 @@ void TestTypography(TestContext& test) {
     Finish(test, "typography", before);
 }
 
+void TestTextSizing(TestContext& test) {
+    const int before = test.failed;
+    // A block of text is measured before anything is drawn, so the lines it wraps into and the
+    // line height it is set on both have to reach the measurement. A block given a width and left
+    // to grow is the case where the two disagree: the platform answers with the spacing the font
+    // would like, which is a shorter box than the lines the document asked for.
+    const CompileResult compiled = CompileUi(Source(
+        "<window>"
+        "<text id=\"single\" text=\"This line wraps into much more than one line, so the box has to grow to hold it all.\""
+        " width=\"150\" fontSize=\"14\" lineHeight=\"1\" sizing=\"autoHeight\"/>"
+        "<text id=\"double\" text=\"This line wraps into much more than one line, so the box has to grow to hold it all.\""
+        " width=\"150\" fontSize=\"14\" lineHeight=\"2\" sizing=\"autoHeight\"/>"
+        "</window>"));
+    CHECK(test, compiled.Ok());
+    if (compiled.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*compiled.root, {});
+        root->SetViewport(1200.0f, 800.0f);
+        ShapedMeasurer measurer;
+        root->Measure(measurer, 400.0f, 800.0f, true);
+        const Element* single = root->FindById("single");
+        const Element* doubled = root->FindById("double");
+        CHECK(test, single != nullptr && doubled != nullptr);
+        if (single != nullptr && doubled != nullptr) {
+            const float one = single->Measured().height;
+            const float two = doubled->Measured().height;
+            // The box is a whole number of lines at the height the document set them on: one line
+            // of fourteen, or one line of twenty-eight, and never a box a line would hang out of.
+            const float lines = one / 14.0f;
+            CHECK(test, std::fabs(lines - std::round(lines)) < 0.02f);
+            // A sentence cannot wrap into one line of a hundred and fifty pixels, and the lines it
+            // holds are what the box grows for.
+            CHECK(test, lines > 1.5f);
+            CHECK(test, std::fabs(single->Measured().width - 150.0f) < 0.01f);
+            // The same text and the same width are twice as tall when the document sets the lines
+            // twice as far apart. A measurement that never heard about the line height answers the
+            // same box for both, which is the defect this holds shut.
+            CHECK(test, std::fabs(two - one * 2.0f) < 0.5f);
+        }
+    }
+
+    // The style a block is measured with is the style it is drawn with, down to the cap on its
+    // lines, and the text it is measured with is the text it draws, which is the case the document
+    // asked for rather than the case the document was written in.
+    const auto watched = [&](const char* body) {
+        StyleWatchingMeasurer watcher;
+        const CompileResult watch = CompileUi(Source(std::string("<window>") + body + "</window>"));
+        CHECK(test, watch.Ok());
+        if (!watch.root.has_value()) {
+            return watcher;
+        }
+        std::unique_ptr<Element> root = Instantiate(*watch.root, {});
+        root->SetViewport(1200.0f, 800.0f);
+        root->Measure(watcher, 300.0f, 800.0f, true);
+        return watcher;
+    };
+    const StyleWatchingMeasurer wrapped = watched(
+        "<text text=\"Wrapped\" width=\"80\" fontSize=\"14\" lineHeight=\"1.42\" maxLines=\"3\" textCase=\"upper\"/>");
+    CHECK(test, std::fabs(wrapped.style.fontSize - 14.0f) < 0.01f);
+    CHECK(test, std::fabs(wrapped.style.lineHeight - 1.42f) < 0.001f);
+    CHECK(test, wrapped.style.maxLines == 3);
+    CHECK(test, wrapped.style.wrap);
+    CHECK(test, std::fabs(wrapped.measuredWidth - 80.0f) < 0.01f);
+    CHECK(test, wrapped.measuredText == "WRAPPED");
+    // A block that hugs its width is the one line it holds, so it is measured in no width at all:
+    // wrapping it would hand the box the width the document gave instead of the width of its line.
+    const StyleWatchingMeasurer hugged =
+        watched("<text text=\"Hugged\" width=\"80\" fontSize=\"14\" sizing=\"autoWidth\"/>");
+    CHECK(test, !hugged.style.wrap);
+    CHECK(test, hugged.measuredWidth >= UNBOUNDED_MEASURE);
+    Finish(test, "text sizing", before);
+}
+
 void TestWindow(TestContext& test) {
     const int before = test.failed;
     const std::string source =
@@ -3971,6 +4072,7 @@ int RunUnitTests() {
     TestCompilerSurface(test);
     TestFoundations(test);
     TestTypography(test);
+    TestTextSizing(test);
     TestWindow(test);
     TestBoard(test);
     TestRemainingSurface(test);

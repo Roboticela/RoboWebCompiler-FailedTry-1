@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rendering/renderer/Renderer.h"
+#include "rendering/text/TextStyle.h"
 
 #include <string_view>
 

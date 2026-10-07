@@ -233,6 +233,36 @@ std::string TextElement::DisplayText() const {
     return Transformed(text);
 }
 
+TextStyle TextElement::StyleFor() const {
+    TextStyle style;
+    style.fontSize = fontSize;
+    style.fontWeight = fontWeight;
+    style.color = textColor;
+    style.horizontal = textAlign;
+    style.vertical = verticalAlign;
+    style.fontFamily = fontFamily;
+    style.fontFile = fontFile;
+    style.locale = locale;
+    style.italic = italic;
+    style.rtl = rtl;
+    // A block that hugs its width is one line, so it is measured and drawn as the one line it is.
+    style.wrap = wrapText && sizing != TextSizing::AUTO_WIDTH;
+    style.letterSpacing = letterSpacingEm * fontSize;
+    style.wordSpacing = wordSpacing;
+    style.lineHeight = lineHeight;
+    style.maxLines = maxLines;
+    style.ellipsis = ellipsis;
+    style.underline = underline;
+    style.lineThrough = lineThrough;
+    style.overline = overline;
+    style.decorationColor = decorationColor;
+    style.decorationWidth = decorationWidth;
+    style.decorationStyle = decorationStyle;
+    style.fontFeatures = fontFeatures;
+    style.verticalWriting = writingMode == "vertical";
+    return style;
+}
+
 Size TextElement::Measure(TextMeasurer& measurer, float availableWidth, float availableHeight, bool heightDefinite) {
     ResolveRole(ViewportWidth());
     if (!Children().empty()) {
@@ -248,16 +278,19 @@ Size TextElement::Measure(TextMeasurer& measurer, float availableWidth, float av
     // is: wrapping it would make the width the document asked for the width it got, which is the
     // opposite of hugging. The line height is the multiple the block was given, or one line per
     // font size when the document left the choice to the font.
-    const bool wraps = wrapText && sizing != TextSizing::AUTO_WIDTH;
+    const TextStyle style = StyleFor();
+    const bool wraps = style.wrap;
     const float leading = lineHeight > 0.0f ? lineHeight : 1.0f;
     const float measureWidth = widthGiven ? Width().Resolve(widthSpace, availableWidth)
                                          : (availableWidth > 1.0f ? availableWidth : 100000.0f);
-    const float contentWidth = std::max(1.0f, measureWidth);
-    const Size textSize = measurer.MeasureText(DisplayText(), fontSize, wraps ? contentWidth : 100000.0f);
+    const float wrapWidth = std::max(1.0f, measureWidth);
+    // The block is measured with the style it is drawn with, so the lines it wraps into and the
+    // line height they are set on both reach the height of the box.
+    const Size textSize = measurer.MeasureText(DisplayText(), style, wraps ? wrapWidth : 100000.0f);
     const float block = std::max(fontSize * leading, textSize.height);
     const Edges pad = Padding();
-    float resolvedWidth = std::max(8.0f, textSize.width) + pad.SpanX(contentWidth);
-    float resolvedHeight = block + pad.SpanY(contentWidth);
+    float resolvedWidth = std::max(8.0f, textSize.width) + pad.SpanX(wrapWidth);
+    float resolvedHeight = block + pad.SpanY(wrapWidth);
     if (widthGiven) {
         resolvedWidth = Width().Resolve(widthSpace, resolvedWidth);
     }
@@ -265,25 +298,25 @@ Size TextElement::Measure(TextMeasurer& measurer, float availableWidth, float av
         resolvedHeight = Height().Resolve(heightSpace, resolvedHeight);
     }
     // A cap on the lines is a cap on the box, so it holds however the box was decided.
-    const float cappedHeight = maxLines > 0 ? fontSize * leading * static_cast<float>(maxLines) + pad.SpanY(contentWidth) : 0.0f;
+    const float cappedHeight = maxLines > 0 ? fontSize * leading * static_cast<float>(maxLines) + pad.SpanY(wrapWidth) : 0.0f;
     if (maxLines > 0) {
         resolvedHeight = std::min(resolvedHeight, cappedHeight);
     }
     switch (sizing) {
     case TextSizing::AUTO_WIDTH:
         // One line, and a width that hugs it, whatever width the document asked for.
-        resolvedWidth = std::max(8.0f, textSize.width) + pad.SpanX(contentWidth);
+        resolvedWidth = std::max(8.0f, textSize.width) + pad.SpanX(wrapWidth);
         break;
     case TextSizing::AUTO_HEIGHT:
         // The lines the text wraps into decide the height, whatever height the document asked for.
-        resolvedHeight = maxLines > 0 ? std::min(block + pad.SpanY(contentWidth), cappedHeight) : block + pad.SpanY(contentWidth);
+        resolvedHeight = maxLines > 0 ? std::min(block + pad.SpanY(wrapWidth), cappedHeight) : block + pad.SpanY(wrapWidth);
         break;
     case TextSizing::FIXED:
         // A fixed block is the size it was given and the text is wrapped inside it. Where no size
         // was given there is nothing to be fixed to, so it takes the room it was offered across
         // and the lines it holds down.
         resolvedWidth = widthGiven ? Width().Resolve(widthSpace, resolvedWidth) : std::max(1.0f, availableWidth);
-        resolvedHeight = heightGiven ? Height().Resolve(heightSpace, resolvedHeight) : block + pad.SpanY(contentWidth);
+        resolvedHeight = heightGiven ? Height().Resolve(heightSpace, resolvedHeight) : block + pad.SpanY(wrapWidth);
         break;
     case TextSizing::UNSET:
         // Nothing was said about the size, so the box is the size the text covers and a size the
@@ -309,33 +342,7 @@ void TextElement::OnPaint(Renderer& renderer) {
     area.y += top;
     area.width = std::max(0.0f, area.width - left - right);
     area.height = std::max(0.0f, area.height - top - bottom);
-    TextStyle style;
-    style.fontSize = fontSize;
-    style.fontWeight = fontWeight;
-    style.color = textColor;
-    style.horizontal = textAlign;
-    style.vertical = verticalAlign;
-    style.fontFamily = fontFamily;
-    style.fontFile = fontFile;
-    style.locale = locale;
-    style.italic = italic;
-    style.rtl = rtl;
-    // A block that hugs its width is one line, so it is drawn as the one line it was measured as.
-    style.wrap = wrapText && sizing != TextSizing::AUTO_WIDTH;
-    style.letterSpacing = letterSpacingEm * fontSize;
-    style.wordSpacing = wordSpacing;
-    style.lineHeight = lineHeight;
-    style.maxLines = maxLines;
-    style.ellipsis = ellipsis;
-    style.underline = underline;
-    style.lineThrough = lineThrough;
-    style.overline = overline;
-    style.decorationColor = decorationColor;
-    style.decorationWidth = decorationWidth;
-    style.decorationStyle = decorationStyle;
-    style.fontFeatures = fontFeatures;
-    style.verticalWriting = writingMode == "vertical";
-    renderer.DrawString(DisplayText(), area, style);
+    renderer.DrawString(DisplayText(), area, StyleFor());
 }
 
 void TextElement::ApplyBound(const std::string& property, const std::string& value) {

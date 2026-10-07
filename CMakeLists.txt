@@ -91,6 +91,7 @@ add_library(RuntimeUi STATIC
     rendering/renderer/StrokePattern.cpp
     rendering/renderer/StrokePattern.h
     rendering/text/TextMeasurer.h
+    rendering/text/TextStyle.h
     rendering/text/TextLayout.cpp
     rendering/text/TextLayout.h
     rendering/path/PathBoolean.cpp

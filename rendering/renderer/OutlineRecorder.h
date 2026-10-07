@@ -39,7 +39,10 @@ public:
     void PopOpacity() override;
     void PushRotation(float degrees, float centerX, float centerY) override;
     void PopTransform() override;
-    Size MeasureText(std::string_view text, float fontSize, float maxWidth) override;
+    // Both forms of the measurement are offered, so a caller holding a recorder can ask by size
+    // alone as well as ask with the style a block is drawn with.
+    using TextMeasurer::MeasureText;
+    Size MeasureText(std::string_view text, const TextStyle& style, float maxWidth) override;
 
     // Where the outlines are written from. Every point captured is written relative to this corner,
     // which is how a shape painted in composition coordinates comes back as the outline it draws

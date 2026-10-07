@@ -1,6 +1,7 @@
 #pragma once
 
 #include "components/frame/Frame.h"
+#include "rendering/text/TextStyle.h"
 
 #include <string>
 
@@ -42,6 +43,9 @@ public:
 private:
     void ResolveRole(float viewport);
     std::string Transformed(const std::string& source) const;
+    // The one description of how this block is set. Measuring and drawing both take it, so the box
+    // the block covers is the box the lines are drawn in.
+    TextStyle StyleFor() const;
 
     std::string text;
     std::string role = "content";

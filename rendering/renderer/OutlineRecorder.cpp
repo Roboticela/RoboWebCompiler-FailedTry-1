@@ -127,9 +127,12 @@ void OutlineRecorder::DrawVector(const VectorPaint& paint) {
     Capture(paint.data, paint.bounds, paint.viewX, paint.viewY, paint.viewWidth, paint.viewHeight);
 }
 
-Size OutlineRecorder::MeasureText(std::string_view text, float fontSize, float maxWidth) {
-    const float width = static_cast<float>(text.size()) * fontSize * TEXT_INK_SHARE;
-    return Size{maxWidth > 0.0f ? std::min(width, maxWidth) : width, fontSize};
+Size OutlineRecorder::MeasureText(std::string_view text, const TextStyle& style, float maxWidth) {
+    // Nothing is drawn here, so the box a block would cover is a plain estimate: the ink a run of
+    // characters takes and the one line it is set on at the line height the document asked for.
+    const float width = static_cast<float>(text.size()) * style.fontSize * TEXT_INK_SHARE;
+    const float line = style.fontSize * (style.lineHeight > 0.0f ? style.lineHeight : 1.0f);
+    return Size{maxWidth > 0.0f ? std::min(width, maxWidth) : width, line};
 }
 
 void OutlineRecorder::Capture(std::string_view data, const Rect& bounds, float viewX, float viewY, float viewWidth, float viewHeight) {

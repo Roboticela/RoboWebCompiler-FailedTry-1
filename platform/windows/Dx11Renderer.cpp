@@ -601,23 +601,10 @@ void Dx11Renderer::DrawString(std::string_view text, const Rect& rect, const Tex
     if (format == nullptr) {
         return;
     }
-    const std::wstring wide = ToWide(text);
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    const HRESULT result =
-        writeFactory->CreateTextLayout(wide.c_str(), static_cast<UINT32>(wide.size()), format, rect.width, rect.height,
-                                       layout.GetAddressOf());
-    if (FAILED(result)) {
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout = LayoutFor(text, rect.width, rect.height, style);
+    if (!layout) {
         return;
     }
-    Microsoft::WRL::ComPtr<IDWriteFactory2> factory2;
-    if (SUCCEEDED(writeFactory.As(&factory2))) {
-        Microsoft::WRL::ComPtr<IDWriteFontFallback> fallback;
-        Microsoft::WRL::ComPtr<IDWriteTextLayout2> layout2;
-        if (SUCCEEDED(factory2->GetSystemFontFallback(fallback.GetAddressOf())) && SUCCEEDED(layout.As(&layout2))) {
-            layout2->SetFontFallback(fallback.Get());
-        }
-    }
-    ApplyTextLayout(layout.Get(), format, style, static_cast<unsigned>(wide.size()));
     brush->SetColor(ToD2d(style.color, opacityStack.back()));
     const D2D1_DRAW_TEXT_OPTIONS options = style.maxLines > 0 || style.ellipsis ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE;
     d2dContext->DrawTextLayout(D2D1::Point2F(rect.x, rect.y), layout.Get(), brush.Get(), options);
@@ -628,32 +615,55 @@ void Dx11Renderer::DrawString(std::string_view text, const Rect& rect, const Tex
     }
 }
 
-Size Dx11Renderer::MeasureText(std::string_view text, float fontSize, float maxWidth) {
-    if (!writeFactory || text.empty()) {
-        return Size{0.0f, fontSize};
+Microsoft::WRL::ComPtr<IDWriteTextLayout> Dx11Renderer::LayoutFor(std::string_view text, float width, float height,
+                                                                   const TextStyle& style) {
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (!writeFactory) {
+        return layout;
     }
-    TextStyle style;
-    style.fontSize = fontSize;
-    style.fontFamily = "Inter";
-    style.fontWeight = WEIGHT_REGULAR;
-    style.wrap = maxWidth < UNBOUNDED_MEASURE;
     IDWriteTextFormat* format = FormatFor(style);
     if (format == nullptr) {
-        return Size{text.size() * fontSize * 0.5f, fontSize};
+        return layout;
     }
     const std::wstring wide = ToWide(text);
-    const bool wrap = maxWidth < UNBOUNDED_MEASURE;
-    const float layoutWidth = wrap ? std::max(1.0f, maxWidth) : UNBOUNDED_MEASURE;
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    const HRESULT result = writeFactory->CreateTextLayout(wide.c_str(), static_cast<UINT32>(wide.size()), format,
-                                                          layoutWidth, UNBOUNDED_MEASURE, layout.GetAddressOf());
-    if (FAILED(result)) {
-        return Size{0.0f, fontSize};
+    if (FAILED(writeFactory->CreateTextLayout(wide.c_str(), static_cast<UINT32>(wide.size()), format, width, height,
+                                              layout.GetAddressOf()))) {
+        return layout;
     }
-    layout->SetWordWrapping(wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
+    Microsoft::WRL::ComPtr<IDWriteFactory2> factory2;
+    if (SUCCEEDED(writeFactory.As(&factory2))) {
+        Microsoft::WRL::ComPtr<IDWriteFontFallback> fallback;
+        Microsoft::WRL::ComPtr<IDWriteTextLayout2> layout2;
+        if (SUCCEEDED(factory2->GetSystemFontFallback(fallback.GetAddressOf())) && SUCCEEDED(layout.As(&layout2))) {
+            layout2->SetFontFallback(fallback.Get());
+        }
+    }
+    ApplyTextLayout(layout.Get(), format, style, static_cast<unsigned>(wide.size()));
+    return layout;
+}
+
+Size Dx11Renderer::MeasureText(std::string_view text, const TextStyle& style, float maxWidth) {
+    if (!writeFactory || text.empty()) {
+        return Size{0.0f, style.fontSize};
+    }
+    // The width that was given is the width the lines are held in, so a width that was left open
+    // is a block that keeps to one line, whatever the style would rather do.
+    const bool wrap = style.wrap && maxWidth < UNBOUNDED_MEASURE;
+    TextStyle measuring = style;
+    measuring.wrap = wrap;
+    const float layoutWidth = wrap ? std::max(1.0f, maxWidth) : UNBOUNDED_MEASURE;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout = LayoutFor(text, layoutWidth, UNBOUNDED_MEASURE, measuring);
+    if (!layout) {
+        return Size{text.size() * style.fontSize * 0.5f, style.fontSize};
+    }
     DWRITE_TEXT_METRICS metrics{};
-    layout->GetMetrics(&metrics);
-    return Size{metrics.width, std::max(metrics.height, fontSize)};
+    if (FAILED(layout->GetMetrics(&metrics))) {
+        return Size{0.0f, style.fontSize};
+    }
+    // The box the layout covers is the box the lines fill, because the spacing and the cap on the
+    // lines were applied to it above, which is where the line height of the document reaches the
+    // height of the block.
+    return Size{metrics.width, std::max(metrics.height, style.fontSize)};
 }
 
 void Dx11Renderer::PushClip(const Rect& rect) {

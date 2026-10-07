@@ -3,39 +3,13 @@
 #include "engine/math/Color.h"
 #include "engine/types/UiTypes.h"
 #include "rendering/text/TextMeasurer.h"
+#include "rendering/text/TextStyle.h"
 
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace Runtime {
-
-struct TextStyle {
-    float fontSize = DEFAULT_TEXT_FONT_SIZE;
-    int fontWeight = 400;
-    Color color = COLOR_TEXT;
-    TextAlign horizontal = TextAlign::START;
-    TextAlign vertical = TextAlign::START;
-    std::string fontFamily = "Inter";
-    std::string fontFile;
-    std::string locale = "en-us";
-    std::string decorationStyle = "solid";
-    std::string fontFeatures;
-    Color decorationColor = COLOR_TEXT;
-    float letterSpacing = 0.0f;
-    float wordSpacing = 0.0f;
-    float lineHeight = 0.0f;
-    float decorationWidth = 1.0f;
-    int maxLines = 0;
-    bool italic = false;
-    bool rtl = false;
-    bool wrap = true;
-    bool ellipsis = false;
-    bool underline = false;
-    bool lineThrough = false;
-    bool overline = false;
-    bool verticalWriting = false;
-};
 
 struct VectorPaint {
     Rect bounds;

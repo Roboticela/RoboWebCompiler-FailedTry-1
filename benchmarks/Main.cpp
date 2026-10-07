@@ -11,8 +11,8 @@ namespace {
 
 class FakeMeasurer : public Runtime::TextMeasurer {
 public:
-    Runtime::Size MeasureText(std::string_view text, float fontSize, float) override {
-        return Runtime::Size{static_cast<float>(text.size()) * fontSize * 0.5f, fontSize};
+    Runtime::Size MeasureText(std::string_view text, const Runtime::TextStyle& style, float) override {
+        return Runtime::Size{static_cast<float>(text.size()) * style.fontSize * 0.5f, style.fontSize};
     }
 };
 

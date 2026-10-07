@@ -38,7 +38,10 @@ public:
     void DrawString(std::string_view text, const Rect& rect, const TextStyle& style) override;
     void DrawCachedImage(std::string_view key, const Rect& rect, const unsigned char* bgra, int width, int height) override;
     void DrawVector(const VectorPaint& paint) override;
-    Size MeasureText(std::string_view text, float fontSize, float maxWidth) override;
+    // The measuring form below is the one every element calls; this is the same measurement for a
+    // caller that names only a font size, which is what the chrome of the designer does.
+    using TextMeasurer::MeasureText;
+    Size MeasureText(std::string_view text, const TextStyle& style, float maxWidth) override;
     void PushClip(const Rect& rect) override;
     void PopClip() override;
     void PushOpacity(float opacity) override;
@@ -54,6 +57,9 @@ private:
     IDWriteFontCollection* InterCollection();
     IDWriteFontCollection* CollectionForFile(const std::string& path, std::wstring& familyName);
     void ApplyTextLayout(IDWriteTextLayout* layout, IDWriteTextFormat* format, const TextStyle& style, unsigned length);
+    // The layout a block is both drawn and measured in. One builder for the two, so the box a
+    // block covers is the box it fills.
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> LayoutFor(std::string_view text, float width, float height, const TextStyle& style);
 
     Microsoft::WRL::ComPtr<ID3D11Device> device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> deviceContext;

@@ -447,7 +447,7 @@
             </frame>
             <frame layout="vertical" gap="6" width="fill" heightMode="hug">
                 <text text="auto height — width given, height grows" fontSize="12" textColor="#86868B"/>
-                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="80" background="#F5F5F7" padding="12" radius="8">
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" heightMode="hug" background="#F5F5F7" padding="12" radius="8">
                     <text text="This line wraps into two lines, so the box grows down to hold both." width="150" sizing="autoHeight" fontSize="14" textColor="#30D158"/>
                 </frame>
             </frame>
