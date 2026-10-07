@@ -1027,6 +1027,12 @@ void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& n
     } else if (name == "shadow") {
         renderer.StrokeRectangle(Rect{x + 4.0f, y + 4.0f, size - 4.0f, size - 4.0f}, quiet, 1.5f, 3.0f);
         renderer.StrokeRectangle(Rect{x, y, size - 4.0f, size - 4.0f}, ink, 1.5f, 3.0f);
+    } else if (name == "boolean") {
+        // Two shapes made one: what they cover together is ink, and the parts only one of them
+        // covers are left open.
+        renderer.StrokeRectangle(Rect{x, y, size * 0.66f, size * 0.66f}, ink, 1.5f, 2.0f);
+        renderer.StrokeRectangle(Rect{x + size * 0.34f, y + size * 0.34f, size * 0.66f, size * 0.66f}, ink, 1.5f, 2.0f);
+        renderer.FillRectangle(Rect{x + size * 0.34f, y + size * 0.34f, size * 0.32f, size * 0.32f}, ink, 1.0f);
     } else if (name == "rectangle") {
         renderer.FillRectangle(Rect{x + 1.0f, y + 1.0f, size - 2.0f, size - 2.0f}, ink, 2.0f);
     } else if (name == "ellipse" || name == "circle") {
@@ -2178,7 +2184,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                                                      {"Frame", "frame"},  {"Shape", "rectangle"},
                                                      {"Shape", "ellipse"}, {"Shape", "vector"},
                                                      {"Shape", "svg"},    {"Shape", "line"},
-                                                     {"Scrollbar", "scrollbar"}};
+                                                     {"Shape", "boolean"}, {"Scrollbar", "scrollbar"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;
@@ -2755,6 +2761,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Svg", "", 62, activeTool == EditorTool::SVG);
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
                 addCommand("Arrow", "A", 57, activeTool == EditorTool::ARROW);
+                addCommand("Boolean", "B", 63, activeTool == EditorTool::BOOLEAN);
                 addCommand("Hand", "H", 47, activeTool == EditorTool::HAND);
                 addCommand("Zoom", "Z", 48, activeTool == EditorTool::ZOOM);
                 break;
@@ -3763,6 +3770,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             activeTool = EditorTool::IMAGE;
         } else if (action == 62) {
             activeTool = EditorTool::SVG;
+        } else if (action == 63) {
+            activeTool = EditorTool::BOOLEAN;
         } else if (action == 46) {
             activeTool = EditorTool::LINE;
         } else if (action == 57) {
@@ -6688,7 +6697,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         // Every component a shape tool can draw has to survive that trip, because the
         // editor writes defaults of its own for each of them and a default the component
         // does not declare would leave a document that no longer compiles.
-        const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "star", "frame", "text", "image", "line", "arrow", "vector", "svg", "group"};
+        const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "star", "frame", "text", "image", "line", "arrow", "vector", "svg", "boolean", "group"};
         for (const char* component : drawable) {
             std::vector<int> drawnShape;
             if (!document.InsertChild({0}, component, drawnShape) || !document.SetAttribute(drawnShape, "id", "drawnShape") ||

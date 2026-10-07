@@ -872,6 +872,19 @@ Size Element::ChildrenExtent(TextMeasurer& measurer, float availableWidth, float
     return Size{std::max(1.0f, extentWidth), std::max(1.0f, extentHeight)};
 }
 
+Size Element::HuggedMeasure(float availableWidth, float availableHeight, Size content) {
+    float resolvedWidth = std::max(1.0f, content.width);
+    float resolvedHeight = std::max(1.0f, content.height);
+    if (Width().unit == LengthUnit::PIXELS || Width().unit == LengthUnit::PERCENT || Width().unit == LengthUnit::FILL) {
+        resolvedWidth = Width().Resolve(availableWidth, resolvedWidth);
+    }
+    if (Height().unit == LengthUnit::PIXELS || Height().unit == LengthUnit::PERCENT || Height().unit == LengthUnit::FILL) {
+        resolvedHeight = Height().Resolve(availableHeight, resolvedHeight);
+    }
+    measured = Size{std::max(1.0f, resolvedWidth), std::max(1.0f, resolvedHeight)};
+    return FinishMeasure(availableWidth, availableHeight);
+}
+
 void Element::ArrangeChildrenScaled(const Rect& box, Size authored) {
     // The box the content was authored for is the reference the given box is measured against,
     // so a container that is left at its authored size places every child exactly as declared.

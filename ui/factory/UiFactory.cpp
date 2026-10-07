@@ -2,6 +2,7 @@
 
 #include "compiler/semantic/UiCompiler.h"
 #include "components/arrow/ArrowElement.h"
+#include "components/boolean/BooleanElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
 #include "components/layout/BoardElement.h"
@@ -724,6 +725,16 @@ void ApplyStar(StarElement& star, const IrNode& node) {
     }
 }
 
+void ApplyBoolean(BooleanElement& group, const IrNode& node) {
+    // A boolean group reads everything a rectangle reads, because it is a shape with a fill, a
+    // stroke, and a pattern to stroke it with. Only the operation is read here: the outline it draws
+    // is not written in the document, it is computed from the shapes the group holds.
+    ApplyRectangle(group, node);
+    if (const UiValue* value = FindProperty(node, "operation")) {
+        group.SetOperation(ParseBooleanOperation(value->text));
+    }
+}
+
 void ApplyVector(VectorElement& vector, const IrNode& node) {
     // A vector reads everything a rectangle reads, because it is a shape with a fill and a stroke.
     // Only the values that describe the geometry it draws are read here.
@@ -1243,6 +1254,8 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<LineElement>();
     case NodeKind::ARROW:
         return std::make_unique<ArrowElement>();
+    case NodeKind::BOOLEAN:
+        return std::make_unique<BooleanElement>();
     case NodeKind::SHADOW:
         return nullptr;
     case NodeKind::TEXT:
@@ -1294,6 +1307,10 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         // A vector is a rectangle, so it has to be asked first: the rectangle branch below would
         // otherwise take it and leave the path it draws unsaid.
         ApplyVector(*vector, node);
+    } else if (BooleanElement* boolean = dynamic_cast<BooleanElement*>(&element)) {
+        // A boolean group is a rectangle, so it has to be asked first: the rectangle branch below
+        // would otherwise take it and leave the operation unsaid.
+        ApplyBoolean(*boolean, node);
     } else if (PolygonElement* polygon = dynamic_cast<PolygonElement*>(&element)) {
         // A polygon is a rectangle, so it has to be asked first: the rectangle branch below
         // would otherwise take it and leave the sides unsaid.

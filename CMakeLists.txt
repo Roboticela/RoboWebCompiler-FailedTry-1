@@ -57,6 +57,8 @@ add_library(RuntimeUi STATIC
     ui/factory/UiFactory.h
     components/frame/Frame.cpp
     components/frame/Frame.h
+    components/boolean/BooleanElement.cpp
+    components/boolean/BooleanElement.h
     components/group/GroupElement.cpp
     components/group/GroupElement.h
     components/rectangle/RectangleElement.cpp
@@ -84,11 +86,15 @@ add_library(RuntimeUi STATIC
     components/text/TextElement.cpp
     components/text/TextElement.h
     rendering/renderer/Renderer.h
+    rendering/renderer/OutlineRecorder.cpp
+    rendering/renderer/OutlineRecorder.h
     rendering/renderer/StrokePattern.cpp
     rendering/renderer/StrokePattern.h
     rendering/text/TextMeasurer.h
     rendering/text/TextLayout.cpp
     rendering/text/TextLayout.h
+    rendering/path/PathBoolean.cpp
+    rendering/path/PathBoolean.h
     rendering/path/PathCurve.cpp
     rendering/path/PathCurve.h
     rendering/image/ImageDecoder.cpp

@@ -136,17 +136,7 @@ Size GroupElement::Measure(TextMeasurer& measurer, float availableWidth, float a
     // claims honest. The size the children cover together is kept as the size the group was
     // authored at, which is what Arrange scales the children out of.
     natural = ChildrenExtent(measurer, availableWidth, availableHeight);
-
-    float resolvedWidth = natural.width * std::fabs(scaleX);
-    float resolvedHeight = natural.height * std::fabs(scaleY);
-    if (Width().unit == LengthUnit::PIXELS || Width().unit == LengthUnit::PERCENT || Width().unit == LengthUnit::FILL) {
-        resolvedWidth = Width().Resolve(availableWidth, resolvedWidth);
-    }
-    if (Height().unit == LengthUnit::PIXELS || Height().unit == LengthUnit::PERCENT || Height().unit == LengthUnit::FILL) {
-        resolvedHeight = Height().Resolve(availableHeight, resolvedHeight);
-    }
-    measured = Size{std::max(1.0f, resolvedWidth), std::max(1.0f, resolvedHeight)};
-    return FinishMeasure(availableWidth, availableHeight);
+    return HuggedMeasure(availableWidth, availableHeight, Size{natural.width * std::fabs(scaleX), natural.height * std::fabs(scaleY)});
 }
 
 void GroupElement::Arrange(const Rect& rect) {

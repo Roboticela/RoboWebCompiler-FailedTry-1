@@ -1079,11 +1079,11 @@ If **this** works beautifully, you have the foundation for the rest.
 
 12. Vector [Done]
 13. SVG [Done]
-14. Boolean Group
-    - Union
-    - Subtract
-    - Intersect
-    - Exclude
+14. Boolean Group [Done]
+    - Union [Done]
+    - Subtract [Done]
+    - Intersect [Done]
+    - Exclude [Done]
 
 15. Text
 16. Rich Text

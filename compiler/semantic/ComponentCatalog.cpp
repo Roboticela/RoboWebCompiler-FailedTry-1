@@ -507,6 +507,18 @@ std::vector<PropertySpec> StarProperties() {
     return properties;
 }
 
+// A boolean group is a shape whose outline is not written down anywhere: it is computed from the
+// shapes the group holds. So it accepts the values that place, fill, and stroke a shape, and refuses
+// the ones that describe an outline it was not given: there is no side count to count, no corner of
+// its own and no radius to round one with, and the four named corner radii mean nothing to an
+// outline that arrived already combined. What it adds is the operation that decides which parts of
+// its shapes survive.
+std::vector<PropertySpec> BooleanProperties() {
+    return With(Without(PolygonProperties(), {"sides", "radius", "radiusTopLeft", "radiusTopRight", "radiusBottomRight",
+                                               "radiusBottomLeft"}),
+                {{"operation", TypeKind::STRING}});
+}
+
 // An arrow is a line with a head, so it accepts everything a line accepts and the three
 // values that shape the head on top of it. Anything the line rejects, the arrow rejects too.
 std::vector<PropertySpec> ArrowProperties() {
@@ -592,6 +604,7 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"circle", NodeKind::ELLIPSE, false, EllipseProperties(true)},
         {"line", NodeKind::LINE, false, LineProperties()},
         {"arrow", NodeKind::ARROW, false, ArrowProperties()},
+        {"boolean", NodeKind::BOOLEAN, true, BooleanProperties()},
         {"group", NodeKind::GROUP, true, GroupProperties()},
         {"component", NodeKind::COMPONENT, true, With(IdentityProperties(), {{"variant", TypeKind::STRING}})},
         {"instance", NodeKind::INSTANCE, true, With(IdentityProperties(), {{"component", TypeKind::STRING}, {"variant", TypeKind::STRING}})},

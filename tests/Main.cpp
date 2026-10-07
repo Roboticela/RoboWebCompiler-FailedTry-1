@@ -3,6 +3,7 @@
 #include "compiler/semantic/UiCompiler.h"
 #include "compiler/types/ValueParser.h"
 #include "components/arrow/ArrowElement.h"
+#include "components/boolean/BooleanElement.h"
 #include "components/ellipse/EllipseElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
@@ -21,6 +22,7 @@
 #include "engine/motion/Motion.h"
 #include "rendering/image/ImageDecoder.h"
 #include "rendering/renderer/Renderer.h"
+#include "rendering/path/PathBoolean.h"
 #include "rendering/path/PathCurve.h"
 #include "rendering/text/TextLayout.h"
 #include "rendering/text/TextMeasurer.h"
@@ -2749,6 +2751,298 @@ void TestArrow(TestContext& test) {
     Finish(test, "arrow", before);
 }
 
+// A boolean group is one shape computed from the shapes it holds, so it is checked from both ends:
+// the combination itself, which is geometry and is read off areas and membership, and the element,
+// which is a rectangle that draws the combined outline in its own fill instead of its own box.
+void TestBoolean(TestContext& test) {
+    const int before = test.failed;
+
+    // The word a document names: the spellings that mean each of the four, and a word that means
+    // nothing, which is read as a union because a union is the operation that takes nothing away.
+    CHECK(test, ParseBooleanOperation("union") == BooleanOperation::UNION);
+    CHECK(test, ParseBooleanOperation("UNION") == BooleanOperation::UNION);
+    CHECK(test, ParseBooleanOperation("subtract") == BooleanOperation::SUBTRACT);
+    CHECK(test, ParseBooleanOperation("difference") == BooleanOperation::SUBTRACT);
+    CHECK(test, ParseBooleanOperation("minus") == BooleanOperation::SUBTRACT);
+    CHECK(test, ParseBooleanOperation("intersect") == BooleanOperation::INTERSECT);
+    CHECK(test, ParseBooleanOperation("  Intersection  ") == BooleanOperation::INTERSECT);
+    CHECK(test, ParseBooleanOperation("xor") == BooleanOperation::EXCLUDE);
+    CHECK(test, ParseBooleanOperation("exclusion") == BooleanOperation::EXCLUDE);
+    CHECK(test, ParseBooleanOperation("") == BooleanOperation::UNION);
+    CHECK(test, ParseBooleanOperation("blend") == BooleanOperation::UNION);
+    CHECK(test, std::string(BooleanOperationName(BooleanOperation::UNION)) == "union");
+    CHECK(test, std::string(BooleanOperationName(BooleanOperation::SUBTRACT)) == "subtract");
+    CHECK(test, std::string(BooleanOperationName(BooleanOperation::INTERSECT)) == "intersect");
+    CHECK(test, std::string(BooleanOperationName(BooleanOperation::EXCLUDE)) == "exclude");
+
+    // Each shape is handed over the way it paints itself: one closed loop of corners. The two
+    // squares overlap by a quarter, which is the pair every operation is read off.
+    const auto square = [](float left, float top, float right, float bottom) {
+        PathContour loop;
+        loop.closed = true;
+        loop.points = {PathSample{left, top}, PathSample{right, top}, PathSample{right, bottom}, PathSample{left, bottom}};
+        return std::vector<PathContour>{loop};
+    };
+    const std::vector<std::vector<PathContour>> pair{square(0.0f, 0.0f, 10.0f, 10.0f), square(5.0f, 5.0f, 15.0f, 15.0f)};
+    // The area the outlines cover, counted on a grid: the only oracle a computed outline has is
+    // which points it says are inside it.
+    const auto coveredArea = [](const std::vector<PathContour>& outlines, float extent) {
+        const int steps = 400;
+        const float cell = extent / static_cast<float>(steps);
+        float area = 0.0f;
+        for (int row = 0; row < steps; ++row) {
+            for (int column = 0; column < steps; ++column) {
+                const Point centre{(static_cast<float>(column) + 0.5f) * cell, (static_cast<float>(row) + 0.5f) * cell};
+                if (OutlinesContain(outlines, centre)) {
+                    area += cell * cell;
+                }
+            }
+        }
+        return area;
+    };
+
+    // Union keeps everything either square covers: 100 + 100, less the 25 they share.
+    const std::vector<PathContour> unioned = SampleContours(CombineOutlines(pair, BooleanOperation::UNION));
+    CHECK(test, unioned.size() == 1);
+    CHECK(test, std::fabs(coveredArea(unioned, 20.0f) - 175.0f) < 0.5f);
+    CHECK(test, OutlinesContain(unioned, Point{2.0f, 2.0f}));
+    CHECK(test, OutlinesContain(unioned, Point{7.0f, 7.0f}));
+    CHECK(test, OutlinesContain(unioned, Point{12.0f, 12.0f}));
+    CHECK(test, !OutlinesContain(unioned, Point{12.0f, 2.0f}));
+    CHECK(test, !OutlinesContain(unioned, Point{2.0f, 12.0f}));
+
+    // Subtract takes the second square away from the first, so what is left is the part of the
+    // first the second does not reach.
+    const std::vector<PathContour> subtracted = SampleContours(CombineOutlines(pair, BooleanOperation::SUBTRACT));
+    CHECK(test, subtracted.size() == 1);
+    CHECK(test, std::fabs(coveredArea(subtracted, 20.0f) - 75.0f) < 0.5f);
+    CHECK(test, OutlinesContain(subtracted, Point{2.0f, 2.0f}));
+    CHECK(test, OutlinesContain(subtracted, Point{2.0f, 7.0f}));
+    CHECK(test, !OutlinesContain(subtracted, Point{7.0f, 7.0f}));
+    CHECK(test, !OutlinesContain(subtracted, Point{12.0f, 12.0f}));
+
+    // Intersect keeps only what both cover, which is the quarter they share.
+    const std::vector<PathContour> intersected = SampleContours(CombineOutlines(pair, BooleanOperation::INTERSECT));
+    CHECK(test, intersected.size() == 1);
+    CHECK(test, std::fabs(coveredArea(intersected, 20.0f) - 25.0f) < 0.5f);
+    CHECK(test, OutlinesContain(intersected, Point{7.0f, 7.0f}));
+    CHECK(test, !OutlinesContain(intersected, Point{2.0f, 2.0f}));
+    CHECK(test, !OutlinesContain(intersected, Point{12.0f, 12.0f}));
+
+    // Exclude keeps what an odd number of them cover, so the shared quarter drops out and the two
+    // halves that are left come back as one shape with the shared part taken out of it.
+    const std::vector<PathContour> excluded = SampleContours(CombineOutlines(pair, BooleanOperation::EXCLUDE));
+    CHECK(test, excluded.size() == 2);
+    CHECK(test, std::fabs(coveredArea(excluded, 20.0f) - 150.0f) < 1.0f);
+    CHECK(test, OutlinesContain(excluded, Point{2.0f, 2.0f}));
+    CHECK(test, OutlinesContain(excluded, Point{12.0f, 12.0f}));
+    CHECK(test, !OutlinesContain(excluded, Point{7.0f, 7.0f}));
+
+    // A ring drawn as two loops is a shape with a hole in it, and combining it keeps the hole: the
+    // loop nested inside the other is read as the part the shape does not cover.
+    std::vector<PathContour> ring = square(0.0f, 0.0f, 20.0f, 20.0f);
+    ring.push_back(square(6.0f, 6.0f, 14.0f, 14.0f).front());
+    const std::vector<PathContour> holed = SampleContours(CombineOutlines({ring}, BooleanOperation::UNION));
+    CHECK(test, holed.size() == 2);
+    CHECK(test, std::fabs(coveredArea(holed, 20.0f) - 336.0f) < 1.0f);
+    CHECK(test, OutlinesContain(holed, Point{2.0f, 10.0f}));
+    CHECK(test, !OutlinesContain(holed, Point{10.0f, 10.0f}));
+
+    // A shape with no area, such as a line, covers nothing and takes no part, and a combination
+    // with nothing in it is nothing at all rather than an empty loop.
+    PathContour flat;
+    flat.closed = true;
+    flat.points = {PathSample{0.0f, 0.0f}, PathSample{10.0f, 0.0f}};
+    CHECK(test, CombineOutlines({std::vector<PathContour>{flat}}, BooleanOperation::UNION).empty());
+    CHECK(test, CombineOutlines({}, BooleanOperation::INTERSECT).empty());
+
+    // The compiler knows the component, lets it hold the shapes it is made of, and refuses the
+    // values that describe an outline it was not given.
+    CHECK(test, FindComponent("boolean") != nullptr);
+    CHECK(test, FindComponent("boolean") != nullptr && FindComponent("boolean")->acceptsChildren);
+    CHECK(test, ComponentAcceptsProperty("boolean", "operation"));
+    CHECK(test, ComponentAcceptsProperty("boolean", "fill"));
+    CHECK(test, ComponentAcceptsProperty("boolean", "stroke"));
+    CHECK(test, ComponentAcceptsProperty("boolean", "dash"));
+    CHECK(test, ComponentAcceptsProperty("boolean", "width"));
+    CHECK(test, !ComponentAcceptsProperty("boolean", "sides"));
+    CHECK(test, !ComponentAcceptsProperty("boolean", "radius"));
+    CHECK(test, !ComponentAcceptsProperty("boolean", "radiusTopLeft"));
+    CHECK(test, !ComponentAcceptsProperty("boolean", "layout"));
+    CHECK(test, CompileUi(Source("<window><boolean operation=\"subtract\"><rectangle width=\"40\" height=\"40\"/>"
+                                "<rectangle x=\"20\" y=\"20\" width=\"40\" height=\"40\"/></boolean></window>"))
+                    .Ok());
+    CHECK(test, !CompileUi(Source("<window><boolean operation=\"subtract\" sides=\"5\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><boolean radius=\"8\"/></window>")).Ok());
+
+    // Every operation through a real document, so the shape that reaches the canvas is the shape
+    // the operation says. Each group is a rectangle underneath, and holds two boxes that overlap.
+    std::unique_ptr<Element> shapes = Layout(
+        "<window width=\"400\" height=\"300\"><frame layout=\"none\" width=\"400\" height=\"300\">"
+        "<boolean id=\"united\" x=\"20\" y=\"20\" width=\"100\" height=\"100\" fill=\"#0E7AFF\" operation=\"union\">"
+        "<rectangle id=\"ua\" x=\"0\" y=\"0\" width=\"60\" height=\"60\"/>"
+        "<rectangle id=\"ub\" x=\"40\" y=\"40\" width=\"60\" height=\"60\"/></boolean>"
+        "<boolean id=\"cut\" x=\"140\" y=\"20\" width=\"100\" height=\"100\" fill=\"#FF3B30\" operation=\"subtract\">"
+        "<rectangle id=\"ca\" x=\"0\" y=\"0\" width=\"100\" height=\"100\"/>"
+        "<rectangle id=\"cb\" x=\"50\" y=\"50\" width=\"100\" height=\"100\"/></boolean>"
+        "<boolean id=\"overlap\" x=\"260\" y=\"20\" width=\"100\" height=\"100\" fill=\"#30D158\" operation=\"intersect\">"
+        "<rectangle id=\"ia\" x=\"0\" y=\"0\" width=\"100\" height=\"100\"/>"
+        "<rectangle id=\"ib\" x=\"50\" y=\"50\" width=\"100\" height=\"100\"/></boolean>"
+        "<boolean id=\"apart\" x=\"20\" y=\"140\" width=\"100\" height=\"100\" fill=\"#FF9F0A\" operation=\"exclude\">"
+        "<rectangle id=\"ea\" x=\"0\" y=\"0\" width=\"60\" height=\"60\"/>"
+        "<rectangle id=\"eb\" x=\"40\" y=\"40\" width=\"60\" height=\"60\"/></boolean>"
+        "<boolean id=\"holed\" x=\"140\" y=\"140\" width=\"100\" height=\"100\" fill=\"#1D1D1F\" stroke=\"#0E7AFF\" "
+        "strokeWidth=\"2\" dash=\"6 3\" operation=\"subtract\">"
+        "<rectangle id=\"ha\" x=\"0\" y=\"0\" width=\"100\" height=\"100\" radius=\"12\"/>"
+        "<ellipse id=\"hb\" x=\"30\" y=\"30\" width=\"40\" height=\"40\"/></boolean>"
+        "<boolean id=\"empty\" x=\"260\" y=\"140\" width=\"80\" height=\"80\" fill=\"#FF3B30\"/>"
+        "<boolean id=\"unknown\" x=\"20\" y=\"260\" operation=\"blend\">"
+        "<rectangle id=\"xa\" width=\"50\" height=\"50\"/>"
+        "<rectangle id=\"xb\" x=\"30\" y=\"30\" width=\"50\" height=\"50\"/></boolean>"
+        "</frame></window>",
+        400.0f, 300.0f);
+    CHECK(test, shapes != nullptr);
+    if (shapes != nullptr) {
+        Element* united = shapes->FindById("united");
+        Element* cut = shapes->FindById("cut");
+        Element* empty = shapes->FindById("empty");
+        Element* unknown = shapes->FindById("unknown");
+        Element* holedNode = shapes->FindById("holed");
+        CHECK(test, united != nullptr && cut != nullptr && empty != nullptr && unknown != nullptr && holedNode != nullptr);
+        CHECK(test, united->Kind() == NodeKind::BOOLEAN);
+        CHECK(test, dynamic_cast<RectangleElement*>(united) != nullptr);
+        BooleanElement* typed = dynamic_cast<BooleanElement*>(united);
+        CHECK(test, typed != nullptr && typed->Operation() == BooleanOperation::UNION);
+        // A group that was given no size of its own is exactly as big as the shapes it holds.
+        CHECK(test, std::fabs(united->Bounds().width - 100.0f) < 0.01f && std::fabs(united->Bounds().height - 100.0f) < 0.01f);
+        CHECK(test, std::fabs(united->Bounds().x - 20.0f) < 0.01f && std::fabs(united->Bounds().y - 20.0f) < 0.01f);
+        CHECK(test, dynamic_cast<BooleanElement*>(cut)->Operation() == BooleanOperation::SUBTRACT);
+        CHECK(test, dynamic_cast<BooleanElement*>(shapes->FindById("overlap"))->Operation() == BooleanOperation::INTERSECT);
+        CHECK(test, dynamic_cast<BooleanElement*>(shapes->FindById("apart"))->Operation() == BooleanOperation::EXCLUDE);
+        CHECK(test, dynamic_cast<BooleanElement*>(holedNode)->Operation() == BooleanOperation::SUBTRACT);
+        // A word that means nothing reads as a union rather than as no operation at all.
+        CHECK(test, dynamic_cast<BooleanElement*>(unknown)->Operation() == BooleanOperation::UNION);
+        CHECK(test, dynamic_cast<BooleanElement*>(empty)->Operation() == BooleanOperation::UNION);
+
+        // One paint pass draws each group once, as the outline it computed, and draws none of the
+        // shapes it holds: their fills are what they looked like before they were combined.
+        RecordingRenderer renderer;
+        shapes->Paint(renderer);
+        const auto drawnPath = [&](const char* id) {
+            Element* node = shapes->FindById(id);
+            if (node == nullptr) {
+                return std::string();
+            }
+            const PaintRecord* record = PaintRecordFor(renderer, node->Bounds());
+            return record != nullptr && record->vector ? record->path : std::string();
+        };
+        const auto covers = [&](const char* id, float x, float y) {
+            return OutlinesContain(SampleContours(drawnPath(id)), Point{x, y});
+        };
+        CHECK(test, !drawnPath("united").empty());
+        CHECK(test, SampleContours(drawnPath("united")).size() == 1);
+        CHECK(test, covers("united", 2.0f, 2.0f));
+        CHECK(test, covers("united", 95.0f, 95.0f));
+        CHECK(test, !covers("united", 95.0f, 5.0f));
+        CHECK(test, !covers("united", 5.0f, 95.0f));
+        CHECK(test, covers("cut", 20.0f, 20.0f));
+        CHECK(test, !covers("cut", 80.0f, 80.0f));
+        CHECK(test, covers("overlap", 60.0f, 60.0f));
+        CHECK(test, !covers("overlap", 20.0f, 20.0f));
+        // Exclude leaves a hole where the two overlapped, so it comes back as two loops.
+        CHECK(test, SampleContours(drawnPath("apart")).size() == 2);
+        CHECK(test, covers("apart", 20.0f, 20.0f));
+        CHECK(test, covers("apart", 85.0f, 85.0f));
+        CHECK(test, !covers("apart", 50.0f, 50.0f));
+        CHECK(test, covers("unknown", 2.0f, 2.0f));
+        CHECK(test, !covers("unknown", 95.0f, 95.0f));
+        CHECK(test, !covers("unknown", 95.0f, 5.0f));
+        // The shapes a group holds are read for their outlines and nothing else, so no draw says
+        // it is one of them, and a group holding nothing draws nothing at all.
+        CHECK(test, PaintRecordFor(renderer, shapes->FindById("ua")->Bounds()) == nullptr);
+        CHECK(test, PaintRecordFor(renderer, shapes->FindById("ca")->Bounds()) == nullptr);
+        CHECK(test, drawnPath("empty").empty());
+        CHECK(test, PaintRecordFor(renderer, empty->Bounds()) == nullptr);
+        // A stroke and a pattern reach the combined outline the way they reach any other shape.
+        const PaintRecord* holedPaint = PaintRecordFor(renderer, holedNode->Bounds());
+        CHECK(test, holedPaint != nullptr);
+        if (holedPaint != nullptr) {
+            CHECK(test, holedPaint->vector && holedPaint->dashes.size() == 2);
+            if (holedPaint->dashes.size() == 2) {
+                CHECK(test, std::fabs(holedPaint->dashes[0] - 6.0f) < 0.01f && std::fabs(holedPaint->dashes[1] - 3.0f) < 0.01f);
+            }
+        }
+
+        // A part of a shape the operation took away is not part of the group, so a click there
+        // belongs to whatever stands behind it, and a group holding nothing is never hit.
+        CHECK(test, united->HitTest(Point{25.0f, 25.0f}) != nullptr);
+        CHECK(test, united->HitTest(Point{135.0f, 25.0f}) == nullptr);
+        CHECK(test, cut->HitTest(Point{160.0f, 40.0f}) != nullptr);
+        CHECK(test, cut->HitTest(Point{210.0f, 90.0f}) == nullptr);
+        CHECK(test, empty->HitTest(Point{300.0f, 180.0f}) == nullptr);
+    }
+
+    // The editor's default is a group with two shapes already in it, because a group holding
+    // nothing is a shape with nothing to draw, and the defaults it writes have to compile.
+    DesignDocument design;
+    CHECK(test, design.LoadText("<window width=\"800\" height=\"600\"><frame name=\"Lead\"/></window>", "memory.xml"));
+    std::vector<int> made;
+    CHECK(test, design.InsertChild({0}, "boolean", made));
+    CHECK(test, design.SetAttribute(made, "id", "bornGroup"));
+    const XmlNode* node = design.NodeAt(made);
+    CHECK(test, node != nullptr && node->name == "boolean");
+    if (node != nullptr) {
+        CHECK(test, node->children.size() == 2);
+        CHECK(test, node->children[0].name == "rectangle" && node->children[1].name == "rectangle");
+    }
+    const CompileResult madeResult = CompileUi(Source(design.PreviewText()));
+    CHECK(test, madeResult.Ok());
+    if (madeResult.Ok()) {
+        std::unique_ptr<Element> born = Instantiate(*madeResult.root, {});
+        CHECK(test, born != nullptr);
+        if (born != nullptr) {
+            FakeMeasurer measurer;
+            born->SetViewport(800.0f, 600.0f);
+            born->Measure(measurer, 800.0f, 600.0f, true);
+            born->Arrange(Rect{0.0f, 0.0f, 800.0f, 600.0f});
+            Element* group = born->FindById("bornGroup");
+            CHECK(test, group != nullptr && group->Kind() == NodeKind::BOOLEAN);
+            if (group != nullptr) {
+                BooleanElement* typed = dynamic_cast<BooleanElement*>(group);
+                CHECK(test, typed != nullptr && typed->Operation() == BooleanOperation::UNION);
+                // The two shapes a new group comes with cover a 100 by 100 box, which is the box
+                // the group declares, so a group drawn at its own size is drawn where it says.
+                CHECK(test, std::fabs(group->Bounds().width - 100.0f) < 0.01f);
+                CHECK(test, std::fabs(group->Bounds().height - 100.0f) < 0.01f);
+            }
+        }
+    }
+
+    // The canvas writes the size the drag ended at, and a group given a size of its own keeps it.
+    CHECK(test, design.SetAttribute(made, "id", "drawnShape"));
+    CHECK(test, design.PlaceNode(made, 40.0f, 60.0f, 180.0f, 90.0f));
+    const CompileResult placedResult = CompileUi(Source(design.PreviewText()));
+    CHECK(test, placedResult.Ok());
+    if (placedResult.Ok()) {
+        std::unique_ptr<Element> placed = Instantiate(*placedResult.root, {});
+        CHECK(test, placed != nullptr);
+        if (placed != nullptr) {
+            FakeMeasurer measurer;
+            placed->SetViewport(800.0f, 600.0f);
+            placed->Measure(measurer, 800.0f, 600.0f, true);
+            placed->Arrange(Rect{0.0f, 0.0f, 800.0f, 600.0f});
+            Element* group = placed->FindById("drawnShape");
+            CHECK(test, group != nullptr);
+            if (group != nullptr) {
+                CHECK(test, std::fabs(group->Bounds().width - 180.0f) < 0.01f);
+                CHECK(test, std::fabs(group->Bounds().height - 90.0f) < 0.01f);
+            }
+        }
+    }
+
+    Finish(test, "boolean", before);
+}
+
 void TestBoards(TestContext& test) {
     const int before = test.failed;
     std::unique_ptr<Element> root = Layout(
@@ -2885,8 +3179,8 @@ void TestCompilerSurface(TestContext& test) {
     // is not in the catalog would draw a shape the editor cannot compile.
     const EditorTool tools[] = {EditorTool::SELECT, EditorTool::FRAME,     EditorTool::RECTANGLE, EditorTool::ELLIPSE,
                                 EditorTool::POLYGON, EditorTool::STAR,     EditorTool::TEXT,      EditorTool::IMAGE,
-                                EditorTool::SVG,     EditorTool::LINE,     EditorTool::ARROW,     EditorTool::HAND,
-                                EditorTool::ZOOM};
+                                EditorTool::SVG,     EditorTool::LINE,     EditorTool::ARROW,     EditorTool::BOOLEAN,
+                                EditorTool::HAND,    EditorTool::ZOOM};
     for (const EditorTool tool : tools) {
         CHECK(test, std::string(EditorToolName(tool)).size() > 0);
         if (const char* component = EditorToolComponent(tool)) {
@@ -3433,6 +3727,7 @@ int RunUnitTests() {
     TestSvg(test);
     TestLine(test);
     TestArrow(test);
+    TestBoolean(test);
     TestBoards(test);
     TestDesignDocumentEditsXml(test);
     TestDesignDocumentGroups(test);

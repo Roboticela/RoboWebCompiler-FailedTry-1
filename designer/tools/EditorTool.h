@@ -14,6 +14,7 @@ enum class EditorTool {
     SVG,
     LINE,
     ARROW,
+    BOOLEAN,
     HAND,
     ZOOM,
 };
@@ -42,6 +43,8 @@ inline const char* EditorToolName(EditorTool tool) {
         return "Line";
     case EditorTool::ARROW:
         return "Arrow";
+    case EditorTool::BOOLEAN:
+        return "Boolean";
     case EditorTool::HAND:
         return "Hand";
     case EditorTool::ZOOM:
@@ -72,6 +75,8 @@ inline const char* EditorToolComponent(EditorTool tool) {
         return "line";
     case EditorTool::ARROW:
         return "arrow";
+    case EditorTool::BOOLEAN:
+        return "boolean";
     case EditorTool::SELECT:
     case EditorTool::HAND:
     case EditorTool::ZOOM:
@@ -106,6 +111,10 @@ inline const char* EditorToolShortcut(EditorTool tool) {
         return "L";
     case EditorTool::ARROW:
         return "A";
+    case EditorTool::BOOLEAN:
+        // The letter a board is added with is already spoken for, so a boolean group is reached
+        // through the command list rather than by a key of its own, the way an SVG is.
+        return "";
     case EditorTool::HAND:
         return "H";
     case EditorTool::ZOOM:

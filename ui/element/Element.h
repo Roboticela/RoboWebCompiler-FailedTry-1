@@ -167,6 +167,11 @@ protected:
     // the size their layout was authored at. A container holds it so it can compare the box it
     // was finally given with the box the content was written for.
     Size ChildrenExtent(TextMeasurer& measurer, float availableWidth, float availableHeight);
+    // The size a container that holds other shapes takes: the size its content covers, unless the
+    // document gave it a size of its own, in which case the declared length wins. A container that
+    // was given no size is as big as what it holds, which is what lets a box of shapes be wrapped
+    // around them and then moved as one.
+    Size HuggedMeasure(float availableWidth, float availableHeight, Size content);
     // Places children inside a box: each one keeps its share of the authored extent, so growing
     // or shrinking the box grows or shrinks the whole of its content with it.
     void ArrangeChildrenScaled(const Rect& box, Size authored);

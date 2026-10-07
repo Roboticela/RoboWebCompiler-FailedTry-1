@@ -231,6 +231,32 @@ XmlNode MakeComponent(std::string_view name) {
             AddDefaultAttribute(node, "headWidth", "12");
             AddDefaultAttribute(node, "head", "end");
         }
+    } else if (name == "boolean") {
+        // A boolean group is one shape made out of the shapes it holds, so a new one comes with two
+        // shapes that overlap: a combination of a single shape is that shape, and a group holding
+        // nothing is a shape with nothing to draw. They are set side by side so the part they share
+        // is the part the operation is about, and the box they cover together is the box the group
+        // was given, so a new group is drawn at the size it declares.
+        AddDefaultAttribute(node, "width", "100");
+        AddDefaultAttribute(node, "height", "100");
+        AddDefaultAttribute(node, "fill", "#0E7AFF");
+        AddDefaultAttribute(node, "operation", "union");
+        XmlNode lower = MakeComponent("rectangle");
+        AddAttribute(lower, "name", "Lower");
+        AddAttribute(lower, "width", "68");
+        AddAttribute(lower, "height", "68");
+        AddAttribute(lower, "radius", "10");
+        AddAttribute(lower, "x", "0");
+        AddAttribute(lower, "y", "0");
+        XmlNode upper = MakeComponent("rectangle");
+        AddAttribute(upper, "name", "Upper");
+        AddAttribute(upper, "width", "68");
+        AddAttribute(upper, "height", "68");
+        AddAttribute(upper, "radius", "10");
+        AddAttribute(upper, "x", "32");
+        AddAttribute(upper, "y", "32");
+        node.children.push_back(std::move(lower));
+        node.children.push_back(std::move(upper));
     } else if (name == "group" || name == "component" || name == "slot" || name == "scroll") {
         AddDefaultAttribute(node, "width", "160");
         AddDefaultAttribute(node, "height", "80");

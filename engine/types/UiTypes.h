@@ -33,6 +33,7 @@ enum class NodeKind : std::uint8_t {
     VECTOR,
     SVG,
     PATH,
+    BOOLEAN,
     GROUP,
     COMPONENT,
     INSTANCE,
@@ -309,6 +310,8 @@ inline const char* NodeKindName(NodeKind kind) {
         return "svg";
     case NodeKind::PATH:
         return "path";
+    case NodeKind::BOOLEAN:
+        return "boolean";
     case NodeKind::GROUP:
         return "group";
     case NodeKind::COMPONENT:
