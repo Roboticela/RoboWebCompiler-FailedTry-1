@@ -123,6 +123,10 @@ enum class TypeKind : std::uint8_t {
     LENGTH,
     EDGES,
     FONT_SIZE,
+    // A multiple of the font size or the word that leaves the line height to the font. The word is
+    // carried as zero, the multiple no line can be shorter than and the value a renderer already
+    // reads as the font's own spacing.
+    LINE_HEIGHT,
     ALIGNMENT,
     EVENT_HANDLER,
 };
@@ -147,6 +151,18 @@ enum class TextAlign : std::uint8_t {
     CENTER,
     END,
     JUSTIFY,
+};
+
+// How a block of text decides the box it covers, which is the axis it is allowed to grow along.
+enum class TextSizing : std::uint8_t {
+    // Nothing said, so the box takes the size the text covers and a given size still wins.
+    UNSET,
+    // The size the document gave it, with the text wrapped inside. The box never moves.
+    FIXED,
+    // One line, and a width that hugs it. The height is whatever the document gave.
+    AUTO_WIDTH,
+    // The width the document gave, and a height that grows with the lines the text wraps into.
+    AUTO_HEIGHT,
 };
 
 enum class BindMode : std::uint8_t {
@@ -272,6 +288,8 @@ inline const char* TypeKindName(TypeKind kind) {
         return "Edges";
     case TypeKind::FONT_SIZE:
         return "FontSize";
+    case TypeKind::LINE_HEIGHT:
+        return "LineHeight";
     case TypeKind::ALIGNMENT:
         return "Alignment";
     case TypeKind::EVENT_HANDLER:

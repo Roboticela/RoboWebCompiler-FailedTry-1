@@ -436,6 +436,38 @@
             <star name="DashStar" width="72" height="72" fill="#FFFFFF" stroke="#30D158" strokeWidth="3" dash="5 3"/>
         </frame>
     </frame>
+    <frame name="Text" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="text — the box a block covers, and the case and the line it is drawn in" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="auto width — one line, hugging it" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="80" background="#F5F5F7" padding="12" radius="8">
+                    <text text="Hugs its one line" width="200" sizing="autoWidth" fontSize="18" textColor="#0E7AFF"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="auto height — width given, height grows" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="80" background="#F5F5F7" padding="12" radius="8">
+                    <text text="This line wraps into two lines, so the box grows down to hold both." width="150" sizing="autoHeight" fontSize="14" textColor="#30D158"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="fixed — the size it was given" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="80" background="#F5F5F7" padding="12" radius="8">
+                    <text text="Fixed size, wrapped inside the box it was given." width="150" height="48" sizing="fixed" fontSize="14" textColor="#FF9F0A"/>
+                </frame>
+            </frame>
+        </frame>
+        <text text="a line height the font decides, a case, and a line drawn through the run" fontSize="12" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+            <text text="lineHeight auto" fontSize="16" lineHeight="auto" textColor="#1D1D1F"/>
+            <text text="lineHeight 1.6" fontSize="16" lineHeight="1.6" textColor="#1D1D1F"/>
+            <text text="upper case" fontSize="16" textCase="upper" textColor="#0E7AFF"/>
+            <text text="LOWER CASE" fontSize="16" textCase="lower" textColor="#0E7AFF"/>
+            <text text="underlined" fontSize="16" textDecoration="underline" textColor="#FF3B30"/>
+            <text text="struck through" fontSize="16" textDecoration="strikethrough" textColor="#FF3B30"/>
+        </frame>
+    </frame>
     <frame name="Boolean" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
         <text text="boolean — one shape computed from the shapes it holds, in the group's own fill" fontSize="13" textColor="#86868B"/>
         <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">

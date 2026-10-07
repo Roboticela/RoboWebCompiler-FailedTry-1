@@ -18,6 +18,7 @@ std::optional<Color> ParseColor(std::string_view text);
 std::optional<bool> ParseBool(std::string_view text);
 std::optional<Alignment> ParseAlignment(std::string_view text);
 std::optional<float> ParseFontSize(std::string_view text);
+std::optional<float> ParseLineHeight(std::string_view text);
 std::optional<int> ParseInteger(std::string_view text);
 std::optional<int> ParseZIndex(std::string_view text);
 bool IsEventName(std::string_view text);

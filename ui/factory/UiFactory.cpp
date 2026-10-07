@@ -43,6 +43,23 @@ float NumberOf(const IrNode& node, const char* name, float fallback) {
     return value == nullptr ? fallback : static_cast<float>(value->number);
 }
 
+// How a block of text decides the box it covers. A word that names no mode is answered as nothing
+// said rather than as a guess: the box then takes the size the text covers, which is what a text
+// node did before there was a mode to name.
+TextSizing ParseTextSizing(const std::string& text) {
+    const std::string folded = FoldToken(text);
+    if (folded == "fixed") {
+        return TextSizing::FIXED;
+    }
+    if (folded == "autowidth" || folded == "hugwidth") {
+        return TextSizing::AUTO_WIDTH;
+    }
+    if (folded == "autoheight" || folded == "hugheight") {
+        return TextSizing::AUTO_HEIGHT;
+    }
+    return TextSizing::UNSET;
+}
+
 SizeMode ParseSizeMode(const std::string& text) {
     const std::string folded = FoldToken(text);
     if (folded == "fixed") {
@@ -1179,6 +1196,9 @@ void ApplyTypography(TextElement& text, const IrNode& node) {
         text.SetWrap(false);
     }
     text.SetWrapText(wrap);
+    if (const UiValue* value = FindProperty(node, "sizing")) {
+        text.SetSizing(ParseTextSizing(value->text));
+    }
     if (const UiValue* value = FindProperty(node, "maxLines")) {
         text.SetMaxLines(static_cast<int>(value->number));
     }
@@ -1196,6 +1216,19 @@ void ApplyTypography(TextElement& text, const IrNode& node) {
     }
     if (const UiValue* value = FindProperty(node, "textTransform")) {
         text.SetTransform(value->text, true);
+    }
+    // The case a run is written in, named the way the text subsystem names it: one word for the case
+    // rather than the appearance the case produces, so the word is read here and the transform it
+    // means is what the run is drawn with. A word that means no case leaves the transform standing.
+    if (const UiValue* value = FindProperty(node, "textCase")) {
+        const std::string folded = FoldToken(value->text);
+        if (folded == "upper" || folded == "uppercase") {
+            text.SetTransform("uppercase", true);
+        } else if (folded == "lower" || folded == "lowercase") {
+            text.SetTransform("lowercase", true);
+        } else if (folded == "original" || folded == "none") {
+            text.SetTransform("none", true);
+        }
     }
     bool underline = false;
     bool strike = false;
@@ -1220,6 +1253,15 @@ void ApplyTypography(TextElement& text, const IrNode& node) {
     std::string decorationStyle;
     if (const UiValue* value = FindProperty(node, "decorationStyle")) {
         decorationStyle = value->text;
+    }
+    // The line a run is drawn through, named the way the text subsystem names it: one word for the
+    // line rather than one flag per line. A document may say either, so a word that names a line
+    // replaces what the flags said, and a word that names none takes every flag away.
+    if (const UiValue* value = FindProperty(node, "textDecoration")) {
+        const std::string folded = FoldToken(value->text);
+        underline = folded == "underline";
+        strike = folded == "strikethrough" || folded == "strike" || folded == "linethrough";
+        overline = folded == "overline";
     }
     text.SetDecoration(underline, strike, overline, decoration, decorationWidth, decorationStyle);
     if (const UiValue* value = FindProperty(node, "fontFeatures")) {

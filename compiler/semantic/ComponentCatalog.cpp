@@ -549,10 +549,18 @@ std::vector<PropertySpec> TypographyProperties() {
         {"fontStyle", TypeKind::STRING},
         {"letterSpacing", TypeKind::FLOAT},
         {"wordSpacing", TypeKind::FLOAT},
-        {"lineHeight", TypeKind::FLOAT},
+        {"lineHeight", TypeKind::LINE_HEIGHT},
         {"textColor", TypeKind::COLOR},
         {"textAlign", TypeKind::STRING},
         {"verticalAlign", TypeKind::STRING},
+        // How the block decides the box it covers: the size it was given, a width that hugs one
+        // line, or a height that grows with the lines the text wraps into.
+        {"sizing", TypeKind::STRING},
+        // The two spellings the text subsystem names for what the run of text looks like: the case
+        // it is written in and the line drawn through it. They are keywords, so they are read here
+        // and folded where they are folded for every other keyword.
+        {"textCase", TypeKind::STRING},
+        {"textDecoration", TypeKind::STRING},
         {"maxLines", TypeKind::INT},
         {"ellipsis", TypeKind::BOOL},
         {"underline", TypeKind::BOOL},

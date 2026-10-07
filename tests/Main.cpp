@@ -82,6 +82,15 @@ struct PaintRecord {
     char lineJoin = 'r';
     std::vector<float> dashes;
     float dashOffset = 0.0f;
+    // What a string draw was asked for, so the values the text subsystem decides can be read off a
+    // paint pass: the string as the case it is written in left it, the line height it is set on,
+    // whether it was wrapped, and the lines drawn through it.
+    std::string text;
+    float lineHeight = 0.0f;
+    bool wrap = true;
+    bool underline = false;
+    bool lineThrough = false;
+    bool overline = false;
 };
 
 // Records what a paint pass handed to each draw, so a group can be checked for passing its
@@ -95,7 +104,15 @@ public:
     bool EndFrame() override { return true; }
     void FillRectangle(const Rect& rect, const Color&, float) override { Record(rect); }
     void StrokeRectangle(const Rect& rect, const Color&, float, float) override { Record(rect); }
-    void DrawString(std::string_view, const Rect& rect, const TextStyle&) override { Record(rect); }
+    void DrawString(std::string_view text, const Rect& rect, const TextStyle& style) override {
+        Record(rect);
+        records.back().text.assign(text);
+        records.back().lineHeight = style.lineHeight;
+        records.back().wrap = style.wrap;
+        records.back().underline = style.underline;
+        records.back().lineThrough = style.lineThrough;
+        records.back().overline = style.overline;
+    }
     void DrawCachedImage(std::string_view, const Rect& rect, const unsigned char*, int, int) override { Record(rect); }
     void DrawVector(const VectorPaint& paint) override {
         Record(paint.bounds);
@@ -3567,6 +3584,226 @@ void TestTypography(TestContext& test) {
         CHECK(test, screen != nullptr && std::fabs(screen->Measured().width - 1200.0f) < 1.0f);
         CHECK(test, note != nullptr && note->FontFamily() == "Segoe UI" && std::fabs(note->FontSize() - 14.0f) < 0.1f);
     }
+    // The names the text subsystem gives the values that shape a run of text are the ones a
+    // document may say, and a line height may be the word that leaves the choice to the font.
+    CHECK(test, ComponentAcceptsProperty("text", "sizing"));
+    CHECK(test, ComponentAcceptsProperty("text", "textCase"));
+    CHECK(test, ComponentAcceptsProperty("text", "textDecoration"));
+    CHECK(test, ComponentAcceptsProperty("text", "lineHeight"));
+
+    // A block of text decides the box it covers: the size it was given, a width that hugs the one
+    // line it holds, or a height that grows with the lines it wraps into. The mode moves only the
+    // axis it names, so whatever the document said about the other axis still stands.
+    const CompileResult sized = CompileUi(Source(
+        "<window>"
+        "<text id=\"hug\" text=\"Hug\" fontSize=\"20\" lineHeight=\"1.5\"/>"
+        "<text id=\"given\" text=\"Given\" fontSize=\"20\" lineHeight=\"1.5\" width=\"80\"/>"
+        "<text id=\"block\" text=\"Block\" fontSize=\"20\" lineHeight=\"1.5\" sizing=\"fixed\"/>"
+        "<text id=\"narrow\" text=\"Narrow\" fontSize=\"20\" lineHeight=\"1.5\" width=\"80\" sizing=\"autoWidth\"/>"
+        "<text id=\"tall\" text=\"Tall\" fontSize=\"20\" lineHeight=\"1.5\" height=\"12\" sizing=\"autoHeight\"/>"
+        "<text id=\"short\" text=\"Short\" fontSize=\"20\" lineHeight=\"1.5\" width=\"80\" height=\"90\" sizing=\"fixed\"/>"
+        "<text id=\"folded\" text=\"Folded\" fontSize=\"20\" lineHeight=\"1.5\" height=\"12\" sizing=\"AUTO HEIGHT\"/>"
+        "<text id=\"unnamed\" text=\"Unnamed\" fontSize=\"20\" lineHeight=\"1.5\" width=\"80\" sizing=\"blend\"/>"
+        "</window>"));
+    CHECK(test, sized.Ok());
+    if (sized.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*sized.root, {});
+        root->SetViewport(1200.0f, 800.0f);
+        FakeMeasurer measurer;
+        root->Measure(measurer, 400.0f, 800.0f, true);
+        const auto boxOf = [&](const char* id) {
+            const Element* node = root->FindById(id);
+            return node == nullptr ? Size{-1.0f, -1.0f} : node->Measured();
+        };
+        // Nothing said about the size: the box is the text, one line of twenty at one and a half.
+        CHECK(test, std::fabs(boxOf("hug").width - 20.0f) < 0.5f && std::fabs(boxOf("hug").height - 30.0f) < 0.5f);
+        // A size the document gave still wins when nothing was said about the mode.
+        CHECK(test, std::fabs(boxOf("given").width - 80.0f) < 0.5f && std::fabs(boxOf("given").height - 30.0f) < 0.5f);
+        // A fixed block with no size to be fixed to takes the room it was offered across.
+        CHECK(test, std::fabs(boxOf("block").width - 400.0f) < 0.5f && std::fabs(boxOf("block").height - 30.0f) < 0.5f);
+        // Auto width hugs one line even though the document asked for eighty.
+        CHECK(test, std::fabs(boxOf("narrow").width - 20.0f) < 0.5f && std::fabs(boxOf("narrow").height - 30.0f) < 0.5f);
+        // Auto height grows with the lines even though the document asked for twelve.
+        CHECK(test, std::fabs(boxOf("tall").width - 20.0f) < 0.5f && std::fabs(boxOf("tall").height - 30.0f) < 0.5f);
+        // A fixed block given both sizes keeps them.
+        CHECK(test, std::fabs(boxOf("short").width - 80.0f) < 0.5f && std::fabs(boxOf("short").height - 90.0f) < 0.5f);
+        // The word is read the way every keyword is: case and the space between words mean nothing.
+        CHECK(test, std::fabs(boxOf("folded").height - 30.0f) < 0.5f);
+        // A word that names no mode leaves the box as it stood rather than guessing at one.
+        CHECK(test, std::fabs(boxOf("unnamed").width - 80.0f) < 0.5f && std::fabs(boxOf("unnamed").height - 30.0f) < 0.5f);
+        auto* block = dynamic_cast<TextElement*>(root->FindById("block"));
+        auto* narrow = dynamic_cast<TextElement*>(root->FindById("narrow"));
+        auto* tall = dynamic_cast<TextElement*>(root->FindById("tall"));
+        auto* unnamed = dynamic_cast<TextElement*>(root->FindById("unnamed"));
+        CHECK(test, block != nullptr && block->Sizing() == TextSizing::FIXED);
+        CHECK(test, narrow != nullptr && narrow->Sizing() == TextSizing::AUTO_WIDTH);
+        CHECK(test, tall != nullptr && tall->Sizing() == TextSizing::AUTO_HEIGHT);
+        CHECK(test, unnamed != nullptr && unnamed->Sizing() == TextSizing::UNSET);
+        // A block that hugs its width is one line, so it is drawn as the one line it was measured as,
+        // while a block that hugs nothing is drawn wrapped inside the box it was given. The string a
+        // draw carries is what tells them apart, because a box that hugs its text is exactly the
+        // size of its neighbour that hugs the same text.
+        RecordingRenderer renderer;
+        root->Paint(renderer);
+        const auto drawOf = [&](const char* drawn) {
+            const PaintRecord* found = nullptr;
+            for (const PaintRecord& record : renderer.records) {
+                if (record.text == drawn) {
+                    found = &record;
+                }
+            }
+            return found;
+        };
+        const PaintRecord* narrowPaint = drawOf("Narrow");
+        const PaintRecord* hugPaint = drawOf("Hug");
+        CHECK(test, narrowPaint != nullptr && !narrowPaint->wrap);
+        CHECK(test, hugPaint != nullptr && hugPaint->wrap);
+    }
+
+    // A line height is a multiple of the font size, or the word that leaves the choice to the font,
+    // which is the single line a font asks for when it is asked for nothing.
+    const CompileResult leading = CompileUi(Source(
+        "<window>"
+        "<text id=\"auto\" text=\"Auto\" fontSize=\"20\" lineHeight=\"auto\"/>"
+        "<text id=\"double\" text=\"Double\" fontSize=\"20\" lineHeight=\"2\"/>"
+        "<text id=\"capped\" text=\"Capped\" fontSize=\"20\" lineHeight=\"auto\" maxLines=\"3\"/>"
+        "</window>"));
+    CHECK(test, leading.Ok());
+    if (leading.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*leading.root, {});
+        root->SetViewport(1200.0f, 800.0f);
+        FakeMeasurer measurer;
+        root->Measure(measurer, 400.0f, 800.0f, true);
+        const auto heightOf = [&](const char* id) {
+            const Element* node = root->FindById(id);
+            return node == nullptr ? -1.0f : node->Measured().height;
+        };
+        CHECK(test, std::fabs(heightOf("auto") - 20.0f) < 0.5f);
+        CHECK(test, std::fabs(heightOf("double") - 40.0f) < 0.5f);
+        // A cap on the lines needs a line height to count with, and the word still counts as one
+        // line rather than as no line at all.
+        CHECK(test, heightOf("capped") > 0.0f && std::fabs(heightOf("capped") - 20.0f) < 0.5f);
+    }
+    // A number that is not a line height and a line height below zero are refused rather than read
+    // as something they are not.
+    CHECK(test, !CompileUi(Source("<window><text text=\"Bad\" lineHeight=\"banana\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><text text=\"Bad\" lineHeight=\"-1\"/></window>")).Ok());
+    // The word reaches the tree as the value that means the font decides, and it is written back as
+    // the word rather than as the number no line height is.
+    const CompileResult dumped = CompileUi(Source("<window><text id=\"auto\" text=\"Auto\" lineHeight=\"auto\"/></window>"));
+    CHECK(test, dumped.Ok());
+    if (dumped.root.has_value()) {
+        const IrNode* autoNode = nullptr;
+        for (const IrNode& child : dumped.root->children) {
+            if (child.id == "auto") {
+                autoNode = &child;
+            }
+        }
+        CHECK(test, autoNode != nullptr);
+        if (autoNode != nullptr) {
+            const UiValue* value = FindProperty(*autoNode, "lineHeight");
+            CHECK(test, value != nullptr && value->kind == TypeKind::LINE_HEIGHT && std::fabs(value->number) < 0.001f);
+        }
+        CHECK(test, FormatIr(*dumped.root).find("lineHeight=auto") != std::string::npos);
+    }
+
+    // The case a run is written in and the line drawn through it, named the way the text subsystem
+    // names them, over the spelling a document may also use for the same thing.
+    std::unique_ptr<Element> styled = Layout(
+        "<window width=\"400\" height=\"240\"><frame layout=\"none\" width=\"400\" height=\"240\">"
+        "<text id=\"upper\" x=\"0\" y=\"0\" text=\"Hello\" textCase=\"upper\" textTransform=\"none\"/>"
+        "<text id=\"lower\" x=\"40\" y=\"0\" text=\"Hello\" textCase=\"LOWER\"/>"
+        "<text id=\"original\" x=\"80\" y=\"0\" text=\"Hello\" textCase=\"original\" textTransform=\"uppercase\"/>"
+        "<text id=\"under\" x=\"120\" y=\"0\" text=\"Link\" textDecoration=\"underline\"/>"
+        "<text id=\"strike\" x=\"160\" y=\"0\" text=\"Old\" textDecoration=\"Strikethrough\"/>"
+        "<text id=\"clear\" x=\"200\" y=\"0\" text=\"Plain\" textDecoration=\"none\" underline=\"true\" lineThrough=\"true\" overline=\"true\"/>"
+        "<text id=\"flags\" x=\"240\" y=\"0\" text=\"Both\" underline=\"true\" lineThrough=\"true\"/>"
+        "</frame></window>",
+        400.0f, 240.0f);
+    CHECK(test, styled != nullptr);
+    if (styled != nullptr) {
+        const auto displayOf = [&](const char* id) {
+            const auto* node = dynamic_cast<const TextElement*>(styled->FindById(id));
+            return node == nullptr ? std::string() : node->DisplayText();
+        };
+        CHECK(test, displayOf("upper") == "HELLO");
+        CHECK(test, displayOf("lower") == "hello");
+        // The word for the case decides over the appearance the document spelled out separately.
+        CHECK(test, displayOf("original") == "Hello");
+
+        RecordingRenderer renderer;
+        styled->Paint(renderer);
+        const auto recordOf = [&](const char* id) {
+            const Element* node = styled->FindById(id);
+            return node == nullptr ? nullptr : PaintRecordFor(renderer, node->Bounds());
+        };
+        const PaintRecord* upperPaint = recordOf("upper");
+        CHECK(test, upperPaint != nullptr);
+        if (upperPaint != nullptr) {
+            // The case reaches the renderer, not just the element's own idea of its text.
+            CHECK(test, upperPaint->text == "HELLO");
+        }
+        const PaintRecord* underPaint = recordOf("under");
+        const PaintRecord* strikePaint = recordOf("strike");
+        const PaintRecord* clearPaint = recordOf("clear");
+        const PaintRecord* flagsPaint = recordOf("flags");
+        CHECK(test, underPaint != nullptr && underPaint->underline && !underPaint->lineThrough && !underPaint->overline);
+        CHECK(test, strikePaint != nullptr && strikePaint->lineThrough && !strikePaint->underline && !strikePaint->overline);
+        // A word that names no line takes every flag away; no word leaves the flags standing.
+        CHECK(test, clearPaint != nullptr && !clearPaint->underline && !clearPaint->lineThrough && !clearPaint->overline);
+        CHECK(test, flagsPaint != nullptr && flagsPaint->underline && flagsPaint->lineThrough && !flagsPaint->overline);
+    }
+
+    // The spellings the text subsystem writes the values in: capitals and the underscores between
+    // words mean nothing to a document, so the words a spec names them with are the words that work.
+    const CompileResult spec = CompileUi(Source(
+        "<window>"
+        "<text id=\"wide\" text=\"Wide\" fontSize=\"20\" lineHeight=\"1.5\" width=\"80\" sizing=\"AUTO_WIDTH\"/>"
+        "<text id=\"high\" text=\"High\" fontSize=\"20\" lineHeight=\"1.5\" height=\"12\" sizing=\"AUTO_HEIGHT\"/>"
+        "<text id=\"held\" text=\"Held\" fontSize=\"20\" lineHeight=\"1.5\" width=\"80\" height=\"90\" sizing=\"FIXED\"/>"
+        "<text id=\"as-is\" text=\"Mixed\" textCase=\"ORIGINAL\" textTransform=\"uppercase\"/>"
+        "<text id=\"plain\" text=\"Plain\" textDecoration=\"NONE\" underline=\"true\"/>"
+        "<text id=\"old\" text=\"Old\" textDecoration=\"STRIKETHROUGH\"/>"
+        "</window>"));
+    CHECK(test, spec.Ok());
+    if (spec.root.has_value()) {
+        std::unique_ptr<Element> root = Instantiate(*spec.root, {});
+        root->SetViewport(1200.0f, 800.0f);
+        FakeMeasurer measurer;
+        root->Measure(measurer, 400.0f, 800.0f, true);
+        const auto sizingOf = [&](const char* id) {
+            const auto* node = dynamic_cast<const TextElement*>(root->FindById(id));
+            return node == nullptr ? TextSizing::UNSET : node->Sizing();
+        };
+        CHECK(test, sizingOf("wide") == TextSizing::AUTO_WIDTH);
+        CHECK(test, sizingOf("high") == TextSizing::AUTO_HEIGHT);
+        CHECK(test, sizingOf("held") == TextSizing::FIXED);
+        // AUTO_WIDTH hugs the line and AUTO_HEIGHT grows with it, read off the box each covered.
+        const Element* wideNode = root->FindById("wide");
+        const Element* highNode = root->FindById("high");
+        CHECK(test, wideNode != nullptr && std::fabs(wideNode->Measured().width - 20.0f) < 0.5f);
+        CHECK(test, highNode != nullptr && std::fabs(highNode->Measured().height - 30.0f) < 0.5f);
+        // ORIGINAL is the case no transform is, and it decides over the appearance spelled out.
+        const auto* asIs = dynamic_cast<const TextElement*>(root->FindById("as-is"));
+        CHECK(test, asIs != nullptr && asIs->DisplayText() == "Mixed");
+        RecordingRenderer renderer;
+        root->Paint(renderer);
+        const auto drawOf = [&](const char* drawn) {
+            const PaintRecord* found = nullptr;
+            for (const PaintRecord& record : renderer.records) {
+                if (record.text == drawn) {
+                    found = &record;
+                }
+            }
+            return found;
+        };
+        const PaintRecord* plainPaint = drawOf("Plain");
+        const PaintRecord* oldPaint = drawOf("Old");
+        // NONE is the decoration no line is, and it takes away the line a flag asked for.
+        CHECK(test, plainPaint != nullptr && !plainPaint->underline && !plainPaint->lineThrough && !plainPaint->overline);
+        CHECK(test, oldPaint != nullptr && oldPaint->lineThrough && !oldPaint->underline);
+    }
+
     Finish(test, "typography", before);
 }
 

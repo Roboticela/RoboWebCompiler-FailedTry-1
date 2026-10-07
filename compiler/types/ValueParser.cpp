@@ -3,6 +3,9 @@
 #include "compiler/semantic/Foundations.h"
 #include "engine/theme/DevKitTheme.h"
 
+#include <cctype>
+#include <string>
+
 namespace Runtime {
 namespace {
 
@@ -41,6 +44,22 @@ bool ParseFloatPrefix(std::string_view text, float& number, std::size_t& consume
     number = value * static_cast<float>(sign);
     consumed = index;
     return true;
+}
+
+// True when two keywords are the same word written differently: a keyword in a document is read
+// the way every other one is, with case, spaces, dashes, and underscores carrying no meaning.
+bool MatchesFolded(std::string_view left, std::string_view right) {
+    const auto fold = [](std::string_view text) {
+        std::string folded;
+        for (unsigned char character : text) {
+            if (character == '_' || character == '-' || character == ' ') {
+                continue;
+            }
+            folded.push_back(static_cast<char>(std::tolower(character)));
+        }
+        return folded;
+    };
+    return fold(left) == fold(right);
 }
 
 std::string ResolveToken(std::string_view text) {
@@ -431,6 +450,19 @@ std::optional<float> ParseFontSize(std::string_view text) {
         return std::nullopt;
     }
     return length->value;
+}
+
+std::optional<float> ParseLineHeight(std::string_view text) {
+    // A line height is a multiple of the font size, or the word that leaves the choice to the font.
+    // The word is answered as zero, the multiple no line can be shorter than: it is what the
+    // renderer already reads as the spacing the font asks for, so a document that says "auto" and
+    // one that says "0" mean the same thing rather than needing a second value in the tree.
+    std::string tokenStorage;
+    const std::string_view resolved = TrimCopyView(ExpandToken(text, tokenStorage));
+    if (MatchesFolded(resolved, "auto")) {
+        return 0.0f;
+    }
+    return ParseFloat(text);
 }
 
 std::optional<Color> ParseColor(std::string_view text) {

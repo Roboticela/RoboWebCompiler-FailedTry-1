@@ -264,6 +264,24 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
         value.number = *parsed;
         return true;
     }
+    case TypeKind::LINE_HEIGHT: {
+        auto parsed = ParseLineHeight(raw);
+        if (!parsed.has_value()) {
+            AddDiagnostic(diagnostics, DIAGNOSTIC_TYPE_MISMATCH,
+                          "Property '" + attribute.name + "' expects LineHeight. Received String.",
+                          attribute.valueLocation, attribute.valueSpan);
+            return false;
+        }
+        if (*parsed < 0.0f) {
+            AddDiagnostic(diagnostics, DIAGNOSTIC_VALUE_RANGE,
+                          "Property '" + attribute.name + "' must be greater than or equal to 0.",
+                          attribute.valueLocation, attribute.valueSpan);
+            return false;
+        }
+        value.kind = TypeKind::LINE_HEIGHT;
+        value.number = *parsed;
+        return true;
+    }
     case TypeKind::COLOR: {
         auto parsed = ParseColor(raw);
         if (!parsed.has_value()) {

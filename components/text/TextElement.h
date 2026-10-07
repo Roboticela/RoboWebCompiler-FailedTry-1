@@ -22,6 +22,10 @@ public:
     void SetLeading(float multiplier, bool specified);
     void SetTextStyle(std::string family, std::string file, bool italic, bool rtl, std::string locale);
     void SetWrapText(bool value);
+    // How the block decides the box it covers: the size it was given, a width that hugs one line,
+    // or a height that grows with the lines the text wraps into.
+    void SetSizing(TextSizing value);
+    TextSizing Sizing() const { return sizing; }
     void SetMaxLines(int value);
     void SetEllipsis(bool value);
     void SetVerticalAlign(TextAlign value);
@@ -63,6 +67,7 @@ private:
     bool rtl = false;
     bool wrapText = true;
     bool ellipsis = false;
+    TextSizing sizing = TextSizing::UNSET;
     bool underline = false;
     bool lineThrough = false;
     bool overline = false;

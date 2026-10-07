@@ -115,6 +115,10 @@ void TextElement::SetWrapText(bool value) {
     wrapText = value;
 }
 
+void TextElement::SetSizing(TextSizing value) {
+    sizing = value;
+}
+
 void TextElement::SetMaxLines(int value) {
     maxLines = value;
 }
@@ -236,24 +240,55 @@ Size TextElement::Measure(TextMeasurer& measurer, float availableWidth, float av
     }
     const float widthSpace = Width().unit == LengthUnit::SCREEN && ViewportWidth() > 0.0f ? ViewportWidth() : availableWidth;
     const float heightSpace = Height().unit == LengthUnit::SCREEN && ViewportHeight() > 0.0f ? ViewportHeight() : availableHeight;
-    const float measureWidth = Width().unit == LengthUnit::PIXELS || Width().unit == LengthUnit::PERCENT || Width().unit == LengthUnit::FILL ||
-                                       Width().unit == LengthUnit::SCREEN
-                                   ? Width().Resolve(widthSpace, availableWidth)
-                                   : (availableWidth > 1.0f ? availableWidth : 100000.0f);
+    const bool widthGiven = Width().unit == LengthUnit::PIXELS || Width().unit == LengthUnit::PERCENT || Width().unit == LengthUnit::FILL ||
+                            Width().unit == LengthUnit::SCREEN;
+    const bool heightGiven = Height().unit == LengthUnit::PIXELS || Height().unit == LengthUnit::PERCENT || Height().unit == LengthUnit::FILL ||
+                             Height().unit == LengthUnit::SCREEN;
+    // A block that hugs its width is one line, so the line it is one of is what decides how wide it
+    // is: wrapping it would make the width the document asked for the width it got, which is the
+    // opposite of hugging. The line height is the multiple the block was given, or one line per
+    // font size when the document left the choice to the font.
+    const bool wraps = wrapText && sizing != TextSizing::AUTO_WIDTH;
+    const float leading = lineHeight > 0.0f ? lineHeight : 1.0f;
+    const float measureWidth = widthGiven ? Width().Resolve(widthSpace, availableWidth)
+                                         : (availableWidth > 1.0f ? availableWidth : 100000.0f);
     const float contentWidth = std::max(1.0f, measureWidth);
-    const Size textSize = measurer.MeasureText(DisplayText(), fontSize, wrapText ? contentWidth : 100000.0f);
-    const float block = std::max(fontSize * (lineHeight > 0.0f ? lineHeight : 1.0f), textSize.height);
+    const Size textSize = measurer.MeasureText(DisplayText(), fontSize, wraps ? contentWidth : 100000.0f);
+    const float block = std::max(fontSize * leading, textSize.height);
     const Edges pad = Padding();
     float resolvedWidth = std::max(8.0f, textSize.width) + pad.SpanX(contentWidth);
     float resolvedHeight = block + pad.SpanY(contentWidth);
-    if (Width().unit == LengthUnit::PIXELS || Width().unit == LengthUnit::PERCENT || Width().unit == LengthUnit::FILL || Width().unit == LengthUnit::SCREEN) {
+    if (widthGiven) {
         resolvedWidth = Width().Resolve(widthSpace, resolvedWidth);
     }
-    if (Height().unit == LengthUnit::PIXELS || Height().unit == LengthUnit::PERCENT || Height().unit == LengthUnit::FILL || Height().unit == LengthUnit::SCREEN) {
+    if (heightGiven) {
         resolvedHeight = Height().Resolve(heightSpace, resolvedHeight);
     }
+    // A cap on the lines is a cap on the box, so it holds however the box was decided.
+    const float cappedHeight = maxLines > 0 ? fontSize * leading * static_cast<float>(maxLines) + pad.SpanY(contentWidth) : 0.0f;
     if (maxLines > 0) {
-        resolvedHeight = std::min(resolvedHeight, fontSize * lineHeight * static_cast<float>(maxLines) + pad.SpanY(contentWidth));
+        resolvedHeight = std::min(resolvedHeight, cappedHeight);
+    }
+    switch (sizing) {
+    case TextSizing::AUTO_WIDTH:
+        // One line, and a width that hugs it, whatever width the document asked for.
+        resolvedWidth = std::max(8.0f, textSize.width) + pad.SpanX(contentWidth);
+        break;
+    case TextSizing::AUTO_HEIGHT:
+        // The lines the text wraps into decide the height, whatever height the document asked for.
+        resolvedHeight = maxLines > 0 ? std::min(block + pad.SpanY(contentWidth), cappedHeight) : block + pad.SpanY(contentWidth);
+        break;
+    case TextSizing::FIXED:
+        // A fixed block is the size it was given and the text is wrapped inside it. Where no size
+        // was given there is nothing to be fixed to, so it takes the room it was offered across
+        // and the lines it holds down.
+        resolvedWidth = widthGiven ? Width().Resolve(widthSpace, resolvedWidth) : std::max(1.0f, availableWidth);
+        resolvedHeight = heightGiven ? Height().Resolve(heightSpace, resolvedHeight) : block + pad.SpanY(contentWidth);
+        break;
+    case TextSizing::UNSET:
+        // Nothing was said about the size, so the box is the size the text covers and a size the
+        // document gave still wins, which is what a text node did before there was a mode to say.
+        break;
     }
     measured = Size{std::max(1.0f, resolvedWidth), std::max(1.0f, resolvedHeight)};
     return FinishMeasure(widthSpace, heightSpace);
@@ -285,7 +320,8 @@ void TextElement::OnPaint(Renderer& renderer) {
     style.locale = locale;
     style.italic = italic;
     style.rtl = rtl;
-    style.wrap = wrapText;
+    // A block that hugs its width is one line, so it is drawn as the one line it was measured as.
+    style.wrap = wrapText && sizing != TextSizing::AUTO_WIDTH;
     style.letterSpacing = letterSpacingEm * fontSize;
     style.wordSpacing = wordSpacing;
     style.lineHeight = lineHeight;

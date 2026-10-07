@@ -65,6 +65,15 @@ std::string FormatValue(const UiValue& value) {
     case TypeKind::BOOL:
         output << (value.boolean ? "true" : "false");
         break;
+    case TypeKind::LINE_HEIGHT:
+        // Zero is the multiple that leaves the spacing to the font, which is the word a document
+        // wrote, so it is written back as that word rather than as a number no line height means.
+        if (value.number > 0.0f) {
+            output << value.number;
+        } else {
+            output << "auto";
+        }
+        break;
     case TypeKind::INT:
     case TypeKind::FLOAT:
     case TypeKind::FONT_SIZE:
