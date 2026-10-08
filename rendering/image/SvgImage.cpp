@@ -1390,6 +1390,10 @@ bool DecodeSvgBytes(const unsigned char* data, int size, DecodedImage& image, co
     ImageFrame frame;
     frame.width = outWidth;
     frame.height = outHeight;
+    // A canvas is painted by laying one shape over another, which is compositing done on
+    // premultiplied pixels: a shape laid over what is already there is folded in with its alpha
+    // rather than carried beside it, so the pixels that come out are already in that form.
+    frame.premultiplied = true;
     frame.bgra = std::move(canvas.bgra);
     image.format = "svg";
     image.frames.clear();

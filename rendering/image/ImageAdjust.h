@@ -39,13 +39,15 @@ struct ImageLook {
 
 // The pixels a frame is drawn from, after the region it was cropped to and the look it was given.
 // The pixels are BGRA, which is the order every image in the runtime is handed over in, and the
-// channels are used as the decoder wrote them: a look multiplies them rather than dividing by the
-// alpha beside them, so a picture that is opaque, which is nearly every picture, is exact. The
-// region is clamped to the frame, so a crop written past the edge of a picture is the part of it
-// that exists rather than nothing at all. The output is always written, even when nothing changes,
-// so a caller holds one buffer: it is the frame itself, copied.
-void AdjustImage(const unsigned char* bgra, int width, int height, const ImageCrop& crop, const ImageLook& look,
-                 std::vector<unsigned char>& out, int& outWidth, int& outHeight);
+// buffer that comes back is premultiplied, which is the form the platform composites: a channel is
+// handed over with its alpha already folded into it. `premultiplied` says whether the pixels that
+// came in are in that form already; a buffer that is not is unfolded before the look is applied and
+// folded back in afterwards, so a look is exact on a pixel that is not fully opaque rather than
+// merely close. The region is clamped to the frame, so a crop written past the edge of a picture is
+// the part of it that exists rather than nothing at all. The output is always written, even when
+// nothing changes, so a caller holds one buffer: it is the frame itself, made ready to draw.
+void AdjustImage(const unsigned char* bgra, int width, int height, bool premultiplied, const ImageCrop& crop,
+                 const ImageLook& look, std::vector<unsigned char>& out, int& outWidth, int& outHeight);
 
 // A name for the crop and the look a picture is drawn with, so a picture drawn two ways is two
 // pictures to the renderer's cache rather than one. The name is empty when neither was asked for,

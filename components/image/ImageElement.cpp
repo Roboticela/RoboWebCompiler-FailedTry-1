@@ -359,7 +359,8 @@ bool ImageElement::ReadPicture(Picture& picture) {
     // than one drawn twice as the first of them.
     std::string name = source + "#" + std::to_string(index) + "#" + ImageLookName(region, look);
     if (name != adjustedName) {
-        AdjustImage(frame.bgra.data(), frame.width, frame.height, region, look, adjusted, adjustedWidth, adjustedHeight);
+        AdjustImage(frame.bgra.data(), frame.width, frame.height, frame.premultiplied, region, look, adjusted, adjustedWidth,
+                    adjustedHeight);
         adjustedName = name;
     }
     if (adjusted.empty() || adjustedWidth < 1 || adjustedHeight < 1) {
@@ -433,13 +434,22 @@ void ImageElement::OnPaint(Renderer& renderer) {
             renderer.PushRotation(turn, area.x + area.width * 0.5f, area.y + area.height * 0.5f);
         }
         // A picture that does not stand inside its box is cut off at the box, whether it was asked
-        // to be or because covering the box is exactly the case where it hangs over.
+        // to be or because covering the box is exactly the case where it hangs over. A box with
+        // corners is cut at those corners as well, whether the picture hangs over it or not, because
+        // the box the picture sits in is the rounded box this node is drawn as rather than the
+        // rectangle around it.
         const bool held = clip || fit == ImageFit::COVER;
-        if (held) {
+        const bool rounded = Radius() > TURN_EPSILON;
+        if (rounded) {
+            // The box's own outline, which is the shape the corners of this node already draw, so
+            // the picture is cut off at exactly the box it is drawn in.
+            const std::string outline = CornerPath(area.width, area.height);
+            renderer.PushClipPath(area, outline);
+        } else if (held) {
             renderer.PushClip(area);
         }
         renderer.DrawCachedImage(picture.name, box, picture.pixels, picture.width, picture.height);
-        if (held) {
+        if (rounded || held) {
             renderer.PopClip();
         }
         if (turned) {

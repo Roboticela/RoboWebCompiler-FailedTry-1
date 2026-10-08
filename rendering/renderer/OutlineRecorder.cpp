@@ -72,6 +72,7 @@ void OutlineRecorder::SetTransform(float, float, float) {
 void OutlineRecorder::BeginFrame(Color) {}
 bool OutlineRecorder::EndFrame() { return true; }
 void OutlineRecorder::PushClip(const Rect&) {}
+void OutlineRecorder::PushClipPath(const Rect&, std::string_view) {}
 void OutlineRecorder::PopClip() {}
 void OutlineRecorder::PushOpacity(float) {}
 void OutlineRecorder::PopOpacity() {}

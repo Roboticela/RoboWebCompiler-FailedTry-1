@@ -10,6 +10,12 @@ struct ImageFrame {
     int width = 0;
     int height = 0;
     int delayMs = 0;
+    // Whether the channels of `bgra` already have their alpha folded into them. Both forms are read
+    // by the runtime — a decoder that lays a picture down by compositing one shape over another
+    // accumulates premultiplied pixels, while one that writes the channels a file held writes them
+    // straight — so the frame says which it is, and the buffer a picture is finally drawn from is
+    // made the form the platform composites either way.
+    bool premultiplied = false;
     std::vector<unsigned char> bgra;
 };
 

@@ -35,6 +35,7 @@ public:
     void DrawCachedImage(std::string_view key, const Rect& rect, const unsigned char* bgra, int width, int height) override;
     void DrawVector(const VectorPaint& paint) override;
     void PushClip(const Rect& rect) override;
+    void PushClipPath(const Rect& bounds, std::string_view path) override;
     void PopClip() override;
     void PushOpacity(float opacity) override;
     void PopOpacity() override;

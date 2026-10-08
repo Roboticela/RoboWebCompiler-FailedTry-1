@@ -45,6 +45,7 @@ public:
     Size MeasureText(std::string_view text, const TextStyle& style, float maxWidth) override;
     TextParagraph MeasureParagraph(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width, float height) override;
     void PushClip(const Rect& rect) override;
+    void PushClipPath(const Rect& bounds, std::string_view path) override;
     void PopClip() override;
     void PushOpacity(float opacity) override;
     void PopOpacity() override;
@@ -55,6 +56,10 @@ private:
     bool CreateDevice();
     bool CreateSwapChain(HWND window, int width, int height);
     bool CreateTarget();
+    // The geometry one path covers, read the one way every path in the runtime is read: a shape's
+    // outline, the mask a shaped clip cuts with, and the paths of an imported file are all the same
+    // path, so building one is building them all.
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> PathGeometryFor(std::string_view data, bool evenOdd);
     IDWriteTextFormat* FormatFor(const TextStyle& style);
     IDWriteFontCollection* InterCollection();
     IDWriteFontCollection* CollectionForFile(const std::string& path, std::wstring& familyName);
@@ -99,6 +104,13 @@ private:
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> imageCache;
     std::vector<float> opacityStack{1.0f};
     std::vector<D2D1_MATRIX_3X2_F> transformStack;
+    // What kind of cut each push made, so a pop unwinds the one it belongs to: a box is cut by the
+    // platform's own clip and a shape by a layer, and the two are undone by different calls.
+    std::vector<bool> clipStack;
+    // The layers shaped clips cut with, one per depth. A layer is kept rather than made and thrown
+    // away, because a picture drawn every frame would otherwise build one every frame, and a layer
+    // is reused by depth because a layer already in use cannot be pushed again.
+    std::vector<Microsoft::WRL::ComPtr<ID2D1Layer>> layerPool;
     float dpi = 96.0f;
     int pixelWidth = 0;
     int pixelHeight = 0;

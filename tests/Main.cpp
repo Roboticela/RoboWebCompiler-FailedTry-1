@@ -194,6 +194,10 @@ struct PaintRecord {
     int imageWidth = 0;
     int imageHeight = 0;
     bool imagePixels = false;
+    // The outline of the cut a draw was held inside, when that cut was a shape rather than a box.
+    // Empty means the draw was not cut at all, or was cut by a plain box, which is the cut a picture
+    // with square corners is given.
+    std::string clipShape;
 };
 
 // Records what a paint pass handed to each draw, so a group can be checked for passing its
@@ -254,10 +258,20 @@ public:
         records.back().dashes = paint.dashes;
         records.back().dashOffset = paint.dashOffset;
     }
-    void PushClip(const Rect& rect) override { clips.push_back(rect); }
+    void PushClip(const Rect& rect) override {
+        clips.push_back(rect);
+        clipShapes.emplace_back();
+    }
+    void PushClipPath(const Rect& bounds, std::string_view path) override {
+        clips.push_back(bounds);
+        clipShapes.emplace_back(path);
+    }
     void PopClip() override {
         if (!clips.empty()) {
             clips.pop_back();
+        }
+        if (!clipShapes.empty()) {
+            clipShapes.pop_back();
         }
     }
     void PushOpacity(float value) override {
@@ -284,6 +298,7 @@ private:
         record.rect = rect;
         record.opacity = opacityStack.empty() ? 1.0f : opacityStack.back();
         record.clipDepth = static_cast<int>(clips.size());
+        record.clipShape = clipShapes.empty() ? std::string() : clipShapes.back();
         record.rotationDepth = static_cast<int>(rotations.size());
         record.rotation = rotations.empty() ? 0.0f : rotations.back();
         records.push_back(record);
@@ -291,6 +306,7 @@ private:
 
     std::vector<float> opacityStack;
     std::vector<Rect> clips;
+    std::vector<std::string> clipShapes;
     std::vector<float> rotations;
 };
 
@@ -3765,6 +3781,65 @@ bool EncodeBitmap(const GUID& format, std::vector<unsigned char>& bytes) {
     return !bytes.empty();
 }
 
+// Whether this machine's own image reader can turn an AVIF into pixels. Windows reads the container
+// itself and draws on the AV1 codec that ships separately beside it, so the answer is a fact about
+// the machine rather than about the file: a file that reads as eight by eight can have no pixels in
+// it anywhere at all on a machine that never installed that codec.
+bool PlatformDecodesAvif(const unsigned char* data, int size) {
+    HRESULT start = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(start)) {
+        // The thread is already in an apartment of another kind, which is a thread COM is ready on.
+        start = S_FALSE;
+    }
+    Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.GetAddressOf()));
+    if (SUCCEEDED(hr)) {
+        Microsoft::WRL::ComPtr<IStream> stream;
+        ULONG written = 0;
+        hr = CreateStreamOnHGlobal(nullptr, TRUE, stream.GetAddressOf());
+        if (SUCCEEDED(hr)) {
+            stream->Write(data, static_cast<ULONG>(size), &written);
+            LARGE_INTEGER zero{};
+            stream->Seek(zero, STREAM_SEEK_SET, nullptr);
+        }
+        Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+        if (SUCCEEDED(hr)) {
+            hr = factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
+        }
+        Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+        if (SUCCEEDED(hr)) {
+            hr = decoder->GetFrame(0, frame.GetAddressOf());
+        }
+        UINT width = 0;
+        UINT height = 0;
+        if (SUCCEEDED(hr)) {
+            hr = frame->GetSize(&width, &height);
+        }
+        Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+        if (SUCCEEDED(hr)) {
+            hr = factory->CreateFormatConverter(converter.GetAddressOf());
+        }
+        if (SUCCEEDED(hr)) {
+            hr = converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                                       WICBitmapPaletteTypeCustom);
+        }
+        if (SUCCEEDED(hr) && width > 0 && height > 0) {
+            // The whole picture is asked for, because a copy of part of it into a buffer smaller
+            // than the frame is a copy the platform refuses on the size of the buffer rather than
+            // on what it can read.
+            const UINT stride = width * 4u;
+            std::vector<unsigned char> pixels(static_cast<std::size_t>(stride) * height, 0);
+            hr = converter->CopyPixels(nullptr, stride, stride * height, pixels.data());
+        } else {
+            hr = E_FAIL;
+        }
+    }
+    if (start == S_OK) {
+        CoUninitialize();
+    }
+    return SUCCEEDED(hr);
+}
+
 void TestImage(TestContext& test) {
     const int before = test.failed;
 
@@ -3776,16 +3851,16 @@ void TestImage(TestContext& test) {
     std::vector<unsigned char> pixels;
     int width = 0;
     int height = 0;
-    AdjustImage(row, 2, 1, ImageCrop{}, ImageLook{}, pixels, width, height);
+    AdjustImage(row, 2, 1, false, ImageCrop{}, ImageLook{}, pixels, width, height);
     CHECK(test, width == 2 && height == 1 && pixels.size() == 8 && pixels[0] == 10 && pixels[4] == 200);
 
     ImageLook mirrored;
     mirrored.flipX = true;
-    AdjustImage(row, 2, 1, ImageCrop{}, mirrored, pixels, width, height);
+    AdjustImage(row, 2, 1, false, ImageCrop{}, mirrored, pixels, width, height);
     CHECK(test, width == 2 && pixels[0] == 200 && pixels[2] == 50 && pixels[4] == 10 && pixels[6] == 30);
     mirrored.flipX = false;
     mirrored.flipY = true;
-    AdjustImage(row, 2, 1, ImageCrop{}, mirrored, pixels, width, height);
+    AdjustImage(row, 2, 1, false, ImageCrop{}, mirrored, pixels, width, height);
     // One row mirrored down is the same row: the pixels of the row are the row.
     CHECK(test, width == 2 && pixels[0] == 10 && pixels[4] == 200);
 
@@ -3793,7 +3868,7 @@ void TestImage(TestContext& test) {
     right.x = 1;
     right.width = 1;
     right.height = 1;
-    AdjustImage(row, 2, 1, right, ImageLook{}, pixels, width, height);
+    AdjustImage(row, 2, 1, false, right, ImageLook{}, pixels, width, height);
     CHECK(test, width == 1 && height == 1 && pixels.size() == 4 && pixels[0] == 200 && pixels[1] == 100 && pixels[2] == 50);
 
     // A crop written past the edge of a picture is the part of the picture that is there, because a
@@ -3803,7 +3878,7 @@ void TestImage(TestContext& test) {
     beyond.y = 5;
     beyond.width = 10;
     beyond.height = 10;
-    AdjustImage(row, 2, 1, beyond, ImageLook{}, pixels, width, height);
+    AdjustImage(row, 2, 1, false, beyond, ImageLook{}, pixels, width, height);
     CHECK(test, width == 1 && height == 1 && pixels[0] == 200);
 
     // A wash of red at half green and a quarter blue, twice as bright. The first pixel is ten, twenty
@@ -3812,14 +3887,34 @@ void TestImage(TestContext& test) {
     washed.tinted = true;
     washed.tint = *ParseColor("#FF8040");
     washed.brightness = 2.0f;
-    AdjustImage(row, 2, 1, ImageCrop{}, washed, pixels, width, height);
+    AdjustImage(row, 2, 1, false, ImageCrop{}, washed, pixels, width, height);
     CHECK(test, pixels[0] == 5 && pixels[1] == 20 && pixels[2] == 60 && pixels[3] == 255);
 
     // No saturation at all leaves every channel at the brightness the eye sees the colour at.
     ImageLook grey;
     grey.saturation = 0.0f;
-    AdjustImage(row, 2, 1, ImageCrop{}, grey, pixels, width, height);
+    AdjustImage(row, 2, 1, false, ImageCrop{}, grey, pixels, width, height);
     CHECK(test, pixels[0] == 21 && pixels[1] == 21 && pixels[2] == 21);
+
+    // A pixel that is not fully opaque is worked on as the colour it stands for rather than as the
+    // numbers in the buffer. Half a red, with its alpha already folded in, is a red: pulling its
+    // contrast towards the middle pulls a full red there, and the channel comes back with the alpha
+    // folded in again, so half a red that was softened is half of a softened red.
+    const unsigned char folded[8] = {0, 0, 128, 128, 255, 255, 255, 64};
+    ImageLook softer;
+    softer.contrast = 0.5f;
+    AdjustImage(folded, 2, 1, true, ImageCrop{}, softer, pixels, width, height);
+    CHECK(test, pixels[0] == 32 && pixels[1] == 32 && pixels[2] == 96 && pixels[3] == 128);
+    // A buffer that is premultiplied already and a look that changes nothing is handed on as it was.
+    AdjustImage(folded, 2, 1, true, ImageCrop{}, ImageLook{}, pixels, width, height);
+    CHECK(test, pixels.size() == 8 && pixels[0] == 0 && pixels[2] == 128 && pixels[3] == 128 && pixels[4] == 255 &&
+                    pixels[7] == 64);
+    // A straight buffer is handed over with the alpha folded in, which is the form the platform
+    // composites: half of a full red is what is drawn, and no channel is brighter than its alpha.
+    const unsigned char translucent[8] = {0, 0, 255, 128, 10, 20, 30, 0};
+    AdjustImage(translucent, 2, 1, false, ImageCrop{}, ImageLook{}, pixels, width, height);
+    CHECK(test, pixels[0] == 0 && pixels[2] == 128 && pixels[3] == 128 && pixels[4] == 0 && pixels[5] == 0 && pixels[6] == 0 &&
+                    pixels[7] == 0);
 
     // A picture drawn the way the file held it is the key it always had; a picture drawn any other
     // way has a key of its own, which is what keeps two looks from sharing one cached image.
@@ -3928,6 +4023,7 @@ void TestImage(TestContext& test) {
          "<image id=\"loose\" x=\"10\" y=\"10\" width=\"120\" height=\"80\" fit=\"cover\" source=\"" +
          photo +
          "\"/><image id=\"clipped\" x=\"200\" y=\"10\" width=\"120\" height=\"80\" clip=\"true\" source=\"" + photo +
+         "\"/><image id=\"rounded\" x=\"10\" y=\"120\" width=\"120\" height=\"80\" radius=\"16\" source=\"" + photo +
          "\"/></frame></window>")
             .c_str(),
         400.0f, 200.0f);
@@ -3942,6 +4038,16 @@ void TestImage(TestContext& test) {
         const PaintRecord* cut = clipped == nullptr ? nullptr : PaintRecordFor(renderer, clipped->PictureBox());
         CHECK(test, covering != nullptr && covering->clipDepth > 0);
         CHECK(test, cut != nullptr && cut->clipDepth > 0);
+        // A box with corners is held inside the shape those corners draw rather than inside the box
+        // around it, so a picture that covers the box does not stand in the corners it never
+        // reached. The cut is a path, which is how a cut that is a shape rather than a box is made.
+        ImageElement* round = dynamic_cast<ImageElement*>(held->FindById("rounded"));
+        const PaintRecord* softened = round == nullptr ? nullptr : PaintRecordFor(renderer, round->PictureBox());
+        CHECK(test, softened != nullptr && softened->clipDepth > 0 && !softened->clipShape.empty() &&
+                        softened->clipShape.find("A ") != std::string::npos);
+        // A box without corners needs no shape: the plain box is the cut it is given, and the corner
+        // radii of the shape being square is what tells the two cuts apart.
+        CHECK(test, cut != nullptr && cut->clipShape.empty());
     }
 
     // What the document said about the picture reaches the node: the region of the file that is
@@ -4107,10 +4213,22 @@ void TestRemainingSurface(TestContext& test) {
         0xBF, 0x6B, 0x40, 0x43, 0x41, 0xB8, 0x40, 0x32, 0x1A, 0x19, 0x47, 0x87, 0x86, 0x21, 0x89, 0xA6,
         0x9A, 0x66, 0x80, 0x00, 0x00, 0x90, 0x3F, 0x9B, 0x0C, 0x61, 0x4B, 0x2B, 0x4D, 0x8F, 0x51, 0x45,
         0x4E, 0xA4, 0x20};
-    CHECK(test, DecodeImageBytes(avif, static_cast<int>(sizeof(avif)), decoded) && decoded.format == "avif" && decoded.frames.size() == 1);
-    if (!decoded.frames.empty()) {
-        CHECK(test, decoded.frames[0].width == 8 && decoded.frames[0].bgra.size() >= 4 && decoded.frames[0].bgra[2] > 200 &&
-                        decoded.frames[0].bgra[0] < 40);
+    // An AVIF is read through the platform rather than by a decoder written here, so the test asks
+    // whether this machine can read one at all and holds the runtime to the pixels where it can.
+    // Where it cannot, a picture that cannot be read is refused, which is the whole of what the
+    // runtime promises about a file the platform underneath it cannot show.
+    if (PlatformDecodesAvif(avif, static_cast<int>(sizeof(avif)))) {
+        CHECK(test, DecodeImageBytes(avif, static_cast<int>(sizeof(avif)), decoded) && decoded.format == "avif" &&
+                        decoded.frames.size() == 1);
+        if (!decoded.frames.empty()) {
+            CHECK(test, decoded.frames[0].width == 8 && decoded.frames[0].bgra.size() >= 4 && decoded.frames[0].bgra[2] > 200 &&
+                            decoded.frames[0].bgra[0] < 40);
+        }
+    } else {
+        // No AV1 codec on this machine: the container is read and the picture inside it cannot be,
+        // so the file is refused rather than drawn as the wrong thing.
+        std::printf("  note: no AV1 codec on this machine, so an AVIF is refused\n");
+        CHECK(test, !DecodeImageBytes(avif, static_cast<int>(sizeof(avif)), decoded) && decoded.frames.empty());
     }
     const char* arrow = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M3.5 13h6\"/><path d=\"M18 7v9\"/></svg>";
     const std::string vectorXml = VectorXmlFromSvg(arrow, "Arrow", 24, 24, 26);

@@ -8,8 +8,11 @@
 namespace Runtime {
 namespace {
 
-unsigned char Channel(float value) {
-    return static_cast<unsigned char>(std::clamp(value, 0.0f, 255.0f));
+// A channel the platform is handed, with its alpha folded back in. The platform composites
+// premultiplied pixels, so a colour that has been decided is given over as the part of it that is
+// there, which is also what keeps a channel no brighter than the alpha beside it.
+unsigned char Folded(float straight, float alpha) {
+    return static_cast<unsigned char>(std::lround(std::clamp(straight, 0.0f, 255.0f) * (alpha / 255.0f)));
 }
 
 // The brightness of a colour to a human eye, which is what desaturating and resaturating is
@@ -20,8 +23,8 @@ float Luma(float red, float green, float blue) {
 
 }  // namespace
 
-void AdjustImage(const unsigned char* bgra, int width, int height, const ImageCrop& crop, const ImageLook& look,
-                 std::vector<unsigned char>& out, int& outWidth, int& outHeight) {
+void AdjustImage(const unsigned char* bgra, int width, int height, bool premultiplied, const ImageCrop& crop,
+                 const ImageLook& look, std::vector<unsigned char>& out, int& outWidth, int& outHeight) {
     outWidth = 0;
     outHeight = 0;
     out.clear();
@@ -53,13 +56,32 @@ void AdjustImage(const unsigned char* bgra, int width, int height, const ImageCr
                                                static_cast<std::size_t>(sourceColumn)) * 4u;
             unsigned char* to = out.data() + (static_cast<std::size_t>(row) * static_cast<std::size_t>(copyWidth) +
                                              static_cast<std::size_t>(column)) * 4u;
-            if (neutral) {
+            if (neutral && premultiplied) {
+                // The pixels are already the form the platform is handed and the look changes
+                // nothing, so the frame is passed on as it was read.
                 std::memcpy(to, from, 4);
                 continue;
             }
-            float blue = static_cast<float>(from[0]) * tintBlue;
-            float green = static_cast<float>(from[1]) * tintGreen;
-            float red = static_cast<float>(from[2]) * tintRed;
+            const float alpha = static_cast<float>(from[3]);
+            float blue = static_cast<float>(from[0]);
+            float green = static_cast<float>(from[1]);
+            float red = static_cast<float>(from[2]);
+            if (premultiplied) {
+                // A premultiplied channel is a colour with its alpha already in it, so the alpha is
+                // taken back out before the look is applied: the look is about the colour, and the
+                // colour is not what stands in the buffer while the pixel is translucent.
+                if (alpha > 0.0f) {
+                    const float unfold = 255.0f / alpha;
+                    blue *= unfold;
+                    green *= unfold;
+                    red *= unfold;
+                } else {
+                    blue = green = red = 0.0f;
+                }
+            }
+            blue *= tintBlue;
+            green *= tintGreen;
+            red *= tintRed;
             blue *= look.brightness;
             green *= look.brightness;
             red *= look.brightness;
@@ -73,9 +95,9 @@ void AdjustImage(const unsigned char* bgra, int width, int height, const ImageCr
             blue = grey + (blue - grey) * look.saturation;
             green = grey + (green - grey) * look.saturation;
             red = grey + (red - grey) * look.saturation;
-            to[0] = Channel(blue);
-            to[1] = Channel(green);
-            to[2] = Channel(red);
+            to[0] = Folded(blue, alpha);
+            to[1] = Folded(green, alpha);
+            to[2] = Folded(red, alpha);
             to[3] = from[3];
         }
     }

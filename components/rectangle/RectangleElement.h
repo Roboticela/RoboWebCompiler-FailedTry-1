@@ -67,12 +67,17 @@ protected:
     void PaintOutline(Renderer& renderer, const std::string& path);
     void PaintOutline(Renderer& renderer, const std::string& path, const OutlineStyle& style);
 
+    // The outline of this box written in box-local pixels: the rectangle with its own four corner
+    // radii. It is the shape this node draws, so it is also the shape a caller cutting something
+    // off at this node hands over, which is how a picture is held inside the rounded box it sits in
+    // rather than inside the box around it.
+    std::string CornerPath(float boxWidth, float boxHeight) const;
+
 private:
     // A rounded box is four independent corner arcs, so it only goes through a path when
     // the corners differ. A uniform radius keeps the platform rectangle primitive, unless the
     // stroke was given a pattern: a pattern is drawn by the platform only along a path.
     bool UniformCorners() const;
-    std::string CornerPath(float boxWidth, float boxHeight) const;
 
     Color fill{0.055f, 0.478f, 1.0f, 1.0f};
     Color stroke{0.114f, 0.114f, 0.122f, 1.0f};

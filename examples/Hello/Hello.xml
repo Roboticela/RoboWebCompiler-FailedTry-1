@@ -511,9 +511,9 @@
                 </frame>
             </frame>
             <frame layout="vertical" gap="6" width="fill" heightMode="hug">
-                <text text="cover + clip — fills the box and is cut off at it" fontSize="12" textColor="#86868B"/>
+                <text text="cover + clip + radius — fills the box and is cut off at its rounded corners" fontSize="12" textColor="#86868B"/>
                 <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
-                    <image name="Covered" width="140" height="90" fit="cover" clip="true" source="assets/flags/bq.png"/>
+                    <image name="Covered" width="140" height="90" radius="24" fit="cover" clip="true" source="assets/flags/bq.png"/>
                 </frame>
             </frame>
             <frame layout="vertical" gap="6" width="fill" heightMode="hug">

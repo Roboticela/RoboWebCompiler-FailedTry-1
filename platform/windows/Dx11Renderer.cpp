@@ -232,6 +232,9 @@ void Dx11Renderer::BeginFrame(Color clearColor) {
     transformStack.clear();
     opacityStack.clear();
     opacityStack.push_back(1.0f);
+    // A cut left behind by the frame before is not the platform's to unpick, so the record of what
+    // was pushed starts empty with the frame.
+    clipStack.clear();
     d2dContext->BeginDraw();
     d2dContext->Clear(ToD2d(clearColor, 1.0f));
 }
@@ -516,23 +519,23 @@ void Dx11Renderer::DrawCachedImage(std::string_view key, const Rect& rect, const
     d2dContext->DrawBitmap(found->second.Get(), destination, opacityStack.back(), D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
 }
 
-void Dx11Renderer::DrawVector(const VectorPaint& paint) {
-    if (!d2dContext || !d2dFactory || !brush || paint.data.empty() || paint.bounds.width <= 0.0f || paint.bounds.height <= 0.0f) {
-        return;
-    }
-    const std::vector<PathContour> contours = SampleContours(paint.data);
-    if (contours.empty()) {
-        return;
-    }
+Microsoft::WRL::ComPtr<ID2D1PathGeometry> Dx11Renderer::PathGeometryFor(std::string_view data, bool evenOdd) {
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
+    if (!d2dFactory || data.empty()) {
+        return geometry;
+    }
+    const std::vector<PathContour> contours = SampleContours(data);
+    if (contours.empty()) {
+        return geometry;
+    }
     if (FAILED(d2dFactory->CreatePathGeometry(geometry.GetAddressOf()))) {
-        return;
+        return Microsoft::WRL::ComPtr<ID2D1PathGeometry>();
     }
     Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
     if (FAILED(geometry->Open(sink.GetAddressOf()))) {
-        return;
+        return Microsoft::WRL::ComPtr<ID2D1PathGeometry>();
     }
-    sink->SetFillMode(paint.evenOdd ? D2D1_FILL_MODE_ALTERNATE : D2D1_FILL_MODE_WINDING);
+    sink->SetFillMode(evenOdd ? D2D1_FILL_MODE_ALTERNATE : D2D1_FILL_MODE_WINDING);
     bool drew = false;
     for (const PathContour& contour : contours) {
         if (contour.points.size() < 2) {
@@ -557,6 +560,17 @@ void Dx11Renderer::DrawVector(const VectorPaint& paint) {
         drew = true;
     }
     if (FAILED(sink->Close()) || !drew) {
+        return Microsoft::WRL::ComPtr<ID2D1PathGeometry>();
+    }
+    return geometry;
+}
+
+void Dx11Renderer::DrawVector(const VectorPaint& paint) {
+    if (!d2dContext || !d2dFactory || !brush || paint.data.empty() || paint.bounds.width <= 0.0f || paint.bounds.height <= 0.0f) {
+        return;
+    }
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry = PathGeometryFor(paint.data, paint.evenOdd);
+    if (!geometry) {
         return;
     }
     float viewX = paint.viewX;
@@ -864,12 +878,55 @@ void Dx11Renderer::PushClip(const Rect& rect) {
     }
     d2dContext->PushAxisAlignedClip(D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height),
                                     D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    clipStack.push_back(false);
+}
+
+void Dx11Renderer::PushClipPath(const Rect& bounds, std::string_view path) {
+    if (!d2dContext) {
+        return;
+    }
+    // A cut that could not be made from a shape is still a cut the caller will lift, so the box it
+    // would have kept is kept instead: one push and one pop either way.
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry = PathGeometryFor(path, false);
+    if (!geometry || bounds.width <= 0.0f || bounds.height <= 0.0f) {
+        PushClip(bounds);
+        return;
+    }
+    std::size_t depth = 0;
+    for (const bool shaped : clipStack) {
+        depth += shaped ? 1u : 0u;
+    }
+    while (layerPool.size() <= depth) {
+        Microsoft::WRL::ComPtr<ID2D1Layer> layered;
+        if (FAILED(d2dContext->CreateLayer(layered.GetAddressOf()))) {
+            PushClip(bounds);
+            return;
+        }
+        layerPool.push_back(layered);
+    }
+    // The path is written in the box's own pixels, the way a shape writes its outline, so the mask
+    // is brought to where the box stands by moving its corner there and nothing else.
+    const D2D1_LAYER_PARAMETERS1 parameters =
+        D2D1::LayerParameters1(D2D1::InfiniteRect(), geometry.Get(), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                               D2D1::Matrix3x2F::Translation(bounds.x, bounds.y));
+    d2dContext->PushLayer(parameters, layerPool[depth].Get());
+    clipStack.push_back(true);
 }
 
 void Dx11Renderer::PopClip() {
-    if (d2dContext) {
+    if (!d2dContext) {
+        return;
+    }
+    if (clipStack.empty()) {
+        d2dContext->PopAxisAlignedClip();
+        return;
+    }
+    if (clipStack.back()) {
+        d2dContext->PopLayer();
+    } else {
         d2dContext->PopAxisAlignedClip();
     }
+    clipStack.pop_back();
 }
 
 void Dx11Renderer::PushRotation(float degrees, float centerX, float centerY) {

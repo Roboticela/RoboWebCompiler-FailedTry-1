@@ -52,6 +52,12 @@ public:
     virtual void DrawCachedImage(std::string_view key, const Rect& rect, const unsigned char* bgra, int width, int height) = 0;
     virtual void DrawVector(const VectorPaint& paint) = 0;
     virtual void PushClip(const Rect& rect) = 0;
+    // A clip that is a shape rather than a box. The path is written the way a shape writes its own
+    // outline, in the box-local pixels of `bounds`, so a rounded box is cut off as the rounded box
+    // it is drawn as rather than as the box around it. A caller holding only a box uses PushClip,
+    // which is the one cut the platform can make without building a shape first. A push is a push
+    // whichever form made it, so PopClip unwinds either.
+    virtual void PushClipPath(const Rect& bounds, std::string_view path) = 0;
     virtual void PopClip() = 0;
     virtual void PushOpacity(float opacity) = 0;
     virtual void PopOpacity() = 0;

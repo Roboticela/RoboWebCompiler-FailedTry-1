@@ -122,7 +122,10 @@ add_library(RuntimeUi STATIC
     engine/motion/Motion.h
 )
 target_include_directories(RuntimeUi PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(RuntimeUi PUBLIC RuntimeCompiler dwrite)
+# An AVIF is read through the platform's own image reader, which is where the AV1 codec that ships
+# beside Windows lives, so the two libraries that reader is reached through are part of the user
+# interface rather than of one program that happens to draw a picture.
+target_link_libraries(RuntimeUi PUBLIC RuntimeCompiler dwrite windowscodecs ole32)
 # A file a document names is looked for beside the project among the places it may be, since a
 # document written against the layout of the project names its art that way, and the fonts are read
 # from the same project. It is public because every program built here links the user interface.
