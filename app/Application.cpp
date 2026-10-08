@@ -3,6 +3,7 @@
 #include "compiler/semantic/UiCompiler.h"
 #include "engine/core/Log.h"
 #include "platform/windows/Dx11Renderer.h"
+#include "platform/windows/WicImageProvider.h"
 #include "platform/windows/Win32Window.h"
 #include "ui/element/Element.h"
 #include "ui/factory/UiFactory.h"
@@ -92,6 +93,10 @@ Element* UiContext::Find(std::string_view id) const {
 }
 
 int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& handlers, RunOptions options) {
+    // The picture the machine can read is offered to the runtime here, at the place that knows it is
+    // running on the platform, so that everything above this line reads a picture without knowing
+    // which machine it is on.
+    RegisterWicImageProvider();
     CompileResult compiled = CompileUiFile(xmlPath);
     if (!compiled.Ok()) {
         PrintDiagnostics(compiled.source, compiled.diagnostics, std::cerr);

@@ -3,10 +3,9 @@
 #include "compiler/types/ValueParser.h"
 #include "rendering/renderer/Renderer.h"
 
-#include <windows.h>
-
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <optional>
@@ -23,6 +22,17 @@ constexpr float IMAGE_UNKNOWN_HEIGHT = 80.0f;
 const Color IMAGE_UNKNOWN_FILL{0.91f, 0.92f, 0.93f, 1.0f};
 const Color IMAGE_UNKNOWN_INK{0.094f, 0.094f, 0.102f, 1.0f};
 constexpr float TURN_EPSILON = 0.01f;
+
+// How long the clock has been running, in milliseconds. It is the standard library's steady clock
+// rather than the count of milliseconds the operating system hands out, because a picture with more
+// than one frame is a fact about the picture and not about the machine: the element reads the time
+// it has been shown for and nothing else about where it is running.
+unsigned long long ElapsedMilliseconds() {
+    using SteadyClock = std::chrono::steady_clock;
+    static const SteadyClock::time_point started = SteadyClock::now();
+    return static_cast<unsigned long long>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(SteadyClock::now() - started).count());
+}
 
 // The same folding every other reading of a keyword uses: the case does not matter, and neither do
 // the marks a document might write a name with.
@@ -308,6 +318,12 @@ Size ImageElement::Intrinsic() {
             return Size{static_cast<float>(first.width), static_cast<float>(first.height)};
         }
     }
+    // The pixels could not be produced, but the file still says how big the picture in it is: an
+    // AVIF whose codec the runtime does not carry lays out at the size its container states, so the
+    // gap it leaves is the gap the picture would have covered rather than a box of a fixed size.
+    if (decoded.declaredWidth > 0 && decoded.declaredHeight > 0) {
+        return Size{static_cast<float>(decoded.declaredWidth), static_cast<float>(decoded.declaredHeight)};
+    }
     return Size{IMAGE_UNKNOWN_WIDTH, IMAGE_UNKNOWN_HEIGHT};
 }
 
@@ -347,7 +363,7 @@ bool ImageElement::ReadPicture(Picture& picture) {
     }
     // Which frame is drawn is a fact about the clock, so it is read once and both the pixels and
     // the name they are cached under are the same frame.
-    const int index = FrameIndex(GetTickCount64());
+    const int index = FrameIndex(ElapsedMilliseconds());
     const ImageFrame& frame = decoded.frames[static_cast<std::size_t>(index)];
     if (frame.width < 1 || frame.height < 1 || frame.bgra.empty()) {
         return false;

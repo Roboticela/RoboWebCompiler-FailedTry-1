@@ -11,6 +11,10 @@
 namespace Runtime {
 namespace {
 
+// The decoder a host registered, or nothing when it registered none. It is one value rather than a
+// list because it stands for what the machine can read, and a machine has one answer to that.
+ImageFormatProvider installation = nullptr;
+
 bool LooksLikeSvg(const unsigned char* data, int size) {
     int index = 0;
     while (index < size && (data[index] == ' ' || data[index] == '\n' || data[index] == '\r' || data[index] == '\t')) {
@@ -34,6 +38,14 @@ bool DecodeRaster(const unsigned char* data, int size, DecodedImage& image) {
     if (size >= 12 && std::memcmp(data, "RIFF", 4) == 0 && std::memcmp(data + 8, "WEBP", 4) == 0) {
         return DecodeWebpImage(data, size, image);
     }
+    if (size >= 2 && data[0] == 'B' && data[1] == 'M') {
+        return DecodeBmpImage(data, size, image);
+    }
+    // An icon and a cursor are the same kind of file, one carrying pictures and the other carrying
+    // pictures with a hotspot in them, which is the only thing about a cursor the runtime ignores.
+    if (size >= 4 && data[0] == 0 && data[1] == 0 && (data[2] == 1 || data[2] == 2) && data[3] == 0) {
+        return DecodeIcoImage(data, size, image);
+    }
     if (size >= 12 && std::memcmp(data + 4, "ftyp", 4) == 0) {
         return DecodeAvifImage(data, size, image);
     }
@@ -41,6 +53,14 @@ bool DecodeRaster(const unsigned char* data, int size, DecodedImage& image) {
 }
 
 }  // namespace
+
+void SetImageFormatProvider(ImageFormatProvider provider) {
+    installation = provider;
+}
+
+ImageFormatProvider GetImageFormatProvider() {
+    return installation;
+}
 
 bool DecodeImageFile(const std::string& path, DecodedImage& image) {
     std::ifstream file(path, std::ios::binary);
@@ -69,7 +89,29 @@ bool DecodeImageBytes(const unsigned char* data, int size, DecodedImage& image) 
     if (LooksLikeSvg(data, size)) {
         return DecodeSvgBytes(data, size, image);
     }
-    return DecodeRaster(data, size, image);
+    if (DecodeRaster(data, size, image)) {
+        return true;
+    }
+    // Every reader written here has passed on the file, and a decoder the host registered gets the
+    // last word on it. The bytes are offered to that decoder along with the format the container
+    // named, and it answers with the pixels or with nothing. No decoder is registered by a program
+    // that never asked for one, so a file the core cannot read behaves the same wherever it is
+    // opened rather than as a fact about the machine underneath.
+    if (ImageFormatProvider provider = installation) {
+        DecodedImage read;
+        if (provider(data, size, image.format, read) && !read.frames.empty()) {
+            if (!read.format.empty()) {
+                image.format = read.format;
+            }
+            if (read.declaredWidth > 0 && read.declaredHeight > 0) {
+                image.declaredWidth = read.declaredWidth;
+                image.declaredHeight = read.declaredHeight;
+            }
+            image.frames = std::move(read.frames);
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace Runtime

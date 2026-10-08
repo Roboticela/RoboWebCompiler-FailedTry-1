@@ -117,15 +117,20 @@ add_library(RuntimeUi STATIC
     rendering/image/Inflate.h
     rendering/image/StillImage.cpp
     rendering/image/WebpImage.cpp
+    rendering/image/Vp8LImage.cpp
+    rendering/image/Vp8LImage.h
+    rendering/image/Vp8Image.cpp
+    rendering/image/Vp8Image.h
+    rendering/image/BmpImage.cpp
+    rendering/image/IcoImage.cpp
     rendering/image/AvifImage.cpp
     engine/motion/Motion.cpp
     engine/motion/Motion.h
 )
 target_include_directories(RuntimeUi PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-# An AVIF is read through the platform's own image reader, which is where the AV1 codec that ships
-# beside Windows lives, so the two libraries that reader is reached through are part of the user
-# interface rather than of one program that happens to draw a picture.
-target_link_libraries(RuntimeUi PUBLIC RuntimeCompiler dwrite windowscodecs ole32)
+# The image readers are the runtime's own, written in portable code, so the user interface is built
+# with nothing but the text layout of the platform underneath it.
+target_link_libraries(RuntimeUi PUBLIC RuntimeCompiler dwrite)
 # A file a document names is looked for beside the project among the places it may be, since a
 # document written against the layout of the project names its art that way, and the fonts are read
 # from the same project. It is public because every program built here links the user interface.
@@ -136,9 +141,14 @@ add_library(RuntimePlatform STATIC
     platform/windows/Win32Window.h
     platform/windows/Dx11Renderer.cpp
     platform/windows/Dx11Renderer.h
+    platform/windows/WicImageProvider.cpp
+    platform/windows/WicImageProvider.h
 )
 target_include_directories(RuntimePlatform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(RuntimePlatform PUBLIC RuntimeUi d3d11 dxgi d2d1 dwrite)
+# The AV1 codec that fills an AVIF in ships beside Windows rather than inside it, so the reader that
+# reaches it belongs to the layer that knows the platform, and the windowscodecs and ole32 the
+# platform reader is reached through are linked there rather than by the user interface.
+target_link_libraries(RuntimePlatform PUBLIC RuntimeUi d3d11 dxgi d2d1 dwrite windowscodecs ole32)
 target_compile_definitions(RuntimePlatform PUBLIC "RUNTIME_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
 
 add_library(RuntimeApp STATIC
@@ -173,8 +183,10 @@ add_executable(RoboUIDesigner
 target_link_libraries(RoboUIDesigner PRIVATE RuntimeDesigner RuntimeApp ole32 shell32 uuid)
 target_compile_definitions(RoboUIDesigner PRIVATE "DESIGNER_HELLO_XML=\"${CMAKE_SOURCE_DIR}/examples/Hello/Hello.xml\"" "RUNTIME_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
 
+# The tests link the platform as well as the user interface, because the one reader that is not the
+# runtime's own is the platform's: a test has to be able to offer it the same way a program does.
 add_executable(RuntimeTests tests/Main.cpp tests/TestHarness.h)
-target_link_libraries(RuntimeTests PRIVATE RuntimeUi RuntimeDesigner windowscodecs ole32)
+target_link_libraries(RuntimeTests PRIVATE RuntimePlatform RuntimeDesigner)
 target_compile_definitions(RuntimeTests PRIVATE "RUNTIME_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
 
 add_executable(RuntimeBenchmarks benchmarks/Main.cpp)

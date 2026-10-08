@@ -1,4 +1,5 @@
 #include "designer/shell/DesignerApp.h"
+#include "platform/windows/WicImageProvider.h"
 
 #include <filesystem>
 #include <iostream>
@@ -9,6 +10,9 @@
 #endif
 
 int main(int argc, char** argv) {
+    // The designer previews documents that name pictures, so it offers the runtime the reader the
+    // platform has before any of them is looked at.
+    Runtime::RegisterWicImageProvider();
     Runtime::DesignerOptions options;
     options.file = DESIGNER_HELLO_XML;
     std::filesystem::path argumentPath;

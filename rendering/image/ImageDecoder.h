@@ -21,8 +21,29 @@ struct ImageFrame {
 
 struct DecodedImage {
     std::string format;
+    // What the file itself says about the picture, read from its header rather than from its pixels.
+    // A file whose pixels the runtime cannot produce still states how big the picture in it is, and
+    // a node with no size of its own is as big as that statement: the picture lays out as the picture
+    // it holds and the box it could not fill stands where the picture would have. Zero means the file
+    // did not say, which is the case for every format whose size is only known once it is read.
+    int declaredWidth = 0;
+    int declaredHeight = 0;
     std::vector<ImageFrame> frames;
 };
+
+// A decoder for a picture the core cannot turn into pixels by itself. An AVIF is the case this
+// exists for: the container is read here, while the AV1 codec that fills the pixels in it is not
+// something the runtime carries, so who reads it is a question about the machine rather than about
+// the file. A host that can read one registers a decoder, and a host that cannot leaves it unset,
+// which makes the answer a property of the program rather than of the operating system underneath
+// it. The decoder is offered the whole file, and the format the core read from it, after every
+// decoder written here has passed on it; it answers true when it filled in the frames.
+typedef bool (*ImageFormatProvider)(const unsigned char* data, int size, std::string_view format, DecodedImage& image);
+
+// The one decoder a host may register, or nothing when none is registered. It is a single slot
+// because it stands for the machine's ability to read a picture, and a machine has one answer.
+void SetImageFormatProvider(ImageFormatProvider provider);
+ImageFormatProvider GetImageFormatProvider();
 
 struct SvgDecodeOptions {
     int maxEdge = 0;
