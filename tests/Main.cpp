@@ -7,6 +7,7 @@
 #include "components/ellipse/EllipseElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
+#include "components/image/ImageElement.h"
 #include "components/line/LineElement.h"
 #include "components/layout/BoardElement.h"
 #include "components/polygon/PolygonElement.h"
@@ -22,6 +23,7 @@
 #include "designer/model/DesignDocument.h"
 #include "designer/tools/EditorTool.h"
 #include "engine/motion/Motion.h"
+#include "rendering/image/ImageAdjust.h"
 #include "rendering/image/ImageDecoder.h"
 #include "rendering/renderer/Renderer.h"
 #include "rendering/path/PathBoolean.h"
@@ -185,6 +187,13 @@ struct PaintRecord {
         bool lineThrough = false;
     };
     std::vector<PaintedRun> runs;
+    // What an image draw was asked for: the name the pixels are cached under, and whether pixels
+    // were handed over at all, so a picture that was drawn can be told apart from the box a picture
+    // that could not be read is drawn as. The box the picture landed in is the rect of the record.
+    std::string imageName;
+    int imageWidth = 0;
+    int imageHeight = 0;
+    bool imagePixels = false;
 };
 
 // Records what a paint pass handed to each draw, so a group can be checked for passing its
@@ -228,7 +237,13 @@ public:
             records.back().runs.push_back(std::move(painted));
         }
     }
-    void DrawCachedImage(std::string_view, const Rect& rect, const unsigned char*, int, int) override { Record(rect); }
+    void DrawCachedImage(std::string_view name, const Rect& rect, const unsigned char* pixels, int width, int height) override {
+        Record(rect);
+        records.back().imageName.assign(name);
+        records.back().imageWidth = width;
+        records.back().imageHeight = height;
+        records.back().imagePixels = pixels != nullptr;
+    }
     void DrawVector(const VectorPaint& paint) override {
         Record(paint.bounds);
         records.back().vector = true;
@@ -3750,6 +3765,265 @@ bool EncodeBitmap(const GUID& format, std::vector<unsigned char>& bytes) {
     return !bytes.empty();
 }
 
+void TestImage(TestContext& test) {
+    const int before = test.failed;
+
+    // The pixels a picture is drawn from, checked on a buffer rather than through a device: the crop
+    // decides which pixels are read, the look decides what they become, and the two mirrors decide
+    // the order they come out in. One row of two pixels, blue first the way every image is handed
+    // over, and the second one twice as bright as the first.
+    const unsigned char row[8] = {10, 20, 30, 255, 200, 100, 50, 255};
+    std::vector<unsigned char> pixels;
+    int width = 0;
+    int height = 0;
+    AdjustImage(row, 2, 1, ImageCrop{}, ImageLook{}, pixels, width, height);
+    CHECK(test, width == 2 && height == 1 && pixels.size() == 8 && pixels[0] == 10 && pixels[4] == 200);
+
+    ImageLook mirrored;
+    mirrored.flipX = true;
+    AdjustImage(row, 2, 1, ImageCrop{}, mirrored, pixels, width, height);
+    CHECK(test, width == 2 && pixels[0] == 200 && pixels[2] == 50 && pixels[4] == 10 && pixels[6] == 30);
+    mirrored.flipX = false;
+    mirrored.flipY = true;
+    AdjustImage(row, 2, 1, ImageCrop{}, mirrored, pixels, width, height);
+    // One row mirrored down is the same row: the pixels of the row are the row.
+    CHECK(test, width == 2 && pixels[0] == 10 && pixels[4] == 200);
+
+    ImageCrop right;
+    right.x = 1;
+    right.width = 1;
+    right.height = 1;
+    AdjustImage(row, 2, 1, right, ImageLook{}, pixels, width, height);
+    CHECK(test, width == 1 && height == 1 && pixels.size() == 4 && pixels[0] == 200 && pixels[1] == 100 && pixels[2] == 50);
+
+    // A crop written past the edge of a picture is the part of the picture that is there, because a
+    // region nobody kept cannot be the whole of what is drawn.
+    ImageCrop beyond;
+    beyond.x = 5;
+    beyond.y = 5;
+    beyond.width = 10;
+    beyond.height = 10;
+    AdjustImage(row, 2, 1, beyond, ImageLook{}, pixels, width, height);
+    CHECK(test, width == 1 && height == 1 && pixels[0] == 200);
+
+    // A wash of red at half green and a quarter blue, twice as bright. The first pixel is ten, twenty
+    // and thirty: a tenth of blue, a fifth of green and a tenth of red.
+    ImageLook washed;
+    washed.tinted = true;
+    washed.tint = *ParseColor("#FF8040");
+    washed.brightness = 2.0f;
+    AdjustImage(row, 2, 1, ImageCrop{}, washed, pixels, width, height);
+    CHECK(test, pixels[0] == 5 && pixels[1] == 20 && pixels[2] == 60 && pixels[3] == 255);
+
+    // No saturation at all leaves every channel at the brightness the eye sees the colour at.
+    ImageLook grey;
+    grey.saturation = 0.0f;
+    AdjustImage(row, 2, 1, ImageCrop{}, grey, pixels, width, height);
+    CHECK(test, pixels[0] == 21 && pixels[1] == 21 && pixels[2] == 21);
+
+    // A picture drawn the way the file held it is the key it always had; a picture drawn any other
+    // way has a key of its own, which is what keeps two looks from sharing one cached image.
+    CHECK(test, ImageLookName(ImageCrop{}, ImageLook{}).empty());
+    ImageLook tintedOnce;
+    tintedOnce.tinted = true;
+    tintedOnce.tint = *ParseColor("#FF8040");
+    CHECK(test, !ImageLookName(ImageCrop{}, mirrored).empty());
+    CHECK(test, ImageLookName(ImageCrop{}, mirrored) != ImageLookName(ImageCrop{}, tintedOnce));
+    ImageLook brighter;
+    brighter.brightness = 1.5f;
+    CHECK(test, ImageLookName(ImageCrop{}, tintedOnce) != ImageLookName(ImageCrop{}, brighter));
+    CHECK(test, !ImageLookName(right, ImageLook{}).empty());
+
+    // A picture is read from a file, so the tests write one: a single pixel, which is enough to tell
+    // the size a node hugs from the size it was given.
+    std::vector<unsigned char> encoded;
+    if (!EncodeBitmap(GUID_ContainerFormatPng, encoded)) {
+        CHECK(test, false);
+        Finish(test, "image", before);
+        return;
+    }
+    const std::filesystem::path picturePath = std::filesystem::temp_directory_path() / "runtime-image-element-test.png";
+    {
+        std::ofstream file(picturePath, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(encoded.data()), static_cast<std::streamsize>(encoded.size()));
+    }
+    CHECK(test, std::filesystem::exists(picturePath));
+    const std::string photo = picturePath.string();
+
+    // An image is a box drawn around a picture: it is a rectangle, so everything a rectangle is it
+    // is, and the picture is the one thing it brings of its own.
+    std::unique_ptr<Element> plain = Layout(
+        ("<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+         "<image id=\"photo\" x=\"10\" y=\"10\" width=\"120\" height=\"80\" source=\"" +
+         photo +
+         "\"/></frame></window>")
+            .c_str(),
+        400.0f, 200.0f);
+    Element* node = plain != nullptr ? plain->FindById("photo") : nullptr;
+    CHECK(test, node != nullptr && node->Kind() == NodeKind::IMAGE);
+    ImageElement* picture = dynamic_cast<ImageElement*>(node);
+    CHECK(test, picture != nullptr && dynamic_cast<RectangleElement*>(picture) != nullptr);
+    if (picture != nullptr) {
+        // The picture the file holds is one pixel square, so a node with no size of its own is one
+        // pixel square, and the box it was given is the box it covers.
+        CHECK(test, picture->Source() == photo);
+        CHECK(test, std::fabs(picture->Intrinsic().width - 1.0f) < 0.01f && std::fabs(picture->Intrinsic().height - 1.0f) < 0.01f);
+        CHECK(test, std::fabs(picture->Bounds().x - 10.0f) < 0.01f && std::fabs(picture->Bounds().width - 120.0f) < 0.01f);
+        CHECK(test, std::fabs(picture->PictureBox().width - 120.0f) < 0.01f && std::fabs(picture->PictureBox().height - 80.0f) < 0.01f);
+        RecordingRenderer renderer;
+        plain->Paint(renderer);
+        const PaintRecord* drawn = PaintRecordFor(renderer, picture->PictureBox());
+        CHECK(test, drawn != nullptr && drawn->imagePixels);
+        CHECK(test, drawn != nullptr && drawn->imageName.find(photo) != std::string::npos);
+        CHECK(test, drawn != nullptr && drawn->imageWidth == 1 && drawn->imageHeight == 1);
+    }
+
+    // How the picture is fitted into the box: stretched over it, fitted whole inside it, filling it
+    // and hanging over, left at the size it came at, or fitted whole but never grown. A picture that
+    // does not cover its box sits where the position says, which is a fraction of the space left.
+    std::unique_ptr<Element> fitted = Layout(
+        ("<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+         "<image id=\"stretch\" x=\"10\" y=\"10\" width=\"120\" height=\"80\" source=\"" +
+         photo +
+         "\"/>"
+         "<image id=\"contain\" x=\"200\" y=\"10\" width=\"120\" height=\"80\" fit=\"contain\" source=\"" +
+         photo +
+         "\"/>"
+         "<image id=\"cover\" x=\"10\" y=\"120\" width=\"120\" height=\"80\" fit=\"cover\" source=\"" +
+         photo +
+         "\"/>"
+         "<image id=\"native\" x=\"200\" y=\"120\" width=\"120\" height=\"80\" fit=\"none\" source=\"" +
+         photo +
+         "\"/>"
+         "<image id=\"small\" x=\"330\" y=\"10\" width=\"60\" height=\"40\" fit=\"scaleDown\" objectPosition=\"left top\" source=\"" +
+         photo + "\"/></frame></window>")
+            .c_str(),
+        400.0f, 200.0f);
+    const auto boxOf = [&](const char* id) -> Rect {
+        Element* found = fitted != nullptr ? fitted->FindById(id) : nullptr;
+        ImageElement* element = dynamic_cast<ImageElement*>(found);
+        return element == nullptr ? Rect{} : element->PictureBox();
+    };
+    const Rect stretch = boxOf("stretch");
+    CHECK(test, std::fabs(stretch.width - 120.0f) < 0.01f && std::fabs(stretch.height - 80.0f) < 0.01f && std::fabs(stretch.x - 10.0f) < 0.01f);
+    // Fitted whole in a hundred and twenty by eighty box, a square picture is eighty across, centred.
+    const Rect contain = boxOf("contain");
+    CHECK(test, std::fabs(contain.width - 80.0f) < 0.01f && std::fabs(contain.height - 80.0f) < 0.01f && std::fabs(contain.x - 220.0f) < 0.01f);
+    // Covering the same box fills its width and hangs over top and bottom by twenty.
+    const Rect cover = boxOf("cover");
+    CHECK(test, std::fabs(cover.width - 120.0f) < 0.01f && std::fabs(cover.height - 120.0f) < 0.01f && std::fabs(cover.y - 100.0f) < 0.01f);
+    // At the size it came at, a single pixel sits in the middle of the box it was given.
+    const Rect native = boxOf("native");
+    CHECK(test, std::fabs(native.width - 1.0f) < 0.01f && std::fabs(native.x - 259.5f) < 0.01f && std::fabs(native.y - 159.5f) < 0.01f);
+    // Never grown: a picture smaller than its box is not blown up, and the position puts it against
+    // the top left corner instead of the middle.
+    // (`small` is one of the names the Windows headers keep for themselves, so the box is `shrunk`.)
+    const Rect shrunk = boxOf("small");
+    CHECK(test, std::fabs(shrunk.width - 1.0f) < 0.01f && std::fabs(shrunk.x - 330.0f) < 0.01f && std::fabs(shrunk.y - 10.0f) < 0.01f);
+
+    // A picture that hangs over its box is cut off at the box whether it was asked to be clipped or
+    // because covering the box is exactly the case where it hangs over.
+    std::unique_ptr<Element> held = Layout(
+        ("<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+         "<image id=\"loose\" x=\"10\" y=\"10\" width=\"120\" height=\"80\" fit=\"cover\" source=\"" +
+         photo +
+         "\"/><image id=\"clipped\" x=\"200\" y=\"10\" width=\"120\" height=\"80\" clip=\"true\" source=\"" + photo +
+         "\"/></frame></window>")
+            .c_str(),
+        400.0f, 200.0f);
+    if (held != nullptr) {
+        RecordingRenderer renderer;
+        held->Paint(renderer);
+        // The picture is drawn in the box it was fitted into rather than in the box the node was
+        // given, so the record it lies in is the one at the fitted box.
+        ImageElement* loose = dynamic_cast<ImageElement*>(held->FindById("loose"));
+        ImageElement* clipped = dynamic_cast<ImageElement*>(held->FindById("clipped"));
+        const PaintRecord* covering = loose == nullptr ? nullptr : PaintRecordFor(renderer, loose->PictureBox());
+        const PaintRecord* cut = clipped == nullptr ? nullptr : PaintRecordFor(renderer, clipped->PictureBox());
+        CHECK(test, covering != nullptr && covering->clipDepth > 0);
+        CHECK(test, cut != nullptr && cut->clipDepth > 0);
+    }
+
+    // What the document said about the picture reaches the node: the region of the file that is
+    // drawn, the look it is washed with, and the two mirrors.
+    std::unique_ptr<Element> washed_once = Layout(
+        ("<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+         "<image id=\"washed\" x=\"10\" y=\"10\" width=\"120\" height=\"80\" source=\"" +
+         photo +
+         "\" crop=\"0 0 1 1\" tint=\"#FF8040\" brightness=\"0.5\" contrast=\"2\" saturation=\"0\" "
+         "flipX=\"true\" flipY=\"true\" rotation=\"30\"/></frame></window>")
+            .c_str(),
+        400.0f, 200.0f);
+    ImageElement* washedElement = dynamic_cast<ImageElement*>(washed_once != nullptr ? washed_once->FindById("washed") : nullptr);
+    CHECK(test, washedElement != nullptr);
+    if (washedElement != nullptr) {
+        CHECK(test, washedElement->Cropped() && washedElement->Crop().width == 1 && washedElement->Crop().x == 0);
+        CHECK(test, washedElement->Tinted() && washedElement->TintColor().r > 0.9f && washedElement->TintColor().b < 0.4f);
+        CHECK(test, std::fabs(washedElement->Brightness() - 0.5f) < 0.01f);
+        CHECK(test, std::fabs(washedElement->Contrast() - 2.0f) < 0.01f);
+        CHECK(test, std::fabs(washedElement->Saturation()) < 0.01f);
+        CHECK(test, washedElement->FlippedX() && washedElement->FlippedY());
+        CHECK(test, std::fabs(washedElement->Rotation() - 30.0f) < 0.01f);
+        // A crop is the size the picture is drawn at, because the region is the part of the file the
+        // document asked to see rather than the whole of it.
+        CHECK(test, std::fabs(washedElement->Intrinsic().width - 1.0f) < 0.01f);
+        RecordingRenderer renderer;
+        washed_once->Paint(renderer);
+        const PaintRecord* record = PaintRecordFor(renderer, washedElement->Bounds());
+        CHECK(test, record != nullptr && record->imagePixels && record->rotationDepth > 0);
+        // Two pictures of the same file washed two ways are two images to the renderer's cache.
+        CHECK(test, record != nullptr && record->imageName.find(photo) != std::string::npos && record->imageName.size() > photo.size());
+    }
+
+    // A picture that names a file nobody keeps is not drawn as nothing: the box it would have covered
+    // is drawn, named after the file, so a gap in a design is visible where it stands.
+    std::unique_ptr<Element> missing = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<image id=\"gap\" x=\"10\" y=\"10\" width=\"120\" height=\"80\" source=\"Nowhere.png\"/></frame></window>",
+        400.0f, 200.0f);
+    ImageElement* absent = dynamic_cast<ImageElement*>(missing != nullptr ? missing->FindById("gap") : nullptr);
+    CHECK(test, absent != nullptr && absent->Source() == "Nowhere.png");
+    if (absent != nullptr) {
+        CHECK(test, std::fabs(absent->Intrinsic().width - 120.0f) < 0.01f && std::fabs(absent->Intrinsic().height - 80.0f) < 0.01f);
+        RecordingRenderer renderer;
+        missing->Paint(renderer);
+        bool named = false;
+        for (const PaintRecord& record : renderer.records) {
+            if (record.text == "Nowhere.png") {
+                named = true;
+            }
+        }
+        CHECK(test, named);
+    }
+
+    // What an image takes and what it refuses. It takes the box, the corners, the turn, the fitting,
+    // the region, the position, and the look; it refuses everything that describes a box of content,
+    // because a picture is one thing in the flow of its parent rather than a box around others.
+    CHECK(test, CompileUi(Source("<window><image source=\"photo.png\" fit=\"cover\" crop=\"0 0 10 10\" objectPosition=\"top right\" "
+                                  "tint=\"#FFFFFF\" brightness=\"1.2\" contrast=\"0.8\" saturation=\"2\" flipX=\"true\" flipY=\"true\" "
+                                  "radius=\"8\" clip=\"true\" rotation=\"15\" width=\"120\" height=\"80\" x=\"4\" y=\"8\" position=\"absolute\"/></window>"))
+                    .Ok());
+    CHECK(test, !CompileUi(Source("<window><image layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><image gap=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><image padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><image overflow=\"scroll\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><image text=\"Hello\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><image d=\"M0 0 L8 8\"/></window>")).Ok());
+    // The fit, the position, and the crop are read by the element, so a document that names none of
+    // them is the picture stretched over the box it was given, sitting the way it was written.
+    std::unique_ptr<Element> plainer = Layout("<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+                                              "<image id=\"plain\" x=\"10\" y=\"10\" width=\"120\" height=\"80\" source=\"Nowhere.png\"/></frame></window>",
+                                              400.0f, 200.0f);
+    ImageElement* unwritten = dynamic_cast<ImageElement*>(plainer != nullptr ? plainer->FindById("plain") : nullptr);
+    CHECK(test, unwritten != nullptr && unwritten->Fitting() == ImageFit::FILL && !unwritten->Clipped());
+    CHECK(test, unwritten != nullptr && std::fabs(unwritten->PositionX() - 0.5f) < 0.01f && std::fabs(unwritten->PositionY() - 0.5f) < 0.01f);
+    CHECK(test, unwritten != nullptr && !unwritten->Tinted() && !unwritten->Cropped() && !unwritten->FlippedX());
+    CHECK(test, unwritten != nullptr && std::fabs(unwritten->Brightness() - 1.0f) < 0.01f);
+
+    std::filesystem::remove(picturePath);
+    Finish(test, "image", before);
+}
+
 void TestRemainingSurface(TestContext& test) {
     const int before = test.failed;
     const std::vector<PathSample> cubic = SamplePath("M0 0 C0 40 30 40 30 0");
@@ -4559,6 +4833,7 @@ int RunUnitTests() {
     TestVector(test);
     TestSvg(test);
     TestRichText(test);
+    TestImage(test);
     TestLine(test);
     TestArrow(test);
     TestBoolean(test);

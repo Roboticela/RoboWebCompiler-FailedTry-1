@@ -333,9 +333,17 @@ std::vector<PropertySpec> TextProperties() {
                                        {"writingMode", TypeKind::STRING}});
 }
 
+// An image is a box drawn around a picture. It takes the values of a node and the values of the
+// picture: the file, the fitting that decides how much of the box it covers, the region of the file
+// that is drawn, where it sits in a box it does not cover, and the look it is washed with. The box
+// it is given is its own, so a picture has its own radius, its own clip, and its own turn. What it
+// refuses is everything about holding content: no layout of children, no padding, no gap, and no
+// overflow to scroll, because a picture is one thing in the flow of its parent.
 std::vector<PropertySpec> ImageProperties() {
     return With(IdentityProperties(), {{"source", TypeKind::STRING},
                                        {"fit", TypeKind::STRING},
+                                       {"crop", TypeKind::STRING},
+                                       {"objectPosition", TypeKind::STRING},
                                        {"radius", TypeKind::LENGTH},
                                        {"clip", TypeKind::BOOL},
                                        {"tint", TypeKind::COLOR},

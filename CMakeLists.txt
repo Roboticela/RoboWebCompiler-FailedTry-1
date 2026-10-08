@@ -61,6 +61,8 @@ add_library(RuntimeUi STATIC
     components/boolean/BooleanElement.h
     components/group/GroupElement.cpp
     components/group/GroupElement.h
+    components/image/ImageElement.cpp
+    components/image/ImageElement.h
     components/rectangle/RectangleElement.cpp
     components/rectangle/RectangleElement.h
     components/polygon/PolygonElement.cpp
@@ -105,6 +107,8 @@ add_library(RuntimeUi STATIC
     rendering/path/PathBoolean.h
     rendering/path/PathCurve.cpp
     rendering/path/PathCurve.h
+    rendering/image/ImageAdjust.cpp
+    rendering/image/ImageAdjust.h
     rendering/image/ImageDecoder.cpp
     rendering/image/SvgImage.cpp
     rendering/image/ImageDecoder.h

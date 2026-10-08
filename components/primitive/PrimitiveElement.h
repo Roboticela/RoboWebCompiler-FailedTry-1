@@ -1,7 +1,6 @@
 #pragma once
 
 #include "components/frame/Frame.h"
-#include "rendering/image/ImageDecoder.h"
 
 #include <string>
 #include <vector>
@@ -20,9 +19,6 @@ public:
 
     void SetText(std::string value);
     const std::string& Text() const;
-    void SetSource(std::string value);
-    void SetImageFit(std::string value);
-    void SetImageClip(bool value);
     void SetPathData(std::string value);
     void SetShapeName(std::string value);
     void SetFill(Color value);
@@ -48,15 +44,9 @@ protected:
 
 private:
     bool PlacesChildren() const;
-    void EnsureImage();
 
     NodeKind nodeKind = NodeKind::TEXT;
     std::string text;
-    std::string source;
-    std::string imageFit = "fill";
-    bool imageClip = false;
-    bool imageReady = false;
-    DecodedImage decoded;
     std::string pathData;
     std::string shapeName = "rect";
     Color fill{0.055f, 0.478f, 1.0f, 1.0f};

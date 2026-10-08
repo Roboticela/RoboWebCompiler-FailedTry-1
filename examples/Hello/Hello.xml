@@ -501,6 +501,35 @@
             </frame>
         </frame>
     </frame>
+    <frame name="Image" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="image — a picture in a box: how it is fitted into the box, the region of the file that is drawn, and the look it is washed with" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="contain — fitted whole inside the box, centred" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <image name="Contained" width="140" height="90" fit="contain" source="assets/flags/bq.png"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="cover + clip — fills the box and is cut off at it" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <image name="Covered" width="140" height="90" fit="cover" clip="true" source="assets/flags/bq.png"/>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="crop + tint + flip — a region of the file, washed blue and mirrored" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+                    <image name="Washed" width="120" height="80" crop="0 0 80 54" tint="#0E7AFF" flipX="true" source="assets/flags/bq.png"/>
+                </frame>
+            </frame>
+        </frame>
+        <text text="a picture that names a file nobody keeps is still a box, named after the file, so the gap shows where it stands" fontSize="12" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" alignItems="center" width="fill" height="120" background="#F5F5F7" padding="12" radius="8">
+            <image name="Missing" width="160" height="90" source="assets/flags/missing.png"/>
+            <image name="Native" width="160" height="90" fit="none" clip="true" source="assets/flags/bq.png"/>
+            <image name="Quiet" width="120" height="90" fit="cover" clip="true" saturation="0" brightness="1.1" source="assets/flags/bq.png"/>
+        </frame>
+    </frame>
     <frame name="Boolean" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
         <text text="boolean — one shape computed from the shapes it holds, in the group's own fill" fontSize="13" textColor="#86868B"/>
         <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">

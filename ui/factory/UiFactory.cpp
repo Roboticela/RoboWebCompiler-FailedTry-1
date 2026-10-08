@@ -5,6 +5,7 @@
 #include "components/boolean/BooleanElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
+#include "components/image/ImageElement.h"
 #include "components/layout/BoardElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
@@ -975,18 +976,6 @@ void ApplyShape(ShapeElement& shape, const IrNode& node) {
             shape.SetText(value->text);
         }
     }
-    if (const UiValue* value = FindProperty(node, "source")) {
-        // The file is read later, where the image is first drawn, so the name is settled here: a
-        // name read beside the document is what makes an image show whatever the program was
-        // started from, the way the art of an SVG does.
-        shape.SetSource(NamedFile(value->text, node.location.path));
-    }
-    if (const UiValue* value = FindProperty(node, "fit")) {
-        shape.SetImageFit(value->text);
-    }
-    if (const UiValue* value = FindProperty(node, "clip")) {
-        shape.SetImageClip(value->boolean);
-    }
     if (const UiValue* value = FindProperty(node, "d")) {
         shape.SetPathData(value->text);
     }
@@ -1350,6 +1339,51 @@ void ApplySpan(SpanElement& span, const IrNode& node) {
     }
 }
 
+// A picture is a box drawn around a file, so it reads everything a rectangle reads: the box, the
+// corners of a radius, the turn, the cursor, the appearance, the bindings, and the display. What is
+// left to say is the picture itself: the file it is read from, the region of it that is drawn,
+// where it sits inside the box when it does not cover it, and the look it is washed with.
+void ApplyImage(ImageElement& image, const IrNode& node) {
+    // An image is a rectangle, so it has to be asked first: the rectangle branch below would
+    // otherwise take it and leave the picture unread.
+    ApplyRectangle(image, node);
+    if (const UiValue* value = FindProperty(node, "source")) {
+        // The file is named beside the document that wrote it and not beside wherever the program
+        // was started from, which is what makes a document that ships with its pictures draw them.
+        image.SetSource(NamedFile(value->text, node.location.path));
+    }
+    if (const UiValue* value = FindProperty(node, "fit")) {
+        image.SetFit(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "crop")) {
+        image.SetCrop(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "objectPosition")) {
+        image.SetObjectPosition(value->text);
+    }
+    if (const UiValue* value = FindProperty(node, "clip")) {
+        image.SetClip(value->boolean);
+    }
+    if (const UiValue* value = FindProperty(node, "tint")) {
+        image.SetTint(value->color);
+    }
+    if (const UiValue* value = FindProperty(node, "brightness")) {
+        image.SetBrightness(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "contrast")) {
+        image.SetContrast(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "saturation")) {
+        image.SetSaturation(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "flipX")) {
+        image.SetFlipX(value->boolean);
+    }
+    if (const UiValue* value = FindProperty(node, "flipY")) {
+        image.SetFlipY(value->boolean);
+    }
+}
+
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
     switch (node.kind) {
     case NodeKind::WINDOW:
@@ -1376,6 +1410,8 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<ArrowElement>();
     case NodeKind::BOOLEAN:
         return std::make_unique<BooleanElement>();
+    case NodeKind::IMAGE:
+        return std::make_unique<ImageElement>();
     case NodeKind::SHADOW:
         return nullptr;
     case NodeKind::TEXT:
@@ -1386,7 +1422,6 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<SpanElement>();
     case NodeKind::GROUP:
         return std::make_unique<GroupElement>();
-    case NodeKind::IMAGE:
     case NodeKind::PATH:
     case NodeKind::COMPONENT:
     case NodeKind::INSTANCE:
@@ -1447,6 +1482,10 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         // A boolean group is a rectangle, so it has to be asked first: the rectangle branch below
         // would otherwise take it and leave the operation unsaid.
         ApplyBoolean(*boolean, node);
+    } else if (ImageElement* image = dynamic_cast<ImageElement*>(&element)) {
+        // An image is a rectangle, so it has to be asked first: the rectangle branch below would
+        // otherwise take it and leave the picture unread.
+        ApplyImage(*image, node);
     } else if (PolygonElement* polygon = dynamic_cast<PolygonElement*>(&element)) {
         // A polygon is a rectangle, so it has to be asked first: the rectangle branch below
         // would otherwise take it and leave the sides unsaid.

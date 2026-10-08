@@ -2191,7 +2191,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
                                                      {"Shape", "ellipse"},  {"Shape", "vector"},
                                                      {"Shape", "svg"},      {"Shape", "line"},
                                                      {"Shape", "boolean"},  {"Scrollbar", "scrollbar"},
-                                                     {"Type", "text"},      {"Type", "richtext"}};
+                                                     {"Media", "image"},    {"Type", "text"},
+                                                     {"Type", "richtext"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;

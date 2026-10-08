@@ -1,12 +1,9 @@
 #include "components/primitive/PrimitiveElement.h"
 
 #include "compiler/types/ValueParser.h"
-#include "rendering/image/ImageDecoder.h"
 #include "rendering/path/PathCurve.h"
 #include "rendering/renderer/Renderer.h"
 #include "rendering/renderer/StrokePattern.h"
-
-#include <windows.h>
 
 #include <algorithm>
 #include <cctype>
@@ -51,28 +48,6 @@ void ShapeElement::SetText(std::string value) {
 
 const std::string& ShapeElement::Text() const {
     return text;
-}
-
-void ShapeElement::SetSource(std::string value) {
-    source = std::move(value);
-    imageReady = false;
-    decoded = {};
-}
-
-void ShapeElement::SetImageFit(std::string value) {
-    imageFit = std::move(value);
-}
-
-void ShapeElement::SetImageClip(bool value) {
-    imageClip = value;
-}
-
-void ShapeElement::EnsureImage() {
-    if (imageReady || nodeKind != NodeKind::IMAGE || source.empty()) {
-        return;
-    }
-    imageReady = true;
-    DecodeImageFile(source, decoded);
 }
 
 void ShapeElement::SetPathData(std::string value) {
@@ -159,15 +134,6 @@ Size ShapeElement::Measure(TextMeasurer& measurer, float availableWidth, float a
         const Size textSize = measurer.MeasureText(text, fontSize, availableWidth > 1.0f ? availableWidth : 100000.0f);
         resolvedWidth = std::max(8.0f, textSize.width + 4.0f);
         resolvedHeight = std::max(fontSize, textSize.height);
-    } else if (nodeKind == NodeKind::IMAGE) {
-        EnsureImage();
-        if (!decoded.frames.empty() && decoded.frames.front().width > 0 && decoded.frames.front().height > 0) {
-            resolvedWidth = static_cast<float>(decoded.frames.front().width);
-            resolvedHeight = static_cast<float>(decoded.frames.front().height);
-        } else {
-            resolvedWidth = 120.0f;
-            resolvedHeight = 80.0f;
-        }
     } else if (PlacesChildren()) {
         resolvedWidth = 8.0f;
         resolvedHeight = 8.0f;    for (const std::unique_ptr<Element>& child : Children()) {
@@ -259,65 +225,6 @@ void ShapeElement::OnPaint(Renderer& renderer) {
             const float baseline = area.y + area.height - 2.0f;
             renderer.FillRectangle(Rect{area.x, baseline, area.width, 1.0f}, textColor, 0.0f);
         }
-        return;
-    }
-    if (nodeKind == NodeKind::IMAGE) {
-        EnsureImage();
-        if (!decoded.frames.empty()) {
-            int frameIndex = 0;
-            if (decoded.frames.size() > 1) {
-                unsigned total = 0;
-                for (const ImageFrame& candidate : decoded.frames) {
-                    total += static_cast<unsigned>(candidate.delayMs > 0 ? candidate.delayMs : 100);
-                }
-                unsigned at = total == 0 ? 0 : static_cast<unsigned>(GetTickCount64() % total);
-                unsigned cursor = 0;
-                for (std::size_t index = 0; index < decoded.frames.size(); ++index) {
-                    const int delay = decoded.frames[index].delayMs > 0 ? decoded.frames[index].delayMs : 100;
-                    cursor += static_cast<unsigned>(delay);
-                    if (at < cursor) {
-                        frameIndex = static_cast<int>(index);
-                        break;
-                    }
-                }
-            }
-            const ImageFrame& frame = decoded.frames[static_cast<std::size_t>(frameIndex)];
-            Rect dest = area;
-            if (frame.width > 0 && frame.height > 0 && area.width > 0.0f && area.height > 0.0f && imageFit != "fill") {
-                const float scaleX = area.width / static_cast<float>(frame.width);
-                const float scaleY = area.height / static_cast<float>(frame.height);
-                float scale = 1.0f;
-                if (imageFit == "cover") {
-                    scale = std::max(scaleX, scaleY);
-                } else if (imageFit == "none") {
-                    scale = 1.0f;
-                } else if (imageFit == "scaleDown") {
-                    scale = std::min(1.0f, std::min(scaleX, scaleY));
-                } else {
-                    scale = std::min(scaleX, scaleY);
-                }
-                dest.width = static_cast<float>(frame.width) * scale;
-                dest.height = static_cast<float>(frame.height) * scale;
-                dest.x = area.x + (area.width - dest.width) * 0.5f;
-                dest.y = area.y + (area.height - dest.height) * 0.5f;
-            }
-            if (imageClip || imageFit == "cover") {
-                renderer.PushClip(area);
-            }
-            renderer.DrawCachedImage(source, dest, frame.bgra.data(), frame.width, frame.height);
-            if (imageClip || imageFit == "cover") {
-                renderer.PopClip();
-            }
-            return;
-        }
-        renderer.FillRectangle(area, Color{0.91f, 0.92f, 0.93f, 1.0f}, cornerRadius);
-        renderer.StrokeRectangle(area, stroke, 1.0f, cornerRadius);
-        TextStyle style;
-        style.fontSize = 12.0f;
-        style.color = textColor;
-        style.horizontal = TextAlign::CENTER;
-        style.vertical = TextAlign::CENTER;
-        renderer.DrawString(source.empty() ? "Image" : source, area, style);
         return;
     }
     if (nodeKind == NodeKind::VECTOR && !Children().empty()) {
