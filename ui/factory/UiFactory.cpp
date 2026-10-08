@@ -14,6 +14,8 @@
 #include "components/rectangle/RectangleElement.h"
 #include "components/star/StarElement.h"
 #include "components/svg/SvgElement.h"
+#include "components/text/RichTextElement.h"
+#include "components/text/SpanElement.h"
 #include "components/text/TextElement.h"
 #include "components/vector/VectorElement.h"
 #include "rendering/image/ImageDecoder.h"
@@ -1327,6 +1329,27 @@ void ApplyTypography(TextElement& text, const IrNode& node) {
     }
 }
 
+// A run of text inside a block of text. Everything a run of text reads, a span reads the same way,
+// because a span is a run of text: the values that set it are the values that set the block it sits
+// in, so they are read by the one reader of them. What is left to say is which of those values the
+// document wrote, because a run takes every value it did not write from the block around it. The
+// names of the values the document wrote are the ones the span answers for, so they are read off the
+// node rather than listed again here: a value that is not one a run can write is refused by the
+// compiler before it reaches this point.
+void ApplySpan(SpanElement& span, const IrNode& node) {
+    // A run is named like anything else in the document: the designer has to be able to point at the
+    // piece of a sentence it wants to change, and the name of the node is how it points. A run has
+    // no place of its own to be read from, so its name is read here rather than by the reader of
+    // everything else a node is told.
+    if (!node.id.empty()) {
+        span.SetId(node.id);
+    }
+    ApplyTypography(span, node);
+    for (const std::pair<std::string, UiValue>& property : node.properties) {
+        span.WriteValue(property.first);
+    }
+}
+
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
     switch (node.kind) {
     case NodeKind::WINDOW:
@@ -1357,6 +1380,10 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return nullptr;
     case NodeKind::TEXT:
         return std::make_unique<TextElement>();
+    case NodeKind::RICHTEXT:
+        return std::make_unique<RichTextElement>();
+    case NodeKind::SPAN:
+        return std::make_unique<SpanElement>();
     case NodeKind::GROUP:
         return std::make_unique<GroupElement>();
     case NodeKind::IMAGE:
@@ -1377,7 +1404,17 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
     // SVG the document carries draws the children it declares, so the art it holds stays in the
     // tree where the document can pick it apart. Either way the children are built below.
     std::vector<IrNode> artwork;
-    if (TextElement* text = dynamic_cast<TextElement*>(&element)) {
+    if (RichTextElement* rich = dynamic_cast<RichTextElement*>(&element)) {
+        // A block of rich text is a block of text, so it reads everything a block of text reads: the
+        // only thing that makes it rich is the runs it holds, and those are its children.
+        ApplyFrame(*rich, node);
+        ApplyCommon(*rich, node);
+        ApplyTypography(*rich, node);
+    } else if (SpanElement* span = dynamic_cast<SpanElement*>(&element)) {
+        // A span is a run of text, so it has to be asked before the block of text underneath it: the
+        // text branch would otherwise take it and leave the values it wrote unrecorded.
+        ApplySpan(*span, node);
+    } else if (TextElement* text = dynamic_cast<TextElement*>(&element)) {
         ApplyFrame(*text, node);
         ApplyCommon(*text, node);
         ApplyTypography(*text, node);

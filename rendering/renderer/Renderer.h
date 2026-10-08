@@ -3,6 +3,7 @@
 #include "engine/math/Color.h"
 #include "engine/types/UiTypes.h"
 #include "rendering/text/TextMeasurer.h"
+#include "rendering/text/TextRun.h"
 #include "rendering/text/TextStyle.h"
 
 #include <string>
@@ -44,6 +45,10 @@ public:
     virtual void FillRectangle(const Rect& rect, const Color& color, float radius) = 0;
     virtual void StrokeRectangle(const Rect& rect, const Color& color, float thickness, float radius) = 0;
     virtual void DrawString(std::string_view text, const Rect& rect, const TextStyle& style) = 0;
+    // A paragraph of runs is one draw, not one draw per run: the lines of a paragraph are broken
+    // across all of its runs, so the run that ends a line and the run that begins the next one are
+    // placed by the same line breaking, and drawing them apart would break the paragraph twice.
+    virtual void DrawParagraph(const std::vector<TextRun>& runs, const Rect& rect, const TextStyle& paragraph) = 0;
     virtual void DrawCachedImage(std::string_view key, const Rect& rect, const unsigned char* bgra, int width, int height) = 0;
     virtual void DrawVector(const VectorPaint& paint) = 0;
     virtual void PushClip(const Rect& rect) = 0;

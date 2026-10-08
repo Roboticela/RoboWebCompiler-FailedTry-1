@@ -15,6 +15,8 @@
 #include "components/rectangle/RectangleElement.h"
 #include "components/star/StarElement.h"
 #include "components/svg/SvgElement.h"
+#include "components/text/RichTextElement.h"
+#include "components/text/SpanElement.h"
 #include "components/text/TextElement.h"
 #include "components/vector/VectorElement.h"
 #include "designer/model/DesignDocument.h"
@@ -56,10 +58,43 @@
 namespace Runtime {
 namespace {
 
+// The one reading of a paragraph the tests measure against: every character is half a size unit
+// wide, the runs of the paragraph follow one another and wrap when they reach the width they are
+// held in, and a line is as tall as the line height of the paragraph over the tallest run on it.
+// The line breaking of a real platform is finer than this (it breaks between words, not between
+// runs), so this is a measurer to test the element against rather than the platform it draws with.
+TextParagraph LayOutRuns(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width) {
+    TextParagraph measured;
+    measured.runs.assign(runs.size(), Rect{0.0f, 0.0f, 0.0f, 0.0f});
+    const float multiple = paragraph.lineHeight > 0.0f ? paragraph.lineHeight : 1.0f;
+    float line = paragraph.fontSize * multiple;
+    for (const TextRun& run : runs) {
+        line = std::max(line, run.style.fontSize * multiple);
+    }
+    float at = 0.0f;
+    float top = 0.0f;
+    for (std::size_t index = 0; index < runs.size(); ++index) {
+        const float runWidth = static_cast<float>(runs[index].text.size()) * runs[index].style.fontSize * 0.5f;
+        if (at > 0.0f && width > 0.0f && width < UNBOUNDED_MEASURE && at + runWidth > width) {
+            at = 0.0f;
+            top += line;
+        }
+        measured.runs[index] = Rect{at, top, runWidth, line};
+        at += runWidth;
+        measured.size.width = std::max(measured.size.width, at);
+    }
+    measured.size.height = top + line;
+    return measured;
+}
+
 class FakeMeasurer : public TextMeasurer {
 public:
     Size MeasureText(std::string_view, const TextStyle& style, float) override {
         return Size{style.fontSize, style.fontSize};
+    }
+
+    TextParagraph MeasureParagraph(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width, float) override {
+        return LayOutRuns(runs, paragraph, width);
     }
 };
 
@@ -74,6 +109,10 @@ public:
         const ShapedText measured = ShapeText(text, shaped, shaped.wrap ? maxWidth : UNBOUNDED_MEASURE);
         return Size{measured.width, measured.height};
     }
+
+    TextParagraph MeasureParagraph(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width, float) override {
+        return LayOutRuns(runs, paragraph, width);
+    }
 };
 
 // Deliberately poor at measuring and good at remembering: the style a block hands over can be
@@ -87,9 +126,21 @@ public:
         return Size{watched.fontSize, watched.fontSize};
     }
 
+    TextParagraph MeasureParagraph(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width, float) override {
+        style = paragraph;
+        measuredText.clear();
+        for (const TextRun& run : runs) {
+            measuredText += run.text;
+        }
+        runCount = runs.size();
+        measuredWidth = width;
+        return LayOutRuns(runs, paragraph, width);
+    }
+
     TextStyle style;
     std::string measuredText;
     float measuredWidth = 0.0f;
+    std::size_t runCount = 0;
 };
 
 struct PaintRecord {
@@ -120,6 +171,20 @@ struct PaintRecord {
     bool underline = false;
     bool lineThrough = false;
     bool overline = false;
+    // What a paragraph draw was asked for, one entry per run, so the values each run reached the
+    // draw with can be read off a paint pass: the text of the run as the case it is written in left
+    // it, the size and weight it is set at, the colour it is drawn in, and its lines.
+    struct PaintedRun {
+        std::string text;
+        std::string fontFamily;
+        float fontSize = 0.0f;
+        int fontWeight = 400;
+        Color color;
+        bool italic = false;
+        bool underline = false;
+        bool lineThrough = false;
+    };
+    std::vector<PaintedRun> runs;
 };
 
 // Records what a paint pass handed to each draw, so a group can be checked for passing its
@@ -127,6 +192,9 @@ struct PaintRecord {
 class RecordingRenderer : public Renderer {
 public:
     Size MeasureText(std::string_view, const TextStyle& style, float) override { return Size{style.fontSize, style.fontSize}; }
+    TextParagraph MeasureParagraph(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width, float) override {
+        return LayOutRuns(runs, paragraph, width);
+    }
     void SetDpi(float) override {}
     void SetTransform(float, float, float) override {}
     void BeginFrame(Color) override {}
@@ -141,6 +209,24 @@ public:
         records.back().underline = style.underline;
         records.back().lineThrough = style.lineThrough;
         records.back().overline = style.overline;
+    }
+    void DrawParagraph(const std::vector<TextRun>& paragraph, const Rect& rect, const TextStyle& style) override {
+        Record(rect);
+        records.back().lineHeight = style.lineHeight;
+        records.back().wrap = style.wrap;
+        records.back().overline = style.overline;
+        for (const TextRun& run : paragraph) {
+            PaintRecord::PaintedRun painted;
+            painted.text = run.text;
+            painted.fontFamily = run.style.fontFamily;
+            painted.fontSize = run.style.fontSize;
+            painted.fontWeight = run.style.fontWeight;
+            painted.color = run.style.color;
+            painted.italic = run.style.italic;
+            painted.underline = run.style.underline;
+            painted.lineThrough = run.style.lineThrough;
+            records.back().runs.push_back(std::move(painted));
+        }
     }
     void DrawCachedImage(std::string_view, const Rect& rect, const unsigned char*, int, int) override { Record(rect); }
     void DrawVector(const VectorPaint& paint) override {
@@ -2540,6 +2626,233 @@ void TestSvg(TestContext& test) {
     Finish(test, "svg", before);
 }
 
+void TestRichText(TestContext& test) {
+    const int before = test.failed;
+
+    // A block of rich text is a block of text whose content is made of runs, so it is a text block to
+    // anything that asks, and the runs it holds are the spans of the document. Nothing is written
+    // twice: a span is the text component underneath, so it is a block of text and a frame and an
+    // element, and a rich text block is a block of text.
+    std::unique_ptr<Element> plain = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<richtext id=\"para\" x=\"10\" y=\"10\" text=\"Hello \" fontSize=\"20\" lineHeight=\"1.42\">"
+        "<span id=\"run\" text=\"world\" fontWeight=\"700\" textColor=\"#FF375F\"/>"
+        "</richtext>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* para = plain != nullptr ? plain->FindById("para") : nullptr;
+    Element* run = plain != nullptr ? plain->FindById("run") : nullptr;
+    CHECK(test, para != nullptr && run != nullptr);
+    CHECK(test, para != nullptr && para->Kind() == NodeKind::RICHTEXT && dynamic_cast<TextElement*>(para) != nullptr);
+    CHECK(test, run != nullptr && run->Kind() == NodeKind::SPAN && dynamic_cast<TextElement*>(run) != nullptr);
+    if (para != nullptr && run != nullptr) {
+        RichTextElement* rich = dynamic_cast<RichTextElement*>(para);
+        SpanElement* span = dynamic_cast<SpanElement*>(run);
+        CHECK(test, rich != nullptr && span != nullptr);
+        CHECK(test, para->Children().size() == 1 && para->Children().front().get() == run);
+        if (rich != nullptr && span != nullptr) {
+            // The paragraph is the text the block carries and then the span it holds, in the order
+            // they are set, and every run takes the values of the block it did not write itself.
+            const std::vector<TextRun> runs = rich->Runs();
+            CHECK(test, runs.size() == 2);
+            if (runs.size() == 2) {
+                // The space the block ends its text with is part of the run, which is what keeps
+                // the words of a paragraph apart when they are written as runs of their own.
+                CHECK(test, runs[0].text == "Hello " && runs[1].text == "world");
+                CHECK(test, std::fabs(runs[0].style.fontSize - 20.0f) < 0.01f && std::fabs(runs[1].style.fontSize - 20.0f) < 0.01f);
+                CHECK(test, runs[0].style.fontWeight == 400 && runs[1].style.fontWeight == 700);
+                CHECK(test, std::fabs(runs[1].style.color.r - 1.0f) < 0.01f && runs[1].style.color.g < 0.4f);
+            }
+            // The box the block covers is the box the runs cover together: a character is half a size
+            // wide in this measurer, so eleven characters of twenty are one hundred and ten across,
+            // and the line they are set on is the line height of the block over the size of a run.
+            const float line = 20.0f * 1.42f;
+            CHECK(test, std::fabs(para->Bounds().width - 110.0f) < 0.01f);
+            CHECK(test, std::fabs(para->Bounds().height - line) < 0.01f);
+            CHECK(test, rich->RunBoxes().size() == 2);
+            if (rich->RunBoxes().size() == 2) {
+                CHECK(test, std::fabs(rich->RunBoxes()[0].x) < 0.01f && std::fabs(rich->RunBoxes()[0].width - 60.0f) < 0.01f);
+                CHECK(test, std::fabs(rich->RunBoxes()[1].x - 60.0f) < 0.01f && std::fabs(rich->RunBoxes()[1].width - 50.0f) < 0.01f);
+            }
+            // A run is placed where it was drawn: the span covers the stretch of the line its own
+            // text took, which is what lets the editor pick that word out of the paragraph.
+            CHECK(test, std::fabs(run->Bounds().x - (para->Bounds().x + 60.0f)) < 0.01f);
+            CHECK(test, std::fabs(run->Bounds().y - para->Bounds().y) < 0.01f);
+            CHECK(test, std::fabs(run->Bounds().width - 50.0f) < 0.01f);
+            CHECK(test, std::fabs(run->Bounds().height - line) < 0.01f);
+            // The whole paragraph is one draw, and every run reached it with its own values.
+            RecordingRenderer renderer;
+            plain->Paint(renderer);
+            const PaintRecord* drawn = PaintRecordFor(renderer, para->Bounds());
+            CHECK(test, drawn != nullptr && drawn->runs.size() == 2);
+            if (drawn != nullptr && drawn->runs.size() == 2) {
+                CHECK(test, drawn->runs[0].text == "Hello " && drawn->runs[1].text == "world");
+                CHECK(test, drawn->runs[0].fontWeight == 400 && drawn->runs[1].fontWeight == 700);
+                CHECK(test, drawn->runs[1].color.r > 0.9f && drawn->runs[1].color.g < 0.4f);
+            }
+            // A click on a run picks that run out of the block, and a click inside the block beside
+            // its text still belongs to the block.
+            CHECK(test, para->HitTest(Point{run->Bounds().x + 4.0f, run->Bounds().y + 4.0f}) == run);
+            CHECK(test, para->HitTest(Point{para->Bounds().x + 4.0f, para->Bounds().y + 4.0f}) == para);
+            CHECK(test, para->HitTest(Point{para->Bounds().x - 4.0f, para->Bounds().y}) == nullptr);
+        }
+    }
+
+    // A width the document wrote is the width the lines are held in, so the runs of a paragraph wrap
+    // together: a run that does not fit on the line it is on begins the next one, and the box it is
+    // given is the box it reaches on that line.
+    std::unique_ptr<Element> wrapped = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<richtext id=\"para\" x=\"10\" y=\"10\" width=\"60\" text=\"Hello \" fontSize=\"20\" lineHeight=\"1.42\">"
+        "<span id=\"run\" text=\"world\" textColor=\"#30D158\"/>"
+        "</richtext>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* wrapping = wrapped != nullptr ? wrapped->FindById("para") : nullptr;
+    Element* nextLine = wrapped != nullptr ? wrapped->FindById("run") : nullptr;
+    CHECK(test, wrapping != nullptr && nextLine != nullptr);
+    if (wrapping != nullptr && nextLine != nullptr) {
+        const float line = 20.0f * 1.42f;
+        CHECK(test, std::fabs(wrapping->Bounds().width - 60.0f) < 0.01f);
+        CHECK(test, std::fabs(wrapping->Bounds().height - line * 2.0f) < 0.01f);
+        // The run that did not fit is on the second line, at the left edge of the block.
+        CHECK(test, std::fabs(nextLine->Bounds().x - wrapping->Bounds().x) < 0.01f);
+        CHECK(test, std::fabs(nextLine->Bounds().y - (wrapping->Bounds().y + line)) < 0.01f);
+    }
+
+    // A span that writes nothing is drawn with the values of its block, and a span that writes one
+    // value is drawn with that value and the block's for everything else. The case a block asks for
+    // reaches the runs that did not ask for one of their own, and a run that asks for another case
+    // is drawn in the case it asked for.
+    std::unique_ptr<Element> inherited = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<richtext id=\"para\" x=\"10\" y=\"10\" text=\"Lead \" textTransform=\"uppercase\" fontSize=\"20\" lineHeight=\"1.42\">"
+        "<span id=\"said\" text=\"kept\"/>"
+        "<span id=\"chose\" text=\"QUIET\" textCase=\"lowercase\" fontSize=\"12\"/>"
+        "</richtext>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* cases = inherited != nullptr ? inherited->FindById("para") : nullptr;
+    if (Element* said = inherited != nullptr ? inherited->FindById("said") : nullptr) {
+        RichTextElement* rich = dynamic_cast<RichTextElement*>(cases);
+        CHECK(test, rich != nullptr);
+        if (rich != nullptr) {
+            const std::vector<TextRun> runs = rich->Runs();
+            CHECK(test, runs.size() == 3);
+            if (runs.size() == 3) {
+                CHECK(test, runs[1].text == "KEPT");
+                CHECK(test, runs[2].text == "quiet");
+                // The run that named a size is drawn at that size and the run that named none at the
+                // size of the block, and the line of the block holds the taller of them.
+                CHECK(test, std::fabs(runs[1].style.fontSize - 20.0f) < 0.01f && std::fabs(runs[2].style.fontSize - 12.0f) < 0.01f);
+                CHECK(test, std::fabs(cases->Bounds().height - (20.0f * 1.42f)) < 0.01f);
+                // The tracking of a run is a fraction of its own size, so a run the block sized and a
+                // run that sized itself are tracked by the same fraction rather than by one distance.
+                CHECK(test, std::fabs(runs[1].style.letterSpacing - runs[2].style.letterSpacing) < 0.01f);
+            }
+        }
+    }
+
+    // The size the block covers is decided by the values a block of text reads, so a rich text block
+    // hugs its width, grows with the lines its runs wrap into, and keeps a size the document fixed.
+    std::unique_ptr<Element> sized = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<richtext id=\"hug\" x=\"10\" y=\"10\" sizing=\"autoWidth\" fontSize=\"20\" lineHeight=\"1.42\" text=\"Hell\">"
+        "<span id=\"tail\" text=\"o!\"/>"
+        "</richtext>"
+        "<richtext id=\"tall\" x=\"10\" y=\"80\" width=\"40\" sizing=\"autoHeight\" fontSize=\"20\" lineHeight=\"1.42\" text=\"one \">"
+        "<span id=\"more\" text=\"two\"/>"
+        "</richtext>"
+        "<richtext id=\"fixed\" x=\"200\" y=\"80\" width=\"120\" height=\"90\" fontSize=\"20\" text=\"kept\"/>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    const auto boxOf = [&](const char* id) {
+        Element* found = sized != nullptr ? sized->FindById(id) : nullptr;
+        return found == nullptr ? Rect{} : found->Bounds();
+    };
+    const float hugLine = 20.0f * 1.42f;
+    // Six characters of twenty at half a size each is sixty across and one line down.
+    CHECK(test, std::fabs(boxOf("hug").width - 60.0f) < 0.01f && std::fabs(boxOf("hug").height - hugLine) < 0.01f);
+    // Two runs that do not fit on one line of forty are two lines down and as wide as they were given.
+    CHECK(test, std::fabs(boxOf("tall").width - 40.0f) < 0.01f && std::fabs(boxOf("tall").height - hugLine * 2.0f) < 0.01f);
+    // A fixed block is the size it was given, whatever its runs cover.
+    CHECK(test, std::fabs(boxOf("fixed").width - 120.0f) < 0.01f && std::fabs(boxOf("fixed").height - 90.0f) < 0.01f);
+
+    // A paragraph that is hidden measures to nothing, paints nothing, and is not hit.
+    std::unique_ptr<Element> hidden = Layout(
+        "<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        "<richtext id=\"gone\" x=\"10\" y=\"10\" display=\"none\" text=\"seen\"><span id=\"lit\" text=\"too\"/></richtext>"
+        "</frame></window>",
+        400.0f, 200.0f);
+    Element* gone = hidden != nullptr ? hidden->FindById("gone") : nullptr;
+    Element* lit = hidden != nullptr ? hidden->FindById("lit") : nullptr;
+    CHECK(test, gone != nullptr && lit != nullptr);
+    if (gone != nullptr && lit != nullptr) {
+        CHECK(test, gone->Measured().width == 0.0f && gone->Measured().height == 0.0f);
+        CHECK(test, gone->HitTest(Point{gone->Bounds().x, gone->Bounds().y}) == nullptr);
+        // The runs a hidden paragraph holds are taken out with it: a word of a paragraph that was
+        // taken out of the layout is a box of no size, and a click cannot land on it.
+        CHECK(test, lit->Bounds().width == 0.0f && lit->Bounds().height == 0.0f);
+        CHECK(test, gone->FindById("lit") == nullptr || gone->FindById("lit")->HitTest(Point{lit->Bounds().x, lit->Bounds().y}) == nullptr);
+        RecordingRenderer renderer;
+        hidden->Paint(renderer);
+        CHECK(test, PaintRecordFor(renderer, Rect{10.0f, 10.0f, 8.0f, 8.0f}) == nullptr);
+    }
+
+    // The text a document writes is the text the document gets, spaces at its ends included: what
+    // separates one run of a paragraph from the next is that space, and the compiler is the only
+    // place it could be lost. A value chosen out of a set is a keyword of the set rather than text,
+    // so it is the word of the set that reaches the element whatever spacing it was written with.
+    std::unique_ptr<Element> padded =
+        Layout("<window width=\"200\" height=\"80\"><text id=\"kept\" text=\" said \" fontSize=\"20\"/></window>", 200.0f, 80.0f);
+    const TextElement* spaced = padded != nullptr ? dynamic_cast<const TextElement*>(padded->FindById("kept")) : nullptr;
+    CHECK(test, spaced != nullptr && spaced->Text() == " said ");
+    std::unique_ptr<Element> keyword =
+        Layout("<window width=\"200\" height=\"80\"><frame id=\"column\" layout=\" vertical \"/></window>", 200.0f, 80.0f);
+    const Frame* column = keyword != nullptr ? dynamic_cast<const Frame*>(keyword->FindById("column")) : nullptr;
+    CHECK(test, column != nullptr && column->Layout() == FrameLayout::VERTICAL);
+
+    // A block of rich text takes everything a block of text takes, because it is one, and the runs
+    // inside it take the values that set a run of text. What a run refuses is everything that
+    // describes a box or the lines of a block: a run has no size, no place, no padding, no layout,
+    // and no line height of its own, and a name only the whole block answers for is refused too.
+    CHECK(test, CompileUi(Source("<window><richtext fontSize=\"20\"><span text=\"hi\" fontWeight=\"700\" tone=\"danger\" underline=\"true\"/></richtext></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><richtext text=\"Hello \" width=\"200\" height=\"80\" lineHeight=\"1.2\" textAlign=\"center\" sizing=\"autoHeight\" maxLines=\"2\" overline=\"true\" fontFile=\"assets/fonts/Inter.ttf\"><span id=\"run\" name=\"Run\" text=\"world\" fontFamily=\"Inter\"/></richtext></window>"))
+                    .Ok());
+    // A run names a face of the collection the block is drawn in, and refusing the file a block
+    // loads its collection from is what keeps the paragraph one draw rather than one per run.
+    CHECK(test, !CompileUi(Source("<window><span fontFile=\"x.ttf\"/></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><span text=\"alone\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span width=\"40\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span height=\"40\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span x=\"4\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span y=\"4\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span position=\"absolute\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span padding=\"4\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span gap=\"4\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span lineHeight=\"1.2\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span sizing=\"autoWidth\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span maxLines=\"2\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span textAlign=\"center\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span verticalAlign=\"center\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span overline=\"true\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span writingMode=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span level=\"2\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span size=\"sm\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span direction=\"rtl\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span background=\"#FFFFFF\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span radius=\"4\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><span visible=\"false\"/></window>")).Ok());
+    // A run holds no children: a run is a stretch of a line, and a line holds no boxes.
+    CHECK(test, !CompileUi(Source("<window><span text=\"hi\"><span text=\"there\"/></span></window>")).Ok());
+    // A block of rich text draws no box of its own, so what describes a shape is refused.
+    CHECK(test, !CompileUi(Source("<window><richtext d=\"M0 0 L8 8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><richtext source=\"logo.svg\"/></window>")).Ok());
+
+    Finish(test, "rich text", before);
+}
+
 void TestLine(TestContext& test) {
     const int before = test.failed;
 
@@ -4245,6 +4558,7 @@ int RunUnitTests() {
     TestStar(test);
     TestVector(test);
     TestSvg(test);
+    TestRichText(test);
     TestLine(test);
     TestArrow(test);
     TestBoolean(test);

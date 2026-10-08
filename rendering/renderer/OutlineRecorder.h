@@ -31,6 +31,7 @@ public:
     void FillRectangle(const Rect& rect, const Color& color, float radius) override;
     void StrokeRectangle(const Rect& rect, const Color& color, float thickness, float radius) override;
     void DrawString(std::string_view text, const Rect& rect, const TextStyle& style) override;
+    void DrawParagraph(const std::vector<TextRun>& runs, const Rect& rect, const TextStyle& paragraph) override;
     void DrawCachedImage(std::string_view key, const Rect& rect, const unsigned char* bgra, int width, int height) override;
     void DrawVector(const VectorPaint& paint) override;
     void PushClip(const Rect& rect) override;
@@ -43,6 +44,7 @@ public:
     // alone as well as ask with the style a block is drawn with.
     using TextMeasurer::MeasureText;
     Size MeasureText(std::string_view text, const TextStyle& style, float maxWidth) override;
+    TextParagraph MeasureParagraph(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width, float height) override;
 
     // Where the outlines are written from. Every point captured is written relative to this corner,
     // which is how a shape painted in composition coordinates comes back as the outline it draws

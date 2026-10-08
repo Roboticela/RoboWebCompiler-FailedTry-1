@@ -990,6 +990,12 @@ void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& n
             const float t = static_cast<float>(step) / 5.0f;
             renderer.FillRectangle(Rect{x + 3.0f + t * (size - 8.0f), y + size - 4.0f - t * (size - 8.0f), 2.0f, 2.0f}, quiet, 1.0f);
         }
+    } else if (name == "richtext") {
+        // A paragraph of runs: lines of text, one of them holding the word that is set differently.
+        renderer.FillRectangle(Rect{x, y + 2.0f, size * 0.72f, 2.0f}, quiet, 1.0f);
+        renderer.FillRectangle(Rect{x, y + 7.0f, size * 0.5f, 3.0f}, ink, 1.5f);
+        renderer.FillRectangle(Rect{x + size * 0.56f, y + 8.0f, size * 0.44f, 2.0f}, quiet, 1.0f);
+        renderer.FillRectangle(Rect{x, y + 14.0f, size * 0.86f, 2.0f}, quiet, 1.0f);
     } else if (name == "path") {
         renderer.FillRectangle(Rect{x, y + size - 4.0f, 3.0f, 3.0f}, ink, 1.5f);
         renderer.FillRectangle(Rect{x + size * 0.45f, y + 2.0f, 3.0f, 3.0f}, ink, 1.5f);
@@ -2180,11 +2186,12 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 const char* category;
                 const char* name;
             };
-            const std::vector<LibraryItem> items = {{"Window", "window"}, {"Board", "board"},
-                                                     {"Frame", "frame"},  {"Shape", "rectangle"},
-                                                     {"Shape", "ellipse"}, {"Shape", "vector"},
-                                                     {"Shape", "svg"},    {"Shape", "line"},
-                                                     {"Shape", "boolean"}, {"Scrollbar", "scrollbar"}};
+            const std::vector<LibraryItem> items = {{"Window", "window"},  {"Board", "board"},
+                                                     {"Frame", "frame"},    {"Shape", "rectangle"},
+                                                     {"Shape", "ellipse"},  {"Shape", "vector"},
+                                                     {"Shape", "svg"},      {"Shape", "line"},
+                                                     {"Shape", "boolean"},  {"Scrollbar", "scrollbar"},
+                                                     {"Type", "text"},      {"Type", "richtext"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;
@@ -2690,7 +2697,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
             };
             const auto addRule = [&]() { commands.push_back(MenuCommand{}); };
             const XmlNode* selectedNode = document.NodeAt(selection);
-            const bool textNode = selectedNode != nullptr && selectedNode->name == "text";
+            // The type commands set the values a block of text reads, and a block of rich text reads
+            // every one of them, so a paragraph answers to them the way a text block does. A run does
+            // not: it has no lines of its own to align and no size to set, so a menu that wrote those
+            // values into a run would write a document the compiler refuses.
+            const bool textNode = selectedNode != nullptr && (selectedNode->name == "text" || selectedNode->name == "richtext");
             const std::string textAlign = document.Attribute(selection, "textAlign");
             const std::string fontWeight = document.Attribute(selection, "fontWeight");
             const bool folderOpen = !projectRoot.empty();
@@ -2757,6 +2768,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Polygon", "P", 58, activeTool == EditorTool::POLYGON);
                 addCommand("Star", "S", 59, activeTool == EditorTool::STAR);
                 addCommand("Text", "T", 44, activeTool == EditorTool::TEXT);
+                addCommand("Rich Text", "", 64, activeTool == EditorTool::RICH_TEXT);
                 addCommand("Image", "I", 45, activeTool == EditorTool::IMAGE);
                 addCommand("Svg", "", 62, activeTool == EditorTool::SVG);
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
@@ -3766,6 +3778,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             activeTool = EditorTool::STAR;
         } else if (action == 44) {
             activeTool = EditorTool::TEXT;
+        } else if (action == 64) {
+            activeTool = EditorTool::RICH_TEXT;
         } else if (action == 45) {
             activeTool = EditorTool::IMAGE;
         } else if (action == 62) {
@@ -6697,7 +6711,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
         // Every component a shape tool can draw has to survive that trip, because the
         // editor writes defaults of its own for each of them and a default the component
         // does not declare would leave a document that no longer compiles.
-        const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "star", "frame", "text", "image", "line", "arrow", "vector", "svg", "boolean", "group"};
+        const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "star", "frame",       "text",   "richtext",
+                                  "image",     "line",    "arrow",  "vector",  "svg",   "boolean", "group"};
         for (const char* component : drawable) {
             std::vector<int> drawnShape;
             if (!document.InsertChild({0}, component, drawnShape) || !document.SetAttribute(drawnShape, "id", "drawnShape") ||

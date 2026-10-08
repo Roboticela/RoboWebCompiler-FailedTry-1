@@ -85,6 +85,10 @@ add_library(RuntimeUi STATIC
     components/layout/BoardElement.h
     components/text/TextElement.cpp
     components/text/TextElement.h
+    components/text/SpanElement.cpp
+    components/text/SpanElement.h
+    components/text/RichTextElement.cpp
+    components/text/RichTextElement.h
     rendering/renderer/Renderer.h
     rendering/renderer/OutlineRecorder.cpp
     rendering/renderer/OutlineRecorder.h
@@ -92,6 +96,9 @@ add_library(RuntimeUi STATIC
     rendering/renderer/StrokePattern.h
     rendering/text/TextMeasurer.h
     rendering/text/TextStyle.h
+    rendering/text/TextRun.h
+    rendering/text/TextTransform.cpp
+    rendering/text/TextTransform.h
     rendering/text/TextLayout.cpp
     rendering/text/TextLayout.h
     rendering/path/PathBoolean.cpp

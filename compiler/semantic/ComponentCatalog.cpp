@@ -534,48 +534,94 @@ std::vector<PropertySpec> ScrollProperties() {
                                     {"smoothScrolling", TypeKind::BOOL}});
 }
 
-std::vector<PropertySpec> TypographyProperties() {
-    std::vector<PropertySpec> properties = FrameProperties();
-    const PropertySpec extra[] = {
+// The values that set a run of text, wherever a run of text is drawn: the font it is written in,
+// the size, the weight, the colour, the tracking, and the line drawn through it. They are listed
+// once because a block of text and a run inside a block offer the same vocabulary for how text
+// looks, so the two cannot drift apart: a value learned on a block is a value a run writes, and a
+// value a run writes is a value the block it sits in can set for every run at once. What is not
+// here is everything that describes the box and its lines: how wide a block is, where it sits, how
+// tall its lines are, and how many of them it holds are questions about a block, and a run inside
+// one answers none of them.
+std::vector<PropertySpec> RunProperties() {
+    return {
         {"text", TypeKind::STRING},
         {"value", TypeKind::STRING},
         {"fontFamily", TypeKind::STRING},
-        {"fontFile", TypeKind::STRING},
         {"fontSize", TypeKind::FONT_SIZE},
         {"fontWeight", TypeKind::INT},
         {"fontStyle", TypeKind::STRING},
         {"letterSpacing", TypeKind::FLOAT},
         {"wordSpacing", TypeKind::FLOAT},
-        {"lineHeight", TypeKind::LINE_HEIGHT},
         {"textColor", TypeKind::COLOR},
-        {"textAlign", TypeKind::STRING},
-        {"verticalAlign", TypeKind::STRING},
-        // How the block decides the box it covers: the size it was given, a width that hugs one
-        // line, or a height that grows with the lines the text wraps into.
-        {"sizing", TypeKind::STRING},
-        // The two spellings the text subsystem names for what the run of text looks like: the case
-        // it is written in and the line drawn through it. They are keywords, so they are read here
-        // and folded where they are folded for every other keyword.
+        // The tone a run is drawn in, named the way the design system names a colour, so a run can
+        // be told apart from the text around it without a colour being written out.
+        {"tone", TypeKind::STRING},
+        // The two spellings the text subsystem names for what a run of text looks like: the case it
+        // is written in and the line drawn through it. They are keywords, so they are read here and
+        // folded where they are folded for every other keyword.
         {"textCase", TypeKind::STRING},
         {"textDecoration", TypeKind::STRING},
-        {"maxLines", TypeKind::INT},
-        {"ellipsis", TypeKind::BOOL},
         {"underline", TypeKind::BOOL},
         {"lineThrough", TypeKind::BOOL},
-        {"overline", TypeKind::BOOL},
         {"decorationColor", TypeKind::COLOR},
         {"decorationWidth", TypeKind::FLOAT},
         {"decorationStyle", TypeKind::STRING},
         {"textTransform", TypeKind::STRING},
         {"fontFeatures", TypeKind::STRING},
         {"language", TypeKind::STRING},
+    };
+}
+
+// A block of typography: everything a box of content takes, everything that sets a run of text, and
+// the values that belong to the block alone. So a block of text and a block of rich text take the
+// same language, because the only difference between them is how their text is written down: one
+// string, or a run per stretch of it.
+std::vector<PropertySpec> TypographyProperties() {
+    std::vector<PropertySpec> properties = FrameProperties();
+    // A box and the text inside it both name the way they are read, and the name is already the
+    // block's because a block lays its content out the way it is read. So a value the block already
+    // offers is not handed to it a second time.
+    for (const PropertySpec& property : RunProperties()) {
+        const bool named = std::any_of(properties.begin(), properties.end(), [&](const PropertySpec& candidate) {
+            return std::string_view(candidate.name) == property.name;
+        });
+        if (!named) {
+            properties.push_back(property);
+        }
+    }
+    const PropertySpec blockOnly[] = {
+        // A font named by the file it is kept in is a question a block answers once for all of its
+        // text: the platform draws a stretch of a line in a font of the collection the whole block
+        // was laid out in, so a run cannot name a file of its own. The block it sits in can.
+        {"fontFile", TypeKind::STRING},
+        {"lineHeight", TypeKind::LINE_HEIGHT},
+        {"textAlign", TypeKind::STRING},
+        {"verticalAlign", TypeKind::STRING},
+        // How the block decides the box it covers: the size it was given, a width that hugs one
+        // line, or a height that grows with the lines the text wraps into.
+        {"sizing", TypeKind::STRING},
+        {"maxLines", TypeKind::INT},
+        {"ellipsis", TypeKind::BOOL},
+        // The line drawn above a block. A run inside a block draws the lines it was given through
+        // and under it, and the line above it belongs to the block: it is drawn across the top of
+        // the box, which is a place only the block knows.
+        {"overline", TypeKind::BOOL},
         {"writingMode", TypeKind::STRING},
-        {"tone", TypeKind::STRING},
+        // Which role of the design system the block is drawn as. A role carries how the lines of a
+        // block are set, so it is a question about the block rather than about a run inside it.
         {"level", TypeKind::STRING},
         {"size", TypeKind::STRING},
     };
-    properties.insert(properties.end(), std::begin(extra), std::end(extra));
+    properties.insert(properties.end(), std::begin(blockOnly), std::end(blockOnly));
     return properties;
+}
+
+// A run of text inside a block of text: everything that sets a run, and the two names that let a
+// reader point at it. What it refuses is everything that describes a box or the lines of a block:
+// a run has no width, no place, no padding, no layout, and no line height of its own, because it is
+// part of a line the block around it broke.
+std::vector<PropertySpec> SpanProperties() {
+    return With({{"id", TypeKind::STRING}, {"name", TypeKind::STRING}}, RunProperties());
 }
 
 std::vector<PropertySpec> ShadowProperties() {
@@ -599,6 +645,8 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"rectangle", NodeKind::RECTANGLE, false, RectangleProperties()},
         {"shadow", NodeKind::SHADOW, false, ShadowProperties()},
         {"text", NodeKind::TEXT, true, TypographyProperties()},
+        {"richtext", NodeKind::RICHTEXT, true, TypographyProperties()},
+        {"span", NodeKind::SPAN, false, SpanProperties()},
         {"image", NodeKind::IMAGE, false, ImageProperties()},
         {"vector", NodeKind::VECTOR, true, VectorProperties()},
         {"svg", NodeKind::SVG, true, SvgProperties()},

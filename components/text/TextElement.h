@@ -40,12 +40,15 @@ public:
     const std::string& FontFamily() const;
     std::string DisplayText() const;
 
-private:
+protected:
     void ResolveRole(float viewport);
     std::string Transformed(const std::string& source) const;
     // The one description of how this block is set. Measuring and drawing both take it, so the box
-    // the block covers is the box the lines are drawn in.
+    // the block covers is the box the lines are drawn in. A block that holds runs hands this to
+    // them as the style they take every value they did not write themselves from.
     TextStyle StyleFor() const;
+
+private:
 
     std::string text;
     std::string role = "content";

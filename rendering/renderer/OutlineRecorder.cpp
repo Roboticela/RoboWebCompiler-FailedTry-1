@@ -119,6 +119,13 @@ void OutlineRecorder::DrawString(std::string_view, const Rect& rect, const TextS
     Capture(BoxPath(rect), rect, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
+void OutlineRecorder::DrawParagraph(const std::vector<TextRun>&, const Rect& rect, const TextStyle&) {
+    // A paragraph has no outline either. What it covers is the box it was drawn in, which is the box
+    // the lines were laid out in, so the runs of it do not widen what it contributes: a run is part
+    // of a line, and a line is inside the block.
+    Capture(BoxPath(rect), rect, 0.0f, 0.0f, 0.0f, 0.0f);
+}
+
 void OutlineRecorder::DrawCachedImage(std::string_view, const Rect& rect, const unsigned char*, int, int) {
     Capture(BoxPath(rect), rect, 0.0f, 0.0f, 0.0f, 0.0f);
 }
@@ -133,6 +140,29 @@ Size OutlineRecorder::MeasureText(std::string_view text, const TextStyle& style,
     const float width = static_cast<float>(text.size()) * style.fontSize * TEXT_INK_SHARE;
     const float line = style.fontSize * (style.lineHeight > 0.0f ? style.lineHeight : 1.0f);
     return Size{maxWidth > 0.0f ? std::min(width, maxWidth) : width, line};
+}
+
+TextParagraph OutlineRecorder::MeasureParagraph(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width, float height) {
+    // The same estimate a single run of text is given, for the paragraph those runs make: the ink
+    // they take together on the one line they are set on. There is no line breaking to be had here,
+    // so the runs are laid out side by side and each one is given the stretch it would cover.
+    float ink = 0.0f;
+    float line = paragraph.fontSize * (paragraph.lineHeight > 0.0f ? paragraph.lineHeight : 1.0f);
+    for (const TextRun& run : runs) {
+        ink += static_cast<float>(run.text.size()) * run.style.fontSize * TEXT_INK_SHARE;
+        line = std::max(line, run.style.fontSize * (paragraph.lineHeight > 0.0f ? paragraph.lineHeight : 1.0f));
+    }
+    const float held = width > 0.0f && width < UNBOUNDED_MEASURE ? std::min(ink, width) : ink;
+    TextParagraph measured;
+    measured.size = Size{held, line};
+    float at = 0.0f;
+    for (const TextRun& run : runs) {
+        const float runWidth = static_cast<float>(run.text.size()) * run.style.fontSize * TEXT_INK_SHARE;
+        measured.runs.push_back(Rect{at, 0.0f, runWidth, line});
+        at += runWidth;
+    }
+    (void)height;
+    return measured;
 }
 
 void OutlineRecorder::Capture(std::string_view data, const Rect& bounds, float viewX, float viewY, float viewWidth, float viewHeight) {

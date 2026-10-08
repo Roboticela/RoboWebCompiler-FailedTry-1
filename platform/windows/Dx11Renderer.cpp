@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <sstream>
 
@@ -417,26 +418,34 @@ void Dx11Renderer::ApplyTextLayout(IDWriteTextLayout* layout, IDWriteTextFormat*
         writeFactory->CreateEllipsisTrimmingSign(format, sign.GetAddressOf());
     }
     layout->SetTrimming(&trimming, sign.Get());
-    if (!style.fontFeatures.empty()) {
-        Microsoft::WRL::ComPtr<IDWriteTypography> typography;
-        if (SUCCEEDED(writeFactory->CreateTypography(typography.GetAddressOf()))) {
-            std::string tag;
-            for (std::size_t index = 0; index <= style.fontFeatures.size(); ++index) {
-                const char character = index == style.fontFeatures.size() ? ',' : style.fontFeatures[index];
-                if (character == ',' || character == ' ') {
-                    if (tag.size() == 4) {
-                        const UINT32 name = static_cast<unsigned char>(tag[0]) | (static_cast<unsigned char>(tag[1]) << 8) |
-                                            (static_cast<unsigned char>(tag[2]) << 16) | (static_cast<unsigned char>(tag[3]) << 24);
-                        typography->AddFontFeature(DWRITE_FONT_FEATURE{static_cast<DWRITE_FONT_FEATURE_TAG>(name), 1});
-                    }
-                    tag.clear();
-                } else {
-                    tag.push_back(character);
-                }
+    if (Microsoft::WRL::ComPtr<IDWriteTypography> typography = TypographyFor(style.fontFeatures)) {
+        layout->SetTypography(typography.Get(), range);
+    }
+}
+
+// The features a run is drawn with, read from the four-letter tags a document writes them as. They
+// live apart from the layout so the features of a whole block and the features of one run of it are
+// read the same way: both are handed to the range they belong to as one typography.
+Microsoft::WRL::ComPtr<IDWriteTypography> Dx11Renderer::TypographyFor(const std::string& features) {
+    Microsoft::WRL::ComPtr<IDWriteTypography> typography;
+    if (features.empty() || !writeFactory || FAILED(writeFactory->CreateTypography(typography.GetAddressOf()))) {
+        return typography;
+    }
+    std::string tag;
+    for (std::size_t index = 0; index <= features.size(); ++index) {
+        const char character = index == features.size() ? ',' : features[index];
+        if (character == ',' || character == ' ') {
+            if (tag.size() == 4) {
+                const UINT32 name = static_cast<unsigned char>(tag[0]) | (static_cast<unsigned char>(tag[1]) << 8) |
+                                    (static_cast<unsigned char>(tag[2]) << 16) | (static_cast<unsigned char>(tag[3]) << 24);
+                typography->AddFontFeature(DWRITE_FONT_FEATURE{static_cast<DWRITE_FONT_FEATURE_TAG>(name), 1});
             }
-            layout->SetTypography(typography.Get(), range);
+            tag.clear();
+        } else {
+            tag.push_back(character);
         }
     }
+    return typography;
 }
 
 IDWriteTextFormat* Dx11Renderer::FormatFor(const TextStyle& style) {
@@ -611,6 +620,189 @@ void Dx11Renderer::DrawString(std::string_view text, const Rect& rect, const Tex
     if (style.overline && rect.width > 0.0f) {
         brush->SetColor(ToD2d(style.decorationColor.a > 0.0f ? style.decorationColor : style.color, opacityStack.back()));
         const float thickness = style.decorationWidth > 0.0f ? style.decorationWidth : 1.0f;
+        d2dContext->FillRectangle(D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + thickness), brush.Get());
+    }
+}
+
+Microsoft::WRL::ComPtr<IDWriteTextLayout> Dx11Renderer::ParagraphFor(const std::vector<TextRun>& runs, const TextStyle& paragraph,
+                                                                   float width, float height,
+                                                                   std::vector<RunRange>& ranges,
+                                                                   std::vector<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>>* brushes) {
+    ranges.clear();
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (!writeFactory) {
+        return layout;
+    }
+    IDWriteTextFormat* format = FormatFor(paragraph);
+    if (format == nullptr) {
+        return layout;
+    }
+    // The runs of a paragraph are one string to the platform, and each run is a stretch of it. So the
+    // text is written out in the order the runs are set and the place each one begins is kept, which
+    // is what says which stretch of the paragraph a run's own values belong to.
+    std::wstring text;
+    float largest = paragraph.fontSize;
+    for (const TextRun& run : runs) {
+        const std::wstring piece = ToWide(run.text);
+        RunRange range;
+        range.start = static_cast<unsigned>(text.size());
+        range.length = static_cast<unsigned>(piece.size());
+        ranges.push_back(range);
+        text += piece;
+        // The tallest run is what the lines of the paragraph have to hold, so a run set larger than
+        // the block it sits in makes the lines taller rather than hanging out of them.
+        largest = std::max(largest, run.style.fontSize);
+    }
+    if (FAILED(writeFactory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, width, height,
+                                              layout.GetAddressOf()))) {
+        ranges.clear();
+        return layout;
+    }
+    // The fallback the platform keeps for the characters the family of the paragraph does not hold.
+    Microsoft::WRL::ComPtr<IDWriteFactory2> factory2;
+    if (SUCCEEDED(writeFactory.As(&factory2))) {
+        Microsoft::WRL::ComPtr<IDWriteFontFallback> fallback;
+        Microsoft::WRL::ComPtr<IDWriteTextLayout2> layout2;
+        if (SUCCEEDED(factory2->GetSystemFontFallback(fallback.GetAddressOf())) && SUCCEEDED(layout.As(&layout2))) {
+            layout2->SetFontFallback(fallback.Get());
+        }
+    }
+    // The paragraph first, so the values every run of it shares are laid over the whole of it. The
+    // lines are spaced for the tallest run, because a line holds every run on it and the tallest one
+    // is the one that decides how much room the line needs.
+    TextStyle whole = paragraph;
+    whole.fontSize = largest;
+    ApplyTextLayout(layout.Get(), format, whole, static_cast<unsigned>(text.size()));
+    for (std::size_t index = 0; index < runs.size(); ++index) {
+        const TextStyle& style = runs[index].style;
+        const RunRange& range = ranges[index];
+        if (range.length == 0) {
+            continue;
+        }
+        const DWRITE_TEXT_RANGE span{range.start, range.length};
+        layout->SetFontSize(style.fontSize, span);
+        layout->SetFontWeight(static_cast<DWRITE_FONT_WEIGHT>(style.fontWeight < 100 ? 400 : style.fontWeight), span);
+        layout->SetFontFamilyName(WidenAscii(style.fontFamily.empty() ? std::string("Inter") : style.fontFamily).c_str(), span);
+        layout->SetFontStyle(style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, span);
+        // The lines a run is drawn with are the run's own, so a run that says it is underlined is
+        // underlined even where the block around it is not, and one that says nothing keeps whatever
+        // the block said about the whole of its text.
+        layout->SetUnderline(style.underline ? TRUE : FALSE, span);
+        layout->SetStrikethrough(style.lineThrough ? TRUE : FALSE, span);
+        if (!style.locale.empty()) {
+            layout->SetLocaleName(WidenAscii(style.locale).c_str(), span);
+        }
+        if (style.letterSpacing != 0.0f || style.wordSpacing != 0.0f) {
+            Microsoft::WRL::ComPtr<IDWriteTextLayout1> spaced;
+            if (SUCCEEDED(layout.As(&spaced))) {
+                spaced->SetCharacterSpacing(style.letterSpacing, style.letterSpacing, style.wordSpacing, span);
+            }
+        }
+        if (Microsoft::WRL::ComPtr<IDWriteTypography> typography = TypographyFor(style.fontFeatures)) {
+            layout->SetTypography(typography.Get(), span);
+        }
+        if (brushes != nullptr && d2dContext) {
+            // A run's colour reaches the draw as the effect the range is drawn with, because a layout
+            // is drawn in one colour unless a range is handed something else to be drawn in. The
+            // brush is kept by the caller so it outlives the draw that reads it.
+            const float opacity = opacityStack.empty() ? 1.0f : opacityStack.back();
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> inked;
+            if (SUCCEEDED(d2dContext->CreateSolidColorBrush(ToD2d(style.color, opacity), inked.GetAddressOf()))) {
+                layout->SetDrawingEffect(inked.Get(), span);
+                brushes->push_back(std::move(inked));
+            }
+        }
+    }
+    return layout;
+}
+
+std::vector<Rect> Dx11Renderer::RunBoxes(IDWriteTextLayout* layout, const std::vector<RunRange>& ranges) const {
+    // Every run is given a box, so the boxes answer for the runs one for one: a run with nothing in
+    // it covers nothing and is given the box it covers rather than being left out, which is what
+    // keeps the place of a run in the line the place of its box among the boxes.
+    std::vector<Rect> boxes(ranges.size(), Rect{0.0f, 0.0f, 0.0f, 0.0f});
+    if (layout == nullptr) {
+        return boxes;
+    }
+    for (std::size_t index = 0; index < ranges.size(); ++index) {
+        if (ranges[index].length == 0) {
+            continue;
+        }
+        UINT32 count = 0;
+        if (FAILED(layout->HitTestTextRange(ranges[index].start, ranges[index].length, 0.0f, 0.0f, nullptr, 0, &count)) || count == 0) {
+            continue;
+        }
+        std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
+        UINT32 fetched = 0;
+        if (FAILED(layout->HitTestTextRange(ranges[index].start, ranges[index].length, 0.0f, 0.0f, metrics.data(), count, &fetched))) {
+            continue;
+        }
+        // A run that wraps covers one rectangle per line, and the box it is given is the box around
+        // all of them: the stretch of text it holds reaches from the first line to the last.
+        float left = metrics[0].left;
+        float top = metrics[0].top;
+        float right = metrics[0].left + metrics[0].width;
+        float bottom = metrics[0].top + metrics[0].height;
+        for (UINT32 found = 1; found < fetched; ++found) {
+            left = std::min(left, metrics[found].left);
+            top = std::min(top, metrics[found].top);
+            right = std::max(right, metrics[found].left + metrics[found].width);
+            bottom = std::max(bottom, metrics[found].top + metrics[found].height);
+        }
+        boxes[index] = Rect{left, top, std::max(0.0f, right - left), std::max(0.0f, bottom - top)};
+    }
+    return boxes;
+}
+
+TextParagraph Dx11Renderer::MeasureParagraph(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width, float height) {
+    TextParagraph measured;
+    if (!writeFactory || runs.empty()) {
+        measured.size = Size{0.0f, paragraph.fontSize};
+        measured.runs.assign(runs.size(), Rect{0.0f, 0.0f, 0.0f, 0.0f});
+        return measured;
+    }
+    // The width a caller names holds the lines of the paragraph; a width left open is a paragraph
+    // that keeps to one line, whatever the style would rather do. The height is the box the lines are
+    // placed in, which is what the alignment of the paragraph is against.
+    const bool wrap = paragraph.wrap && width < UNBOUNDED_MEASURE;
+    TextStyle measuring = paragraph;
+    measuring.wrap = wrap;
+    const float layoutWidth = wrap ? std::max(1.0f, width) : UNBOUNDED_MEASURE;
+    const float layoutHeight = height > 0.0f ? height : UNBOUNDED_MEASURE;
+    std::vector<RunRange> ranges;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout = ParagraphFor(runs, measuring, layoutWidth, layoutHeight, ranges, nullptr);
+    if (!layout) {
+        measured.size = Size{runs.front().text.size() * paragraph.fontSize * 0.5f, paragraph.fontSize};
+        measured.runs.assign(runs.size(), Rect{0.0f, 0.0f, 0.0f, 0.0f});
+        return measured;
+    }
+    DWRITE_TEXT_METRICS metrics{};
+    if (FAILED(layout->GetMetrics(&metrics))) {
+        measured.size = Size{0.0f, paragraph.fontSize};
+    } else {
+        measured.size = Size{metrics.width, std::max(metrics.height, paragraph.fontSize)};
+    }
+    measured.runs = RunBoxes(layout.Get(), ranges);
+    return measured;
+}
+
+void Dx11Renderer::DrawParagraph(const std::vector<TextRun>& runs, const Rect& rect, const TextStyle& paragraph) {
+    if (!d2dContext || !brush || !writeFactory || runs.empty() || rect.width <= 0.0f || rect.height <= 0.0f) {
+        return;
+    }
+    std::vector<RunRange> ranges;
+    std::vector<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>> brushes;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout = ParagraphFor(runs, paragraph, rect.width, rect.height, ranges, &brushes);
+    if (!layout) {
+        return;
+    }
+    // The colour of the paragraph draws every run that was not handed a colour of its own.
+    brush->SetColor(ToD2d(paragraph.color, opacityStack.empty() ? 1.0f : opacityStack.back()));
+    const D2D1_DRAW_TEXT_OPTIONS options = paragraph.maxLines > 0 || paragraph.ellipsis ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE;
+    d2dContext->DrawTextLayout(D2D1::Point2F(rect.x, rect.y), layout.Get(), brush.Get(), options);
+    if (paragraph.overline && rect.width > 0.0f) {
+        brush->SetColor(ToD2d(paragraph.decorationColor.a > 0.0f ? paragraph.decorationColor : paragraph.color, opacityStack.empty() ? 1.0f : opacityStack.back()));
+        const float thickness = paragraph.decorationWidth > 0.0f ? paragraph.decorationWidth : 1.0f;
         d2dContext->FillRectangle(D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + thickness), brush.Get());
     }
 }

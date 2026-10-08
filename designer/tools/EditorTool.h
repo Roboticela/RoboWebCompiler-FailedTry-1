@@ -10,6 +10,7 @@ enum class EditorTool {
     POLYGON,
     STAR,
     TEXT,
+    RICH_TEXT,
     IMAGE,
     SVG,
     LINE,
@@ -35,6 +36,8 @@ inline const char* EditorToolName(EditorTool tool) {
         return "Star";
     case EditorTool::TEXT:
         return "Text";
+    case EditorTool::RICH_TEXT:
+        return "Rich Text";
     case EditorTool::IMAGE:
         return "Image";
     case EditorTool::SVG:
@@ -67,6 +70,8 @@ inline const char* EditorToolComponent(EditorTool tool) {
         return "star";
     case EditorTool::TEXT:
         return "text";
+    case EditorTool::RICH_TEXT:
+        return "richtext";
     case EditorTool::IMAGE:
         return "image";
     case EditorTool::SVG:
@@ -101,6 +106,10 @@ inline const char* EditorToolShortcut(EditorTool tool) {
         return "S";
     case EditorTool::TEXT:
         return "T";
+    // The letter a text block is made with is the letter a paragraph of runs would ask for too, so
+    // the tool is reached through the command list rather than by a key of its own.
+    case EditorTool::RICH_TEXT:
+        return "";
     case EditorTool::IMAGE:
         return "I";
     // The letters a vector file would be named by are already spoken for, so the tool is reached

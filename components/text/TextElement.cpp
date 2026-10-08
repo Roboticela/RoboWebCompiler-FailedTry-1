@@ -2,9 +2,9 @@
 
 #include "compiler/types/ValueParser.h"
 #include "rendering/renderer/Renderer.h"
+#include "rendering/text/TextTransform.h"
 
 #include <algorithm>
-#include <cctype>
 
 namespace Runtime {
 namespace {
@@ -200,33 +200,7 @@ void TextElement::ResolveRole(float viewport) {
 }
 
 std::string TextElement::Transformed(const std::string& source) const {
-    if (textTransform == "none" || textTransform.empty()) {
-        return source;
-    }
-    std::string result = source;
-    if (textTransform == "uppercase") {
-        for (char& character : result) {
-            character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
-        }
-    } else if (textTransform == "lowercase") {
-        for (char& character : result) {
-            character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-        }
-    } else if (textTransform == "capitalize") {
-        bool word = true;
-        for (char& character : result) {
-            const unsigned char value = static_cast<unsigned char>(character);
-            if (std::isspace(value)) {
-                word = true;
-            } else if (word) {
-                character = static_cast<char>(std::toupper(value));
-                word = false;
-            } else {
-                character = static_cast<char>(std::tolower(value));
-            }
-        }
-    }
-    return result;
+    return TextInCase(source, textTransform);
 }
 
 std::string TextElement::DisplayText() const {
@@ -259,6 +233,7 @@ TextStyle TextElement::StyleFor() const {
     style.decorationWidth = decorationWidth;
     style.decorationStyle = decorationStyle;
     style.fontFeatures = fontFeatures;
+    style.textCase = textTransform;
     style.verticalWriting = writingMode == "vertical";
     return style;
 }

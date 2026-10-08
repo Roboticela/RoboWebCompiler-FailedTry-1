@@ -3,9 +3,11 @@
 #include "ui/element/Element.h"
 #include "ui/factory/UiFactory.h"
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -13,6 +15,19 @@ class FakeMeasurer : public Runtime::TextMeasurer {
 public:
     Runtime::Size MeasureText(std::string_view text, const Runtime::TextStyle& style, float) override {
         return Runtime::Size{static_cast<float>(text.size()) * style.fontSize * 0.5f, style.fontSize};
+    }
+
+    Runtime::TextParagraph MeasureParagraph(const std::vector<Runtime::TextRun>& runs, const Runtime::TextStyle& paragraph, float,
+                                            float) override {
+        Runtime::TextParagraph measured;
+        measured.size = Runtime::Size{0.0f, paragraph.fontSize};
+        for (const Runtime::TextRun& run : runs) {
+            const float width = static_cast<float>(run.text.size()) * run.style.fontSize * 0.5f;
+            measured.runs.push_back(Runtime::Rect{measured.size.width, 0.0f, width, run.style.fontSize});
+            measured.size.width += width;
+            measured.size.height = std::max(measured.size.height, run.style.fontSize);
+        }
+        return measured;
     }
 };
 

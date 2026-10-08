@@ -468,6 +468,39 @@
             <text text="struck through" fontSize="16" textDecoration="strikethrough" textColor="#FF3B30"/>
         </frame>
     </frame>
+    <frame name="Rich Text" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
+        <text text="rich text — one paragraph of runs, broken and drawn as a single line, each word set with the values it wrote" fontSize="13" textColor="#86868B"/>
+        <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="runs of one paragraph: the text of the block, then a run per word" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" height="140" background="#F5F5F7" padding="12" radius="8">
+                    <richtext name="Said" text="Rich text is " fontSize="19" textColor="#6E6E73" lineHeight="1.4">
+                        <span name="Word" text="one paragraph" fontWeight="700" textColor="#0E7AFF"/>
+                        <span name="Again" text=", and every word of it "/>
+                        <span name="Loud" text="IS A LAYER" textCase="lower" textColor="#FF375F"/>
+                    </richtext>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="the runs wrap together: the word that does not fit begins the next line" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" heightMode="hug" background="#F5F5F7" padding="12" radius="8">
+                    <richtext name="Wrapped" text="A paragraph of runs breaks across " width="220" sizing="autoHeight" fontSize="15" textColor="#1D1D1F" lineHeight="1.35">
+                        <span name="Bold" text="every word of it" fontWeight="700" textColor="#30D158"/>
+                        <span name="Tail" text=", not between them."/>
+                    </richtext>
+                </frame>
+            </frame>
+            <frame layout="vertical" gap="6" width="fill" heightMode="hug">
+                <text text="a run takes what it did not write from the block around it" fontSize="12" textColor="#86868B"/>
+                <frame layout="horizontal" alignItems="center" justify="center" width="fill" heightMode="hug" background="#F5F5F7" padding="12" radius="8">
+                    <richtext name="Inherited" text="One size for the block, " width="240" sizing="autoHeight" fontSize="16" textColor="#1D1D1F" lineHeight="1.4">
+                        <span name="Smaller" text="a smaller one " fontSize="12" textColor="#86868B"/>
+                        <span name="Asked" text="where the run asked for it."/>
+                    </richtext>
+                </frame>
+            </frame>
+        </frame>
+    </frame>
     <frame name="Boolean" layout="vertical" gap="12" width="fill" heightMode="hug" background="#FFFFFF" padding="16" radius="12">
         <text text="boolean — one shape computed from the shapes it holds, in the group's own fill" fontSize="13" textColor="#86868B"/>
         <frame layout="horizontal" gap="16" width="fill" heightMode="hug" alignItems="center">

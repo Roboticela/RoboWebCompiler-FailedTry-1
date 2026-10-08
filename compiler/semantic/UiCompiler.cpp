@@ -57,7 +57,13 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
     switch (spec.type) {
     case TypeKind::STRING: {
         value.kind = TypeKind::STRING;
-        value.text = std::string(TrimCopyView(raw));
+        // The text a document writes is the text it gets. Nothing in a string has to be read the way
+        // a number or a colour is, so nothing in it has to be taken off either: a run of text that
+        // ends a word keeps the space separating it from the run after it, and without it a paragraph
+        // of runs glues its words together. The values a property chooses between are keywords rather
+        // than text, so those are matched with the whitespace around them taken off.
+        value.text = std::string(raw);
+        const std::string_view word = TrimCopyView(raw);
         const char* const* choices = nullptr;
         int choiceCount = 0;
         if (attribute.name == "layout") {
@@ -184,7 +190,7 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
         if (choices != nullptr) {
             bool matched = false;
             for (int index = 0; index < choiceCount; ++index) {
-                if (value.text == choices[index]) {
+                if (word == choices[index]) {
                     matched = true;
                     break;
                 }
@@ -195,6 +201,9 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
                               attribute.valueLocation, attribute.valueSpan);
                 return false;
             }
+            // A value chosen out of a set is the word of the set rather than the spacing it was
+            // written with, so everything that reads the word reads the same one.
+            value.text = std::string(word);
         }
         return true;
     }

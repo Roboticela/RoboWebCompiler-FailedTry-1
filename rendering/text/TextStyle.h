@@ -21,6 +21,11 @@ struct TextStyle {
     std::string locale = "en-us";
     std::string decorationStyle = "solid";
     std::string fontFeatures;
+    // The case the text is written in, named the way the text subsystem names a case: the text a
+    // block draws is this case applied to the text it was given, so the name travels with the style
+    // instead of being applied before it. A paragraph of runs applies one case to its own text and
+    // the case of each run to that run, and a run takes the case of its block when it names none.
+    std::string textCase = "none";
     Color decorationColor = COLOR_TEXT;
     float letterSpacing = 0.0f;
     float wordSpacing = 0.0f;

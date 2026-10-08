@@ -194,6 +194,23 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "text", "Text");
         AddDefaultAttribute(node, "fontSize", "16");
         AddDefaultAttribute(node, "textColor", "#18181A");
+    } else if (name == "richtext") {
+        // A block of rich text is a block of text whose content is made of runs, so a new one starts
+        // as the block a text node starts as and is born holding one run. A run is a node of the
+        // layer tree like any other, so the word it holds can be picked out of the block and set
+        // differently, and the next run of the paragraph is made by copying the one it came with.
+        AddDefaultAttribute(node, "auto", "true");
+        AddDefaultAttribute(node, "text", "Rich ");
+        AddDefaultAttribute(node, "fontSize", "19");
+        AddDefaultAttribute(node, "textColor", "#6E6E73");
+        XmlNode run = MakeComponent("span");
+        AddAttribute(run, "name", "Run");
+        AddAttribute(run, "text", "text");
+        AddAttribute(run, "fontWeight", "600");
+        AddAttribute(run, "textColor", "#0E7AFF");
+        node.children.push_back(std::move(run));
+    } else if (name == "span") {
+        AddDefaultAttribute(node, "text", "text");
     } else if (name == "image") {
         AddDefaultAttribute(node, "source", "image.png");
         AddDefaultAttribute(node, "width", "120");

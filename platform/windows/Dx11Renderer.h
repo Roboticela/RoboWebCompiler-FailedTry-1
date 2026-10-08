@@ -36,12 +36,14 @@ public:
     void FillRectangle(const Rect& rect, const Color& color, float radius) override;
     void StrokeRectangle(const Rect& rect, const Color& color, float thickness, float radius) override;
     void DrawString(std::string_view text, const Rect& rect, const TextStyle& style) override;
+    void DrawParagraph(const std::vector<TextRun>& runs, const Rect& rect, const TextStyle& paragraph) override;
     void DrawCachedImage(std::string_view key, const Rect& rect, const unsigned char* bgra, int width, int height) override;
     void DrawVector(const VectorPaint& paint) override;
     // The measuring form below is the one every element calls; this is the same measurement for a
     // caller that names only a font size, which is what the chrome of the designer does.
     using TextMeasurer::MeasureText;
     Size MeasureText(std::string_view text, const TextStyle& style, float maxWidth) override;
+    TextParagraph MeasureParagraph(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width, float height) override;
     void PushClip(const Rect& rect) override;
     void PopClip() override;
     void PushOpacity(float opacity) override;
@@ -57,9 +59,29 @@ private:
     IDWriteFontCollection* InterCollection();
     IDWriteFontCollection* CollectionForFile(const std::string& path, std::wstring& familyName);
     void ApplyTextLayout(IDWriteTextLayout* layout, IDWriteTextFormat* format, const TextStyle& style, unsigned length);
+    // The features a run of text is drawn with, read from the tags a document writes them as.
+    Microsoft::WRL::ComPtr<IDWriteTypography> TypographyFor(const std::string& features);
     // The layout a block is both drawn and measured in. One builder for the two, so the box a
     // block covers is the box it fills.
     Microsoft::WRL::ComPtr<IDWriteTextLayout> LayoutFor(std::string_view text, float width, float height, const TextStyle& style);
+    // Where one run begins in the text of a paragraph and how much of that text is the run's. The
+    // runs of a paragraph are written as one string, so a run is a stretch of that string, and the
+    // places they begin are what both the formatting of a run and the box it lands in are read from.
+    struct RunRange {
+        unsigned start = 0;
+        unsigned length = 0;
+    };
+    // The layout a paragraph of runs is both drawn and measured in. One builder for the two, so the
+    // placement a run is given is the placement it is drawn at. The place each run begins in the
+    // text of the paragraph comes back with it, because the runs of a paragraph are one string to
+    // the platform and a run is a stretch of it.
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> ParagraphFor(const std::vector<TextRun>& runs, const TextStyle& paragraph, float width,
+                                                           float height, std::vector<RunRange>& ranges,
+                                                           std::vector<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>>* brushes);
+    // The box each run landed in, read back from the layout the runs were placed by: DirectWrite is
+    // asked for the rectangles a run covers and the box the run is given is the box around all of
+    // them, so a run that wraps is given the box around the lines it reaches.
+    std::vector<Rect> RunBoxes(IDWriteTextLayout* layout, const std::vector<RunRange>& ranges) const;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> deviceContext;

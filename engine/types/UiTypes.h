@@ -29,6 +29,9 @@ enum class NodeKind : std::uint8_t {
     ARROW,
     SHADOW,
     TEXT,
+    // A block of text whose content is a paragraph of runs, and one run of such a block.
+    RICHTEXT,
+    SPAN,
     IMAGE,
     VECTOR,
     SVG,
@@ -320,6 +323,10 @@ inline const char* NodeKindName(NodeKind kind) {
         return "shadow";
     case NodeKind::TEXT:
         return "text";
+    case NodeKind::RICHTEXT:
+        return "richtext";
+    case NodeKind::SPAN:
+        return "span";
     case NodeKind::IMAGE:
         return "image";
     case NodeKind::VECTOR:
