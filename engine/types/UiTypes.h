@@ -41,7 +41,11 @@ enum class NodeKind : std::uint8_t {
     PATH,
     BOOLEAN,
     GROUP,
+    // The definition of something that can be placed many times: the master a component is drawn
+    // from, the set that gathers the variants of one component, the placed copy of a master, and the
+    // place inside a master that a copy fills with its own children.
     COMPONENT,
+    COMPONENTSET,
     INSTANCE,
     SLOT,
     SCROLL,
@@ -346,6 +350,8 @@ inline const char* NodeKindName(NodeKind kind) {
         return "group";
     case NodeKind::COMPONENT:
         return "component";
+    case NodeKind::COMPONENTSET:
+        return "componentSet";
     case NodeKind::INSTANCE:
         return "instance";
     case NodeKind::SLOT:

@@ -646,6 +646,37 @@ std::vector<PropertySpec> SpanProperties() {
     return With({{"id", TypeKind::STRING}, {"name", TypeKind::STRING}}, RunProperties());
 }
 
+// A definition is a frame: it holds children, it lays them out, it carries a background, and it can
+// hug its content or fill its parent. What it adds is the name it answers to -- already a value a
+// frame carries -- and the values that say which variant of a component it draws and what the
+// definition is for. The mark in its corner can be hidden, the way anything else a document carries
+// can be told not to draw its outline.
+std::vector<PropertySpec> ComponentProperties() {
+    return With(FrameProperties(), {{"description", TypeKind::STRING}, {"badge", TypeKind::BOOL}});
+}
+
+// A set gathers the variants of one component, so it is a frame that holds them: the box, the
+// layout, the padding, and the background of a set are the ones an ordinary box would be given. The
+// name it answers to is already a value a frame carries, so only the description is added here.
+std::vector<PropertySpec> ComponentSetProperties() {
+    return With(FrameProperties(), {{"description", TypeKind::STRING}});
+}
+
+// A copy of a component is a frame that names the definition it was placed from and the variant of
+// it that is shown, both of which a frame already carries. What it adds is whether the copy is
+// detached from its master. A value the definition does not offer can still be written on a copy,
+// because writing it is how a copy is told to differ from its master: the compiler accepts an
+// unknown value on a copy and records it as the override it is.
+std::vector<PropertySpec> InstanceProperties() {
+    return With(FrameProperties(), {{"detach", TypeKind::BOOL}});
+}
+
+// A slot is a frame that names the place it fills, so it takes everything a frame takes and the
+// label drawn while nothing has filled it.
+std::vector<PropertySpec> SlotProperties() {
+    return With(FrameProperties(), {{"text", TypeKind::STRING}, {"fallback", TypeKind::STRING}});
+}
+
 std::vector<PropertySpec> ShadowProperties() {
     return {
         {"shadow", TypeKind::STRING},
@@ -682,9 +713,10 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"arrow", NodeKind::ARROW, false, ArrowProperties()},
         {"boolean", NodeKind::BOOLEAN, true, BooleanProperties()},
         {"group", NodeKind::GROUP, true, GroupProperties()},
-        {"component", NodeKind::COMPONENT, true, With(IdentityProperties(), {{"variant", TypeKind::STRING}})},
-        {"instance", NodeKind::INSTANCE, true, With(IdentityProperties(), {{"component", TypeKind::STRING}, {"variant", TypeKind::STRING}})},
-        {"slot", NodeKind::SLOT, true, With(IdentityProperties(), {{"text", TypeKind::STRING}})},
+        {"component", NodeKind::COMPONENT, true, ComponentProperties()},
+        {"componentSet", NodeKind::COMPONENTSET, true, ComponentSetProperties()},
+        {"instance", NodeKind::INSTANCE, true, InstanceProperties()},
+        {"slot", NodeKind::SLOT, true, SlotProperties()},
         {"scroll", NodeKind::SCROLL, true, ScrollProperties()},
     };
     return catalog;

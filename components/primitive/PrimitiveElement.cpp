@@ -123,8 +123,10 @@ void ShapeElement::SetCornerRadius(float value) {
     cornerRadius = value < 0.0f ? 0.0f : value;
 }
 
+// A vector holds the art it draws as children. The component nodes are placed by elements of their
+// own, so a shape is never made for one of them and none of them is answered for here.
 bool ShapeElement::PlacesChildren() const {
-    return nodeKind == NodeKind::VECTOR || nodeKind == NodeKind::COMPONENT || nodeKind == NodeKind::INSTANCE || nodeKind == NodeKind::SLOT;
+    return nodeKind == NodeKind::VECTOR;
 }
 
 Size ShapeElement::Measure(TextMeasurer& measurer, float availableWidth, float availableHeight, bool) {
@@ -303,17 +305,6 @@ void ShapeElement::OnPaint(Renderer& renderer) {
         paint.dashOffset = dashOffset;
         renderer.DrawVector(paint);
         return;
-    }
-    if (nodeKind == NodeKind::COMPONENT || nodeKind == NodeKind::SLOT) {
-        renderer.StrokeRectangle(area, stroke, 1.0f, 0.0f);
-        if (nodeKind == NodeKind::SLOT) {
-            TextStyle style;
-            style.fontSize = 12.0f;
-            style.color = textColor;
-            style.horizontal = TextAlign::START;
-            style.vertical = TextAlign::CENTER;
-            renderer.DrawString(text.empty() ? "Slot" : text, area, style);
-        }
     }
     PaintChildren(renderer);
 }

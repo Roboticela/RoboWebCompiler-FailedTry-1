@@ -4,16 +4,19 @@
 #include "compiler/types/ValueParser.h"
 #include "components/arrow/ArrowElement.h"
 #include "components/boolean/BooleanElement.h"
+#include "components/component/ComponentElement.h"
 #include "components/ellipse/EllipseElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
 #include "components/image/ImageElement.h"
+#include "components/instance/InstanceElement.h"
 #include "components/line/LineElement.h"
 #include "components/layout/BoardElement.h"
 #include "components/polygon/PolygonElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
 #include "components/rectangle/RectangleElement.h"
+#include "components/slot/SlotElement.h"
 #include "components/star/StarElement.h"
 #include "components/svg/SvgElement.h"
 #include "components/text/RichTextElement.h"
@@ -5962,6 +5965,227 @@ void TestFoundations(TestContext& test) {
 
 }  // namespace
 
+// A component is the definition of something that is placed more than once. The four nodes of the
+// component system are the definition itself, the set that gathers the variants of one component,
+// the copy placed from a definition, and the place inside a definition that a copy fills. What is
+// proved here is that a copy holds the content of the definition it named, that a copy of a set
+// draws the variant it asked for, that a copy replaces the children it names, and that a copy fills
+// the places its definition offers.
+void TestComponents(TestContext& test) {
+    const int before = test.failed;
+
+    // The four nodes are components the compiler knows and the designer can offer, each with the
+    // values it takes.
+    CHECK(test, FindComponent("component") != nullptr);
+    CHECK(test, FindComponent("componentSet") != nullptr);
+    CHECK(test, FindComponent("instance") != nullptr);
+    CHECK(test, FindComponent("slot") != nullptr);
+    CHECK(test, std::string(NodeKindName(NodeKind::COMPONENT)) == "component");
+    CHECK(test, std::string(NodeKindName(NodeKind::COMPONENTSET)) == "componentSet");
+    CHECK(test, std::string(NodeKindName(NodeKind::INSTANCE)) == "instance");
+    CHECK(test, std::string(NodeKindName(NodeKind::SLOT)) == "slot");
+    CHECK(test, ComponentAcceptsProperty("component", "variant"));
+    CHECK(test, ComponentAcceptsProperty("component", "layout"));
+    CHECK(test, ComponentAcceptsProperty("componentSet", "gap"));
+    CHECK(test, ComponentAcceptsProperty("instance", "component"));
+    CHECK(test, ComponentAcceptsProperty("instance", "variant"));
+    CHECK(test, ComponentAcceptsProperty("slot", "text"));
+
+    // A definition and a copy of it. The copy holds what the definition holds, is a node of its own
+    // kind, and knows the definition it was placed from.
+    std::unique_ptr<Element> placed = Layout(
+        "<window width=\"320\" height=\"200\"><frame id=\"stage\" width=\"320\" height=\"200\">"
+        "<component id=\"badgeMaster\" name=\"Badge\" variant=\"Primary\" x=\"0\" y=\"0\" width=\"90\" height=\"30\">"
+        "<text id=\"badgeLabel\" text=\"Ok\" width=\"90\" height=\"30\"/></component>"
+        "<instance id=\"badge\" component=\"Badge\" position=\"absolute\" x=\"120\" y=\"0\" width=\"90\" height=\"30\"/>"
+        "<instance id=\"missing\" component=\"Nothing\" position=\"absolute\" x=\"120\" y=\"60\" width=\"90\" height=\"30\"/>"
+        "</frame></window>",
+        320.0f, 200.0f);
+    CHECK(test, placed != nullptr);
+    if (placed != nullptr) {
+        ComponentElement* master = dynamic_cast<ComponentElement*>(placed->FindById("badgeMaster"));
+        CHECK(test, master != nullptr);
+        if (master != nullptr) {
+            CHECK(test, master->Kind() == NodeKind::COMPONENT);
+            CHECK(test, master->Variant() == "Primary" && master->HasVariant());
+            CHECK(test, master->BadgeVisible());
+        }
+        InstanceElement* instance = dynamic_cast<InstanceElement*>(placed->FindById("badge"));
+        CHECK(test, instance != nullptr && instance->Kind() == NodeKind::INSTANCE);
+        if (instance != nullptr) {
+            CHECK(test, instance->ComponentName() == "Badge");
+            CHECK(test, instance->Resolved() && !instance->Detached());
+            CHECK(test, instance->OverrideCount() == 0);
+            // The copy holds the content of its definition, and the content is a node of the copy
+            // rather than the definition's node reached through it.
+            CHECK(test, instance->Children().size() == 1);
+            Element* heldLabel = instance->FindById("badgeLabel");
+            CHECK(test, heldLabel != nullptr && heldLabel->Kind() == NodeKind::TEXT);
+            if (heldLabel != nullptr) {
+                const TextElement* label = dynamic_cast<const TextElement*>(heldLabel);
+                CHECK(test, label != nullptr && label->Text() == "Ok");
+            }
+            // The box of the copy is the box the copy was given, not the box its definition was
+            // authored at, so a copy can be placed at any size.
+            CHECK(test, std::fabs(instance->Bounds().width - 90.0f) < 0.01f);
+        }
+        // A copy that names a definition the document does not hold is left unresolved and draws a
+        // marked placeholder, so the mistake is seen rather than silently blank.
+        InstanceElement* ghost = dynamic_cast<InstanceElement*>(placed->FindById("missing"));
+        CHECK(test, ghost != nullptr && !ghost->Resolved());
+        if (ghost != nullptr && !ghost->Resolved()) {
+            RecordingRenderer renderer;
+            placed->Paint(renderer);
+            CHECK(test, PaintRecordFor(renderer, ghost->Bounds()) != nullptr);
+        }
+    }
+
+    // A set holds the variants of one component, and a copy of the set draws the variant it asked
+    // for rather than whichever variant comes first.
+    std::unique_ptr<Element> varied = Layout(
+        "<window width=\"400\" height=\"220\"><frame id=\"variantStage\" width=\"400\" height=\"220\">"
+        "<componentSet id=\"buttonSet\" name=\"Button\" layout=\"horizontal\" gap=\"16\" width=\"320\" height=\"40\">"
+        "<component id=\"vPrimary\" name=\"Button\" variant=\"Primary\" width=\"140\" height=\"40\">"
+        "<text id=\"primaryLabel\" text=\"Primary\" width=\"140\" height=\"40\"/></component>"
+        "<component id=\"vDanger\" name=\"Button\" variant=\"Danger\" width=\"140\" height=\"40\">"
+        "<text id=\"dangerLabel\" text=\"Danger\" width=\"140\" height=\"40\"/></component>"
+        "</componentSet>"
+        "<instance id=\"dangerCopy\" component=\"Button\" variant=\"Danger\" position=\"absolute\" x=\"0\" y=\"120\" width=\"140\" height=\"40\"/>"
+        "</frame></window>",
+        400.0f, 220.0f);
+    CHECK(test, varied != nullptr);
+    if (varied != nullptr) {
+        ComponentSetElement* set = dynamic_cast<ComponentSetElement*>(varied->FindById("buttonSet"));
+        CHECK(test, set != nullptr && set->Kind() == NodeKind::COMPONENTSET);
+        if (set != nullptr) {
+            CHECK(test, set->VariantCount() == 2);
+            CHECK(test, set->VariantAt(0) != nullptr && set->VariantAt(0)->Variant() == "Primary");
+            CHECK(test, set->VariantAt(1) != nullptr && set->VariantAt(1)->Variant() == "Danger");
+            CHECK(test, set->VariantAt(2) == nullptr && set->VariantAt(-1) == nullptr);
+            // A variant that is asked for is found wherever it sits; a variant that is not is
+            // answered with the first definition rather than with nothing.
+            CHECK(test, set->VariantNamed("Danger") == set->VariantAt(1));
+            CHECK(test, set->VariantNamed("Missing") == set->VariantAt(0));
+        }
+        InstanceElement* danger = dynamic_cast<InstanceElement*>(varied->FindById("dangerCopy"));
+        CHECK(test, danger != nullptr && danger->Resolved() && danger->Variant() == "Danger");
+        if (danger != nullptr) {
+            CHECK(test, danger->FindById("dangerLabel") != nullptr);
+            CHECK(test, danger->FindById("primaryLabel") == nullptr);
+        }
+    }
+
+    // A copy replaces the children its definition named, so one copy of a definition can read
+    // differently from another without a second definition being written.
+    std::unique_ptr<Element> overridden = Layout(
+        "<window width=\"300\" height=\"160\"><frame id=\"overrideStage\" width=\"300\" height=\"160\">"
+        "<component id=\"chipMaster\" name=\"Chip\" x=\"0\" y=\"0\" width=\"120\" height=\"32\">"
+        "<text id=\"chipLabel\" name=\"Label\" text=\"Ok\" width=\"120\" height=\"32\"/></component>"
+        "<instance id=\"savedChip\" component=\"Chip\" position=\"absolute\" x=\"140\" y=\"0\" width=\"120\" height=\"32\">"
+        "<text name=\"Label\" text=\"Save\" width=\"120\" height=\"32\"/></instance>"
+        "</frame></window>",
+        300.0f, 160.0f);
+    CHECK(test, overridden != nullptr);
+    if (overridden != nullptr) {
+        InstanceElement* saved = dynamic_cast<InstanceElement*>(overridden->FindById("savedChip"));
+        CHECK(test, saved != nullptr && saved->Resolved());
+        if (saved != nullptr) {
+            CHECK(test, saved->OverrideCount() == 1);
+            CHECK(test, saved->Children().size() == 1);
+            const TextElement* text = saved->Children().empty() ? nullptr : dynamic_cast<TextElement*>(saved->Children().front().get());
+            CHECK(test, text != nullptr && text->Text() == "Save");
+        }
+        // The definition is untouched by the copy: the master still reads the way it was written.
+        ComponentElement* chip = dynamic_cast<ComponentElement*>(overridden->FindById("chipMaster"));
+        CHECK(test, chip != nullptr);
+        if (chip != nullptr && !chip->Children().empty()) {
+            const TextElement* masterText = dynamic_cast<TextElement*>(chip->Children().front().get());
+            CHECK(test, masterText != nullptr && masterText->Text() == "Ok");
+        }
+    }
+
+    // A slot is the place inside a definition a copy fills with content of its own. A copy that
+    // fills it holds the content it sent, and a copy that does not holds the slot and its fallback.
+    std::unique_ptr<Element> slotted = Layout(
+        "<window width=\"440\" height=\"220\"><frame id=\"slotStage\" width=\"440\" height=\"220\">"
+        "<component id=\"panelMaster\" name=\"Panel\" x=\"0\" y=\"0\" width=\"200\" height=\"100\" layout=\"vertical\">"
+        "<text id=\"panelTitle\" text=\"Title\" width=\"200\" height=\"20\"/>"
+        "<slot id=\"slotBody\" name=\"body\" text=\"Drop content\" width=\"200\" height=\"80\"/></component>"
+        "<instance id=\"filledPanel\" component=\"Panel\" position=\"absolute\" x=\"220\" y=\"0\" width=\"200\" height=\"100\">"
+        "<frame slot=\"body\" id=\"panelFiller\" width=\"200\" height=\"80\" background=\"#010203\"/></instance>"
+        "<instance id=\"emptyPanel\" component=\"Panel\" position=\"absolute\" x=\"220\" y=\"110\" width=\"200\" height=\"100\"/>"
+        "</frame></window>",
+        440.0f, 220.0f);
+    CHECK(test, slotted != nullptr);
+    if (slotted != nullptr) {
+        ComponentElement* panel = dynamic_cast<ComponentElement*>(slotted->FindById("panelMaster"));
+        CHECK(test, panel != nullptr && panel->Children().size() == 2);
+        if (panel != nullptr && panel->Children().size() == 2) {
+            SlotElement* body = dynamic_cast<SlotElement*>(panel->Children().back().get());
+            CHECK(test, body != nullptr && body->Kind() == NodeKind::SLOT);
+            if (body != nullptr) {
+                CHECK(test, body->Name() == "body");
+                CHECK(test, body->FallbackText() == "Drop content");
+                CHECK(test, !body->IsFilled());
+            }
+        }
+        InstanceElement* filled = dynamic_cast<InstanceElement*>(slotted->FindById("filledPanel"));
+        CHECK(test, filled != nullptr && filled->Resolved());
+        if (filled != nullptr) {
+            CHECK(test, filled->Children().size() == 2);
+            CHECK(test, filled->FindById("panelFiller") != nullptr);
+            if (filled->Children().size() == 2) {
+                // The slot was replaced by the content the copy sent to it, so no slot is left.
+                CHECK(test, dynamic_cast<SlotElement*>(filled->Children().back().get()) == nullptr);
+                CHECK(test, filled->Children().back()->Id() == "panelFiller");
+            }
+        }
+        // An unfilled slot keeps its fallback, and the fallback is drawn rather than only kept.
+        InstanceElement* empty = dynamic_cast<InstanceElement*>(slotted->FindById("emptyPanel"));
+        CHECK(test, empty != nullptr && empty->Resolved());
+        if (empty != nullptr && empty->Children().size() == 2) {
+            SlotElement* body = dynamic_cast<SlotElement*>(empty->Children().back().get());
+            CHECK(test, body != nullptr && !body->IsFilled() && body->FallbackText() == "Drop content");
+            RecordingRenderer renderer;
+            slotted->Paint(renderer);
+            bool fallbackDrawn = false;
+            for (const PaintRecord& record : renderer.records) {
+                if (record.text == "Drop content") {
+                    fallbackDrawn = true;
+                }
+            }
+            CHECK(test, fallbackDrawn);
+        }
+    }
+
+    // The slot of a child is the one part of the component language every component can hold, since
+    // which places a definition offers is only known once the definition is placed. Everything else
+    // a component does not declare is still refused.
+    CHECK(test, CompileUi(Source("<window><frame slot=\"body\" width=\"10\" height=\"10\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><frame nonsense=\"1\"/></window>")).Ok());
+    CHECK(test, CompileUi(Source("<window><instance component=\"Chip\" custom=\"7\"/></window>")).Ok());
+
+    // The editor can add every one of the four, and what it adds is a document the compiler accepts:
+    // a definition born with a body, a set born with two variants, a copy that names a definition,
+    // and a slot that names the place it fills.
+    DesignDocument editor;
+    CHECK(test, editor.LoadText("<window width=\"800\" height=\"600\"><frame name=\"Home\"/></window>", "memory.xml"));
+    const char* addedNodes[] = {"component", "componentSet", "instance", "slot"};
+    for (const char* nodeName : addedNodes) {
+        std::vector<int> added;
+        CHECK(test, editor.InsertChild({0}, nodeName, added));
+        CHECK(test, editor.NodeAt(added) != nullptr);
+        if (editor.NodeAt(added) != nullptr) {
+            CHECK(test, editor.NodeAt(added)->name == nodeName);
+        }
+    }
+    // A definition the editor adds is born with a body and a set with its variants, which is what
+    // makes the document a new node produces one the compiler can draw.
+    CHECK(test, CompileUi(Source(editor.Text())).Ok());
+
+    Finish(test, "components", before);
+}
+
 int RunUnitTests() {
     TestContext test;
     TestParserAndSerializer(test);
@@ -5970,6 +6194,7 @@ int RunUnitTests() {
     TestFrameProperties(test);
     TestFrameLayout(test);
     TestPrimitives(test);
+    TestComponents(test);
     TestGroup(test);
     TestRectangle(test);
     TestEllipse(test);

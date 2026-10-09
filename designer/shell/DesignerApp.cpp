@@ -1036,6 +1036,12 @@ void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& n
     } else if (name == "scroll" || name == "scrollbar") {
         renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
         renderer.FillRectangle(Rect{x + size - 5.0f, y + 3.0f, 2.0f, size * 0.45f}, quiet, 1.0f);
+    } else if (name == "componentSet") {
+        // A set is several definitions held as one: two of the marks a definition is drawn with,
+        // overlapping, read as one name that several variants answer to.
+        renderer.StrokeRectangle(Rect{x + size * 0.18f, y, size * 0.64f, size * 0.64f}, ink, 1.5f, 2.0f);
+        renderer.StrokeRectangle(Rect{x, y + size * 0.36f, size * 0.64f, size * 0.64f}, ink, 1.5f, 2.0f);
+        renderer.FillRectangle(Rect{x + size * 0.18f, y + size * 0.36f, size * 0.3f, size * 0.3f}, quiet, 1.0f);
     } else if (name == "component") {
         renderer.StrokeRectangle(Rect{x + size * 0.18f, y, size * 0.64f, size * 0.64f}, ink, 1.5f, 2.0f);
         renderer.StrokeRectangle(Rect{x, y + size * 0.36f, size * 0.64f, size * 0.64f}, quiet, 1.5f, 2.0f);
@@ -2210,13 +2216,15 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 const char* category;
                 const char* name;
             };
-            const std::vector<LibraryItem> items = {{"Window", "window"},  {"Board", "board"},
-                                                     {"Frame", "frame"},    {"Shape", "rectangle"},
-                                                     {"Shape", "ellipse"},  {"Shape", "vector"},
-                                                     {"Shape", "svg"},      {"Shape", "line"},
-                                                     {"Shape", "boolean"},  {"Scrollbar", "scrollbar"},
-                                                     {"Media", "image"},    {"Media", "video"},
-                                                     {"Type", "text"},     {"Type", "richtext"}};
+            const std::vector<LibraryItem> items = {{"Window", "window"},      {"Board", "board"},
+                                                     {"Frame", "frame"},        {"Shape", "rectangle"},
+                                                     {"Shape", "ellipse"},      {"Shape", "vector"},
+                                                     {"Shape", "svg"},          {"Shape", "line"},
+                                                     {"Shape", "boolean"},      {"Scrollbar", "scrollbar"},
+                                                     {"Media", "image"},        {"Media", "video"},
+                                                     {"Type", "text"},          {"Type", "richtext"},
+                                                     {"Component", "component"},  {"Component", "componentSet"},
+                                                     {"Component", "instance"},   {"Component", "slot"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;
@@ -3081,7 +3089,11 @@ int DesignerApp::Run(const DesignerOptions& options) {
             if (PathStartsWith(current, master)) {
                 return;
             }
-            if (node.name != "component" && document.Attribute(current, "component") == name) {
+            // A copy that carries children of its own is a copy that has been told to differ from
+            // its master: the children are the layers it replaces and the places it fills. Pushing
+            // the master onto it would throw those differences away, so such a copy is left as it
+            // was written.
+            if (node.name != "component" && document.Attribute(current, "component") == name && node.children.empty()) {
                 instances.push_back(current);
             }
             for (int index = 0; index < static_cast<int>(node.children.size()); ++index) {

@@ -1091,10 +1091,10 @@ If **this** works beautifully, you have the foundation for the rest.
 18. Video [Done]
 19. GIF
 
-20. Component
-21. Component Set
-22. Instance
-23. Slot
+20. Component [Done]
+21. Component Set [Done]
+22. Instance [Done]
+23. Slot [Done]
 
 24. Embed
 25. Link

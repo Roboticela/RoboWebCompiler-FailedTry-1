@@ -71,6 +71,7 @@ myui inspect <file>
 - [Type system](docs/TypeSystem.md)
 - [UI IR](docs/UiIr.md)
 - [Runtime object model](docs/RuntimeObjectModel.md)
+- [Components](docs/Components.md)
 - [Designer](docs/DesignerArchitecture.md)
 - [Compiler pipeline](docs/CompilerPipeline.md)
 - [Roadmap](docs/MilestoneRoadmap.md)

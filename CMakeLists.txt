@@ -65,6 +65,12 @@ add_library(RuntimeUi STATIC
     components/image/ImageElement.h
     components/video/VideoElement.cpp
     components/video/VideoElement.h
+    components/component/ComponentElement.cpp
+    components/component/ComponentElement.h
+    components/instance/InstanceElement.cpp
+    components/instance/InstanceElement.h
+    components/slot/SlotElement.cpp
+    components/slot/SlotElement.h
     components/rectangle/RectangleElement.cpp
     components/rectangle/RectangleElement.h
     components/polygon/PolygonElement.cpp

@@ -298,16 +298,60 @@ XmlNode MakeComponent(std::string_view name) {
         AddAttribute(upper, "y", "32");
         node.children.push_back(std::move(lower));
         node.children.push_back(std::move(upper));
-    } else if (name == "group" || name == "component" || name == "slot" || name == "scroll") {
+    } else if (name == "group" || name == "scroll") {
         AddDefaultAttribute(node, "width", "160");
         AddDefaultAttribute(node, "height", "80");
-        if (name == "component" || name == "slot") {
-            AddDefaultAttribute(node, "name", std::string(name));
+    } else if (name == "component") {
+        // A definition with no body is refused, because a definition is the content it holds. So a
+        // new definition is born holding a label, which is the smallest body that compiles and the
+        // one a definition of a named thing most often starts from.
+        AddDefaultAttribute(node, "name", "Component");
+        AddDefaultAttribute(node, "width", "160");
+        AddDefaultAttribute(node, "height", "80");
+        AddDefaultAttribute(node, "layout", "horizontal");
+        AddDefaultAttribute(node, "align", "center");
+        AddDefaultAttribute(node, "justify", "center");
+        AddDefaultAttribute(node, "background", "#FFFFFF");
+        AddDefaultAttribute(node, "radius", "10");
+        XmlNode label = MakeComponent("text");
+        AddAttribute(label, "name", "Label");
+        AddAttribute(label, "text", "Component");
+        node.children.push_back(std::move(label));
+    } else if (name == "componentSet") {
+        // A set is born holding two variants of one component, which is what a set is: a name that
+        // several definitions answer to, told apart by the variant each one draws.
+        AddDefaultAttribute(node, "name", "ComponentSet");
+        AddDefaultAttribute(node, "width", "360");
+        AddDefaultAttribute(node, "height", "120");
+        AddDefaultAttribute(node, "layout", "horizontal");
+        AddDefaultAttribute(node, "gap", "16");
+        const char* variants[] = {"Primary", "Secondary"};
+        for (const char* variantName : variants) {
+            XmlNode member = MakeComponent("component");
+            AddAttribute(member, "name", "ComponentSet");
+            AddAttribute(member, "variant", variantName);
+            AddAttribute(member, "width", "160");
+            AddAttribute(member, "height", "80");
+            AddAttribute(member, "layout", "horizontal");
+            AddAttribute(member, "align", "center");
+            AddAttribute(member, "justify", "center");
+            AddAttribute(member, "background", std::string(variantName) == "Primary" ? "#0E7AFF" : "#F2F2F4");
+            AddAttribute(member, "radius", "10");
+            XmlNode label = MakeComponent("text");
+            AddAttribute(label, "name", "Label");
+            AddAttribute(label, "text", "Button");
+            member.children.push_back(std::move(label));
+            node.children.push_back(std::move(member));
         }
     } else if (name == "instance") {
-        AddDefaultAttribute(node, "component", "component");
+        AddDefaultAttribute(node, "component", "Component");
         AddDefaultAttribute(node, "width", "160");
         AddDefaultAttribute(node, "height", "80");
+    } else if (name == "slot") {
+        AddDefaultAttribute(node, "name", "content");
+        AddDefaultAttribute(node, "text", "Content");
+        AddDefaultAttribute(node, "width", "120");
+        AddDefaultAttribute(node, "height", "48");
     }
     return node;
 }

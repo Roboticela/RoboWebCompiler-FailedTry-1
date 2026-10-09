@@ -3,9 +3,11 @@
 #include "compiler/semantic/UiCompiler.h"
 #include "components/arrow/ArrowElement.h"
 #include "components/boolean/BooleanElement.h"
+#include "components/component/ComponentElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
 #include "components/image/ImageElement.h"
+#include "components/instance/InstanceElement.h"
 #include "components/layout/BoardElement.h"
 #include "components/layout/WindowElement.h"
 #include "components/primitive/PrimitiveElement.h"
@@ -13,6 +15,7 @@
 #include "components/line/LineElement.h"
 #include "components/polygon/PolygonElement.h"
 #include "components/rectangle/RectangleElement.h"
+#include "components/slot/SlotElement.h"
 #include "components/star/StarElement.h"
 #include "components/svg/SvgElement.h"
 #include "components/text/RichTextElement.h"
@@ -1073,20 +1076,110 @@ void ApplyShape(ShapeElement& shape, const IrNode& node) {
     shape.SetTextStyle(std::move(family), italic, rtl, std::move(locale));
 }
 
-const IrNode* FindNamedComponent(const IrNode& node, std::string_view name) {
-    if (node.kind == NodeKind::COMPONENT) {
-        if (const UiValue* value = FindProperty(node, "name")) {
-            if (value->text == name) {
-                return &node;
-            }
+// The word a node is known by: the name a definition answers to, the place a slot fills, and the
+// layer a copy replaces are all written as the `name` value of a node, so they are read in one
+// place rather than three.
+std::string NodeNameOf(const IrNode& node) {
+    if (const UiValue* value = FindProperty(node, "name")) {
+        return value->text;
+    }
+    return {};
+}
+
+std::string VariantOf(const IrNode& node) {
+    if (const UiValue* value = FindProperty(node, "variant")) {
+        return value->text;
+    }
+    return {};
+}
+
+std::string SlotOf(const IrNode& node) {
+    if (const UiValue* value = FindProperty(node, "slot")) {
+        return value->text;
+    }
+    return {};
+}
+
+const IrNode* FindDefinition(const IrNode& node, std::string_view name, std::string_view variant, const IrNode*& fallback) {
+    if (node.kind == NodeKind::COMPONENT && std::string_view(NodeNameOf(node)) == name) {
+        if (!variant.empty() && std::string_view(VariantOf(node)) == variant) {
+            return &node;
+        }
+        if (fallback == nullptr) {
+            fallback = &node;
         }
     }
     for (const IrNode& child : node.children) {
-        if (const IrNode* found = FindNamedComponent(child, name)) {
+        if (const IrNode* found = FindDefinition(child, name, variant, fallback)) {
             return found;
         }
     }
     return nullptr;
+}
+
+// The definition a copy was placed from: the one that draws the variant the copy asked for, or, when
+// no variant matches, the first definition that answers to the name. A copy of a name the document
+// does not hold is answered with nothing, which is what tells the reader the copy has no master.
+const IrNode* FindNamedComponent(const IrNode& node, std::string_view name, std::string_view variant) {
+    if (name.empty()) {
+        return nullptr;
+    }
+    const IrNode* fallback = nullptr;
+    const IrNode* found = FindDefinition(node, name, variant, fallback);
+    return found != nullptr ? found : fallback;
+}
+
+// Fills one master from one copy: a slot takes the content the copy sent to it, a child the copy
+// names is replaced by the copy's version of it, and everything else is carried over as the master
+// wrote it. The number of children the copy replaced is reported so a copy can say how much it
+// differs from its master.
+std::vector<IrNode> ResolveInstance(const IrNode& master, const IrNode& instance, int& overrideCount) {
+    std::unordered_map<std::string, std::vector<const IrNode*>> slotted;
+    std::unordered_map<std::string, const IrNode*> overrides;
+    std::vector<const IrNode*> unnamed;
+    for (const IrNode& child : instance.children) {
+        const std::string slot = SlotOf(child);
+        if (!slot.empty()) {
+            slotted[slot].push_back(&child);
+            continue;
+        }
+        const std::string name = NodeNameOf(child);
+        if (!name.empty()) {
+            overrides[name] = &child;
+            continue;
+        }
+        unnamed.push_back(&child);
+    }
+    overrideCount = 0;
+    std::vector<IrNode> resolved;
+    for (const IrNode& child : master.children) {
+        if (child.kind == NodeKind::SLOT) {
+            std::string slotName = NodeNameOf(child);
+            if (slotName.empty()) {
+                slotName = "content";
+            }
+            const auto found = slotted.find(slotName);
+            if (found != slotted.end()) {
+                for (const IrNode* fill : found->second) {
+                    resolved.push_back(*fill);
+                }
+            } else if (slotName == "content") {
+                for (const IrNode* fill : unnamed) {
+                    resolved.push_back(*fill);
+                }
+            }
+            continue;
+        }
+        const std::string name = NodeNameOf(child);
+        const auto found = overrides.find(name);
+        if (found != overrides.end() && !name.empty()) {
+            resolved.push_back(*found->second);
+            ++overrideCount;
+            continue;
+        }
+        resolved.push_back(child);
+    }
+    return resolved;
 }
 
 bool FlagValue(const UiValue* value) {
@@ -1413,6 +1506,48 @@ void ApplyVideo(VideoElement& video, const IrNode& node) {
     }
 }
 
+// A definition is a frame, so it reads everything a frame reads: the box, the layout, the padding,
+// the background, the border, the turn, and the children. What is left to say is the variant the
+// definition draws, what it is for, and whether its corner mark is drawn.
+void ApplyComponent(ComponentElement& component, const IrNode& node) {
+    // A definition is a frame, so it has to be asked first: the frame branch below would otherwise
+    // take it and leave the variant it draws unread.
+    ApplyFrame(component, node);
+    if (const UiValue* value = FindProperty(node, "variant")) component.SetVariant(value->text);
+    if (const UiValue* value = FindProperty(node, "description")) component.SetDescription(value->text);
+    if (const UiValue* value = FindProperty(node, "badge")) component.SetBadgeVisible(value->boolean);
+}
+
+// A set is a frame that holds the variants of one component, so it reads everything a frame reads
+// and the description of what the set is for.
+void ApplyComponentSet(ComponentSetElement& set, const IrNode& node) {
+    ApplyFrame(set, node);
+    if (const UiValue* value = FindProperty(node, "description")) set.SetDescription(value->text);
+}
+
+// A copy of a component is a frame, so it reads everything a frame reads. What is left to say is the
+// variant of its master it shows and whether it has been detached from that master. The children it
+// holds are the differences it was given, which are resolved against the master rather than read as
+// the content of the copy.
+void ApplyInstance(InstanceElement& instance, const IrNode& node) {
+    // A copy is a frame, so it has to be asked first: the frame branch below would otherwise take it
+    // and leave the variant it shows unread.
+    ApplyFrame(instance, node);
+    if (const UiValue* value = FindProperty(node, "variant")) instance.SetVariant(value->text);
+    if (const UiValue* value = FindProperty(node, "detach")) instance.SetDetached(value->boolean);
+}
+
+// A slot is a frame, so it reads everything a frame reads, and the label drawn while nothing has
+// filled it. The name it answers to is the name a frame is given, so nothing extra is read for it.
+void ApplySlot(SlotElement& slot, const IrNode& node) {
+    ApplyFrame(slot, node);
+    if (const UiValue* label = FindProperty(node, "text")) {
+        slot.SetFallbackText(label->text);
+    } else if (const UiValue* fallback = FindProperty(node, "fallback")) {
+        slot.SetFallbackText(fallback->text);
+    }
+}
+
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
     switch (node.kind) {
     case NodeKind::WINDOW:
@@ -1453,10 +1588,15 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<SpanElement>();
     case NodeKind::GROUP:
         return std::make_unique<GroupElement>();
-    case NodeKind::PATH:
     case NodeKind::COMPONENT:
+        return std::make_unique<ComponentElement>();
+    case NodeKind::COMPONENTSET:
+        return std::make_unique<ComponentSetElement>();
     case NodeKind::INSTANCE:
+        return std::make_unique<InstanceElement>();
     case NodeKind::SLOT:
+        return std::make_unique<SlotElement>();
+    case NodeKind::PATH:
         return std::make_unique<ShapeElement>(node.kind);
     case NodeKind::SCROLL:
         return std::make_unique<ScrollElement>();
@@ -1480,6 +1620,22 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         // A span is a run of text, so it has to be asked before the block of text underneath it: the
         // text branch would otherwise take it and leave the values it wrote unrecorded.
         ApplySpan(*span, node);
+    } else if (ComponentSetElement* set = dynamic_cast<ComponentSetElement*>(&element)) {
+        // A set is a frame, so it has to be asked first: the frame branch below would otherwise take
+        // it and leave the variants it holds unmarked.
+        ApplyComponentSet(*set, node);
+    } else if (ComponentElement* component = dynamic_cast<ComponentElement*>(&element)) {
+        // A definition is a frame, so it has to be asked first: the frame branch below would
+        // otherwise take it and leave the variant it draws unread.
+        ApplyComponent(*component, node);
+    } else if (InstanceElement* instance = dynamic_cast<InstanceElement*>(&element)) {
+        // A copy is a frame, so it has to be asked first: the frame branch below would otherwise take
+        // it and leave the variant it shows unread.
+        ApplyInstance(*instance, node);
+    } else if (SlotElement* slot = dynamic_cast<SlotElement*>(&element)) {
+        // A slot is a frame, so it has to be asked first: the frame branch below would otherwise
+        // take it and leave the label of an unfilled slot unread.
+        ApplySlot(*slot, node);
     } else if (TextElement* text = dynamic_cast<TextElement*>(&element)) {
         ApplyFrame(*text, node);
         ApplyCommon(*text, node);
@@ -1540,13 +1696,32 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
     } else {
         ApplyCommon(element, node);
     }
-    const IrNode* definition = nullptr;
-    if (node.kind == NodeKind::INSTANCE && node.children.empty()) {
-        if (const UiValue* value = FindProperty(node, "component")) {
-            definition = FindNamedComponent(root, value->text);
+    // A copy of a component holds what its master holds, with the differences the copy wrote down
+    // resolved against it. The children are resolved here rather than read from the copy, because a
+    // copy does not describe its content: it describes how it differs from the definition it named.
+    std::vector<IrNode> resolved;
+    bool resolvedInstance = false;
+    if (artwork.empty() && node.kind == NodeKind::INSTANCE) {
+        std::string componentName;
+        std::string variant;
+        if (const UiValue* master = FindProperty(node, "component")) {
+            componentName = master->text;
+        }
+        if (const UiValue* chosen = FindProperty(node, "variant")) {
+            variant = chosen->text;
+        }
+        const IrNode* definition = FindNamedComponent(root, componentName, variant);
+        if (definition != nullptr) {
+            int overrideCount = 0;
+            resolved = ResolveInstance(*definition, node, overrideCount);
+            resolvedInstance = true;
+            if (InstanceElement* instance = dynamic_cast<InstanceElement*>(&element)) {
+                instance->SetResolved(true);
+                instance->SetOverrideCount(overrideCount);
+            }
         }
     }
-    const std::vector<IrNode>& children = !artwork.empty() ? artwork : (definition == nullptr ? node.children : definition->children);
+    const std::vector<IrNode>& children = !artwork.empty() ? artwork : (resolvedInstance ? resolved : node.children);
     for (const IrNode& child : children) {
         if (child.kind == NodeKind::SHADOW) {
             if (Frame* frame = dynamic_cast<Frame*>(&element)) {

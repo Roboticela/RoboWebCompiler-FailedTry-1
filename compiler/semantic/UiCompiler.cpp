@@ -417,6 +417,17 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
                 continue;
             }
         }
+        if (property == nullptr && propertyName == "slot") {
+            // A child is sent to a place inside the definition its parent was placed from by naming
+            // that place. Which places a definition offers is only known once the definition is
+            // resolved, so the name is read as the part of the component language it is rather than
+            // refused on every component that could hold it.
+            UiValue slot;
+            slot.kind = TypeKind::STRING;
+            slot.text = std::string(TrimCopyView(attribute.value));
+            lowered.properties.emplace_back("slot", std::move(slot));
+            continue;
+        }
         if (property == nullptr) {
             std::vector<std::string> names;
             for (const PropertySpec& candidate : spec->properties) {
