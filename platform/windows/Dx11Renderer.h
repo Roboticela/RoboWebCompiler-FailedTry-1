@@ -102,6 +102,10 @@ private:
     std::unordered_map<std::string, std::wstring> fileFamilies;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<IDWriteTextFormat>> formats;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> imageCache;
+    // The geometry each path was read into, so an outline drawn again is not read again. A shape's
+    // outline, the mask a shaped clip cuts with, and the paths of an imported file are all the same
+    // path, and the same ones are drawn every frame, so every one of them is read once.
+    std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID2D1PathGeometry>> geometryCache;
     std::vector<float> opacityStack{1.0f};
     std::vector<D2D1_MATRIX_3X2_F> transformStack;
     // What kind of cut each push made, so a pop unwinds the one it belongs to: a box is cut by the

@@ -106,6 +106,15 @@ protected:
 
 private:
     bool EnsureDecoded();
+    // The radius of this box's corners when all four are the same, and nought when they are not: a
+    // picture can carry the corners of its box only when the box has one corner to carry.
+    float EvenCornerRadius() const;
+    // The two radii of the oval a picture carries when it carries the corners of its box: the corner
+    // radius once across and once down, measured in the pixels of the picture. False when the picture
+    // carries nothing, which is when it does not fill its box exactly, or when it is drawn larger
+    // than it came, because a corner magnified is a corner the picture never held: the arcs of the
+    // box would be finer than one pixel of it.
+    bool CarriedCorners(float& across, float& down);
     // The frame of the animation this moment of the clock lands in. A still picture is frame zero.
     int FrameIndex(unsigned long long milliseconds) const;
     ImageLook Look() const;

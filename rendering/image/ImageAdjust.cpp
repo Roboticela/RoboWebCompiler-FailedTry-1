@@ -126,4 +126,55 @@ std::string ImageLookName(const ImageCrop& crop, const ImageLook& look) {
     return name;
 }
 
+void RoundImageCorners(std::vector<unsigned char>& bgra, int width, int height, float acrossRadius, float downRadius) {
+    if (bgra.empty() || width < 1 || height < 1) {
+        return;
+    }
+    // An arc is no rounder than the shorter side it stands on, so a radius wider than half the
+    // picture is the half of it that fits, the same reading a rounded box takes.
+    const float across = std::min(acrossRadius, static_cast<float>(width) * 0.5f);
+    const float down = std::min(downRadius, static_cast<float>(height) * 0.5f);
+    if (across <= 0.0f || down <= 0.0f) {
+        return;
+    }
+    // The arc is measured as a fraction of itself, so the width of its soft edge is turned back
+    // into pixels by the smaller of its two radii, which is what makes the edge about one pixel
+    // wide however large or small the corner is.
+    const float softness = std::min(across, down);
+    for (int row = 0; row < height; ++row) {
+        for (int column = 0; column < width; ++column) {
+            // Each of the four corners is an arc centred one radius in from the two edges it
+            // rounds, and it reaches only the quarter of the picture out past that centre in both
+            // directions, so every other pixel is left to the corners it does belong to.
+            float cover = 1.0f;
+            for (int corner = 0; corner < 4; ++corner) {
+                const bool left = (corner & 1) == 0;
+                const bool top = (corner & 2) == 0;
+                const float centerX = left ? across : static_cast<float>(width) - across;
+                const float centerY = top ? down : static_cast<float>(height) - down;
+                const float offsetX = static_cast<float>(column) + 0.5f - centerX;
+                const float offsetY = static_cast<float>(row) + 0.5f - centerY;
+                if ((left ? offsetX >= 0.0f : offsetX <= 0.0f) || (top ? offsetY >= 0.0f : offsetY <= 0.0f)) {
+                    continue;
+                }
+                const float outX = offsetX / across;
+                const float outY = offsetY / down;
+                const float reach = std::sqrt(outX * outX + outY * outY);
+                const float here = std::clamp((1.0f - reach) * softness + 0.5f, 0.0f, 1.0f);
+                cover = std::min(cover, here);
+            }
+            if (cover >= 1.0f) {
+                continue;
+            }
+            unsigned char* pixel = bgra.data() + (static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
+                                                  static_cast<std::size_t>(column)) * 4u;
+            // A channel with its alpha already folded into it is the part of the colour that is
+            // there, so clearing the corner is scaling it rather than emptying its alpha alone.
+            for (int channel = 0; channel < 4; ++channel) {
+                pixel[channel] = static_cast<unsigned char>(std::lround(static_cast<float>(pixel[channel]) * cover));
+            }
+        }
+    }
+}
+
 }  // namespace Runtime

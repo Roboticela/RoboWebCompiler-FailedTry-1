@@ -1088,7 +1088,7 @@ If **this** works beautifully, you have the foundation for the rest.
 15. Text [Done]
 16. Rich Text [Done]
 17. Image [Done]
-18. Video
+18. Video 
 19. GIF
 
 20. Component

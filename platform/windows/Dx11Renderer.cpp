@@ -16,6 +16,12 @@
 namespace Runtime {
 namespace {
 
+// How many pictures and how many shapes are kept ready. Both are re-made from what they were read
+// from, so a session that has filled one empties it rather than growing without end: a window that
+// is dragged to a new size draws a picture under a new name for every step of the drag.
+constexpr std::size_t IMAGE_CACHE_LIMIT = 256;
+constexpr std::size_t GEOMETRY_CACHE_LIMIT = 512;
+
 bool LogHr(HRESULT result, const char* action) {
     if (SUCCEEDED(result)) {
         return true;
@@ -505,6 +511,14 @@ void Dx11Renderer::DrawCachedImage(std::string_view key, const Rect& rect, const
     const std::string id(key);
     auto found = imageCache.find(id);
     if (found == imageCache.end()) {
+        // A picture is kept under the name of what it is, which changes when the region or the look
+        // of it changes and when the box it is drawn in is given its corners, so a session that
+        // opens many pictures under many names would otherwise hold them all. A cache that has
+        // filled is emptied rather than aged, because the pictures in it are re-made from the files
+        // they came from and the next frame puts back the ones it draws.
+        if (imageCache.size() >= IMAGE_CACHE_LIMIT) {
+            imageCache.clear();
+        }
         const D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
             D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
         Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmap;
@@ -524,20 +538,32 @@ Microsoft::WRL::ComPtr<ID2D1PathGeometry> Dx11Renderer::PathGeometryFor(std::str
     if (!d2dFactory || data.empty()) {
         return geometry;
     }
-    const std::vector<PathContour> contours = SampleContours(data);
-    if (contours.empty()) {
-        return geometry;
+    // The same outline is drawn every frame, and reading one is reading the text of a path and
+    // building the shape it describes, so the shape is kept and handed back rather than built again.
+    const std::string key = (evenOdd ? "A:" : "W:") + std::string(data);
+    if (const auto cached = geometryCache.find(key); cached != geometryCache.end()) {
+        return cached->second;
     }
-    if (FAILED(d2dFactory->CreatePathGeometry(geometry.GetAddressOf()))) {
-        return Microsoft::WRL::ComPtr<ID2D1PathGeometry>();
+    if (geometryCache.size() >= GEOMETRY_CACHE_LIMIT) {
+        geometryCache.clear();
+    }
+    const std::vector<PathContour> contours = SampleContours(data);
+    bool built = !contours.empty();
+    if (built && FAILED(d2dFactory->CreatePathGeometry(geometry.GetAddressOf()))) {
+        built = false;
     }
     Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
-    if (FAILED(geometry->Open(sink.GetAddressOf()))) {
-        return Microsoft::WRL::ComPtr<ID2D1PathGeometry>();
+    if (built && FAILED(geometry->Open(sink.GetAddressOf()))) {
+        built = false;
     }
-    sink->SetFillMode(evenOdd ? D2D1_FILL_MODE_ALTERNATE : D2D1_FILL_MODE_WINDING);
     bool drew = false;
+    if (built) {
+        sink->SetFillMode(evenOdd ? D2D1_FILL_MODE_ALTERNATE : D2D1_FILL_MODE_WINDING);
+    }
     for (const PathContour& contour : contours) {
+        if (!built) {
+            break;
+        }
         if (contour.points.size() < 2) {
             continue;
         }
@@ -559,9 +585,12 @@ Microsoft::WRL::ComPtr<ID2D1PathGeometry> Dx11Renderer::PathGeometryFor(std::str
         sink->EndFigure(closed ? D2D1_FIGURE_END_CLOSED : D2D1_FIGURE_END_OPEN);
         drew = true;
     }
-    if (FAILED(sink->Close()) || !drew) {
-        return Microsoft::WRL::ComPtr<ID2D1PathGeometry>();
+    if (!built || FAILED(sink->Close()) || !drew) {
+        // A path that described no shape is kept as the nothing it came to, so it is not read again
+        // either: a name that held no shape this time holds none the next time.
+        geometry = nullptr;
     }
+    geometryCache.emplace(key, geometry);
     return geometry;
 }
 

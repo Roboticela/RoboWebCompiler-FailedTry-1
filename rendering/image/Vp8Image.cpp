@@ -22,7 +22,9 @@ const int kYModeTree[8] = {-4, 2, 4, 6, 0, -1, -2, -3};
 const int kYModeProbabilities[4] = {145, 156, 163, 128};
 const int kUvModeTree[6] = {0, 2, -1, 4, -2, -3};
 const int kUvModeProbabilities[3] = {142, 114, 183};
-const int kBmodeTree[18] = {0, 2, -1, 4, -2, 6, 8, 12, -3, 10, -4, -5, -6, 14, -7, 16, -8, -9};
+// The ten quarter-block predictions and the tree that codes them. The three diagonals hanging off
+// the first branch sit in the order the format writes them, which is not the order of their names.
+const int kBmodeTree[18] = {0, 2, -1, 4, -2, 6, 8, 12, -3, 10, -5, -6, -4, 14, -7, 16, -8, -9};
 const int kSegmentTree[6] = {2, 4, 0, -1, -2, -3};
 
 // Which probability table a coefficient position is coded with. The coefficients near the top-left
@@ -48,6 +50,21 @@ int Clip(int value, int low, int high) {
 
 int Magnitude(int value) {
     return value < 0 ? -value : value;
+}
+
+// Positions along one axis of a colour plane, kept inside it. A pixel on the very edge of the picture
+// has no sample beyond it to lean on, so the one it does have stands in for its absent neighbour.
+int ClampPlaneIndex(int index, int extent) {
+    return index < 0 ? 0 : (index >= extent ? extent - 1 : index);
+}
+
+// Spreads one colour sample over a square of four pixels. The sample nearest the pixel is taken at
+// three times the weight of the one beside it, and the sample one place along the diagonal carries a
+// quarter, which comes to nine, three, three and one parts in sixteen. The two rounds of the sum are
+// kept apart so that the arithmetic matches the format's own conversion step for step.
+int SpreadChromaSample(int near, int alongOneAxis, int alongOtherAxis, int diagonal) {
+    const int average = near + alongOneAxis + alongOtherAxis + diagonal + 8 + 2 * (alongOneAxis + alongOtherAxis);
+    return ((average >> 3) + near) >> 1;
 }
 
 // The bits of a partition. A value is coded as a place inside a span that narrows with every value
@@ -197,12 +214,14 @@ void PredictBlock(int mode, const int above[8], const int left[4], int corner, i
             }
             break;
         case 4:
-            out[0] = aboveAverage3(0);
-            out[1] = out[4] = aboveAverage3(1);
-            out[2] = out[5] = out[8] = aboveAverage3(2);
-            out[3] = out[6] = out[9] = out[12] = aboveAverage3(3);
-            out[7] = out[10] = out[13] = aboveAverage3(4);
-            out[11] = out[14] = aboveAverage3(5);
+            // The first diagonal leans on the row above starting one pixel in, not on the corner;
+            // the last one is spelled out because it reaches one pixel past the end of the row.
+            out[0] = aboveAverage3(1);
+            out[1] = out[4] = aboveAverage3(2);
+            out[2] = out[5] = out[8] = aboveAverage3(3);
+            out[3] = out[6] = out[9] = out[12] = aboveAverage3(4);
+            out[7] = out[10] = out[13] = aboveAverage3(5);
+            out[11] = out[14] = aboveAverage3(6);
             out[15] = Average3(above[6], above[7], above[7]);
             break;
         case 5:
@@ -634,21 +653,17 @@ int Vp8Decoder::ReadCoefficients(BoolReader& tokens, int context, int first, int
                                        {180, 157, 141, 134, 130, 0, 0, 0, 0, 0, 0},
                                        {254, 254, 243, 230, 196, 177, 153, 140, 133, 130, 129}};
     int tableContext = context;
-    // An end-of-block could not follow a zero, so after one the tree is read a branch shorter and
-    // every probability in it sits one place earlier. The end-of-block branch is the only part
-    // that differs, so it changes which entry of the table the rest of the walk starts from.
+    // The eleven figures of a table begin with the chance of running out of block; everything else
+    // sits one place further along, so the tree starts at one whether or not that chance is offered.
+    // An end-of-block cannot follow a zero, so after one the tree is simply entered one branch down.
     bool noEndOfBlock = false;
+    const int base = 1;
     while (position < 16) {
         const int* table = probabilities + ((plane * 8 + kBands[position]) * 3 + tableContext) * 11;
-        int base = 0;
         if (!noEndOfBlock) {
             if (tokens.Read(table[0]) == 0) {
-#ifdef VP8_TRACE
-                std::fprintf(stderr, "    end kind=%d first=%d ctx=%d n=%d\n", planeKind, first, context, position);
-#endif
                 return position;
             }
-            base = 1;
         }
         if (tokens.Read(table[base]) != 0) {
             int magnitude = 1;
@@ -679,11 +694,6 @@ int Vp8Decoder::ReadCoefficients(BoolReader& tokens, int context, int first, int
             if (tokens.Read(128) != 0) {
                 magnitude = -magnitude;
             }
-#ifdef VP8_TRACE
-            if (planeKind == kCoarseDc || position == 0) {
-                std::fprintf(stderr, "    coeff plane=%d pos=%d mag=%d quant=%d\n", planeKind, position, magnitude, position == 0 ? dc : ac);
-            }
-#endif
             out[kZigZag[position]] = magnitude * (position == 0 ? dc : ac);
             ++position;
             // A lone one leaves the next coefficient in the context of a one, anything larger in
@@ -697,9 +707,6 @@ int Vp8Decoder::ReadCoefficients(BoolReader& tokens, int context, int first, int
             noEndOfBlock = true;
         }
     }
-#ifdef VP8_TRACE
-    std::fprintf(stderr, "    full kind=%d first=%d ctx=%d\n", planeKind, first, context);
-#endif
     return 16;
 }
 
@@ -775,15 +782,12 @@ bool Vp8Decoder::ReadHeader(const unsigned char* payload, int payloadSize) {
         }
         dcQuantizer[segment][1] = kDcQ[Clip(base + deltas[0], 0, 127)];
         acQuantizer[segment][1] = kAcQ[base];
-        dcQuantizer[segment][2] = kDcQ[Clip(base + deltas[3], 0, 117)];
+        dcQuantizer[segment][2] = kDcQ[Clip(base + deltas[3], 0, 127)];
         acQuantizer[segment][2] = kAcQ[Clip(base + deltas[4], 0, 127)];
+        if (dcQuantizer[segment][2] > 132) {
+            dcQuantizer[segment][2] = 132;
+        }
     }
-#ifdef VP8_TRACE
-    std::fprintf(stderr, "hdr seg=%d simple=%d level=%d sharp=%d lf=%d parts=%d base=%d del=%d,%d,%d,%d,%d skip=%d/%d dcQ=%d,%d,%d acQ=%d,%d,%d\n",
-                 segmentationEnabled ? 1 : 0, simpleFilter ? 1 : 0, filterLevel, sharpness, lfDeltaEnabled ? 1 : 0, partitionCount,
-                 baseQuantizer, deltas[0], deltas[1], deltas[2], deltas[3], deltas[4], useSkipProbability ? 1 : 0, skipProbability,
-                 dcQuantizer[0][0], dcQuantizer[0][1], dcQuantizer[0][2], acQuantizer[0][0], acQuantizer[0][1], acQuantizer[0][2]);
-#endif
     return true;
 }
 
@@ -847,9 +851,6 @@ bool Vp8Decoder::DecodeMacroBlocks() {
             }
             block.skipCoefficients = useSkipProbability && reader.Read(skipProbability) != 0;
             const int yMode = reader.Tree(kYModeTree, kYModeProbabilities);
-#ifdef VP8_TRACE
-            std::fprintf(stderr, "mb(%d,%d) seg=%d skip=%d yMode=%d", macroX, macroY, block.segment, block.skipCoefficients ? 1 : 0, yMode);
-#endif
             block.quarterPredicted = yMode == 4;
             int bModes[16] = {};
             if (block.quarterPredicted) {
@@ -862,17 +863,20 @@ bool Vp8Decoder::DecodeMacroBlocks() {
                 }
             }
             const int uvMode = reader.Tree(kUvModeTree, kUvModeProbabilities);
-#ifdef VP8_TRACE
-            std::fprintf(stderr, " uvMode=%d\n", uvMode);
-#endif
             int baseLevel = filterLevel;
             if (segmentationEnabled) {
                 baseLevel = segmentAbsolute ? segmentFilter[block.segment] : filterLevel + segmentFilter[block.segment];
             }
             int level = baseLevel;
             if (lfDeltaEnabled) {
+                // Every picture here is a whole one, so the reference the block leans on is always
+                // the frame being drawn, which is the first of the four. Only a block that predicts
+                // each quarter on its own then asks for the first of the mode adjustments; the others
+                // belong to blocks that lean on an earlier or a later frame, of which there are none.
                 level += refLfDelta[0];
-                level += block.quarterPredicted ? modeLfDelta[0] : modeLfDelta[1];
+                if (block.quarterPredicted) {
+                    level += modeLfDelta[0];
+                }
             }
             block.filterLevel = Clip(level, 0, 63);
             int coefficients[kMaxCoefficients] = {};
@@ -882,9 +886,6 @@ bool Vp8Decoder::DecodeMacroBlocks() {
                     int coarse[16];
                     const int count = ReadCoefficients(tokens, aboveY2[macroX] + leftY2, 0, kCoarseDc, block.segment, coarse);
                     block.nzY2 = count > 0 ? 1 : 0;
-#ifdef VP8_TRACE
-                    std::fprintf(stderr, "  y2 nz=%d dc0=%d\n", count, coarse[0]);
-#endif
                     if (count > 1) {
                         anyCoefficients = true;
                         int transformed[16];
@@ -957,16 +958,20 @@ bool Vp8Decoder::DecodeMacroBlocks() {
                     int corner = 127;
                     for (int slot = 0; slot < 8; ++slot) {
                         const int px = blockX + slot;
-                        if (blockY == 0) {
+                        if (px < originX + 16) {
+                            above[slot] = blockY == 0 ? 127 : yPlane[static_cast<std::size_t>(blockY - 1) * yStride + px];
+                        } else if (originY == 0) {
+                            // Only the four pixels past the right edge of the rightmost quarter of a
+                            // macroblock reach outside it. They lie on the line above the macroblock,
+                            // which on the first macroblock row does not exist, so the format says to
+                            // use the plain black the rest of that row uses.
                             above[slot] = 127;
-                        } else if (px < originX + 16) {
-                            above[slot] = yPlane[static_cast<std::size_t>(blockY - 1) * yStride + px];
-                        } else if (macroX == macroBlocksWide - 1) {
-                            // Past the right edge of the picture there are no pixels; the format says
-                            // to use the last one that is there.
-                            above[slot] = yPlane[static_cast<std::size_t>(blockY - 1) * yStride + originX + 15];
+                        } else if (px < lumaWidth) {
+                            above[slot] = yPlane[static_cast<std::size_t>(originY - 1) * yStride + px];
                         } else {
-                            above[slot] = yPlane[static_cast<std::size_t>(blockY - 1) * yStride + px];
+                            // Past the right edge of the picture the format says to stand in the last
+                            // pixel of the line above the macroblock.
+                            above[slot] = yPlane[static_cast<std::size_t>(originY - 1) * yStride + originX + 15];
                         }
                     }
                     for (int slot = 0; slot < 4; ++slot) {
@@ -1033,8 +1038,13 @@ bool Vp8Decoder::DecodeMacroBlocks() {
                     }
                 }
             }
-            aboveY2[macroX] = block.nzY2;
-            leftY2 = block.nzY2;
+            // Only a macroblock that carries a coarse block can answer for it. One that predicts each
+            // quarter on its own has none, so the answer stays with the most recent macroblock above
+            // or to the left that did have one.
+            if (!block.quarterPredicted) {
+                aboveY2[macroX] = block.nzY2;
+                leftY2 = block.nzY2;
+            }
             for (int index = 0; index < 4; ++index) {
                 const int contextMode = ContextModeForWholeBlock(yMode);
                 aboveModes[static_cast<std::size_t>(macroX) * 4 + index] = block.quarterPredicted ? bModes[12 + index] : contextMode;
@@ -1112,6 +1122,9 @@ void Vp8Decoder::ApplyLoopFilter() {
             if (!interior) {
                 interior = 1;
             }
+            // How far apart two pixels either side of an edge may be before the edge is taken to be
+            // something the picture really contains rather than an artifact of coding. The plain
+            // filter, which reaches across every edge it meets, uses the same two figures.
             const int macroLimit = (level + 2) * 2 + interior;
             const int subLimit = level * 2 + interior;
             int hevThreshold = 0;
@@ -1120,7 +1133,6 @@ void Vp8Decoder::ApplyLoopFilter() {
             } else if (level >= 15) {
                 hevThreshold = 1;
             }
-            const int simpleLimit = level * 2;
             const bool filterSub = block.hasCoefficients || block.quarterPredicted;
             const int originX = macroX * 16;
             const int originY = macroY * 16;
@@ -1154,19 +1166,19 @@ void Vp8Decoder::ApplyLoopFilter() {
             } else {
                 // The simple filter only ever touches luma, and reaches across every edge it meets.
                 if (macroX > 0) {
-                    FilterPlane(yPlane, yStride, originX, originY, 16, interior, simpleLimit, hevThreshold, true, true);
+                    FilterPlane(yPlane, yStride, originX, originY, 16, interior, macroLimit, hevThreshold, true, true);
                 }
                 if (filterSub) {
                     for (int step = 1; step <= 3; ++step) {
-                        FilterPlane(yPlane, yStride, originX + step * 4, originY, 16, interior, simpleLimit, hevThreshold, false, true);
+                        FilterPlane(yPlane, yStride, originX + step * 4, originY, 16, interior, subLimit, hevThreshold, false, true);
                     }
                 }
                 if (macroY > 0) {
-                    FilterPlaneHorizontal(yPlane, yStride, originY, originX, 16, interior, simpleLimit, hevThreshold, true, true);
+                    FilterPlaneHorizontal(yPlane, yStride, originY, originX, 16, interior, macroLimit, hevThreshold, true, true);
                 }
                 if (filterSub) {
                     for (int step = 1; step <= 3; ++step) {
-                        FilterPlaneHorizontal(yPlane, yStride, originY + step * 4, originX, 16, interior, simpleLimit, hevThreshold, false, true);
+                        FilterPlaneHorizontal(yPlane, yStride, originY + step * 4, originX, 16, interior, subLimit, hevThreshold, false, true);
                     }
                 }
             }
@@ -1228,25 +1240,36 @@ bool Vp8Decoder::Read(const unsigned char* data, int size, int& width, int& heig
         return false;
     }
     ApplyLoopFilter();
-#ifdef VP8_TRACE
-    std::fprintf(stderr, "plane y=%d u=%d v=%d\n", yPlane[0], uPlane[0], vPlane[0]);
-#endif
     bgra.assign(static_cast<std::size_t>(frameWidth) * frameHeight * 4, 255);
     for (int y = 0; y < frameHeight; ++y) {
         const unsigned char* yRow = yPlane.data() + static_cast<std::size_t>(y) * yStride;
-        const unsigned char* uRow = uPlane.data() + static_cast<std::size_t>(y / 2) * uvStride;
-        const unsigned char* vRow = vPlane.data() + static_cast<std::size_t>(y / 2) * uvStride;
+        // Colour is stored at half the width and height of the picture, so each of its samples has
+        // to be spread over a little square of four pixels. The sample nearest a pixel is taken at
+        // three times the weight of the one beside it, in the direction towards whichever sample
+        // pair the pixel falls between; a sample one place along carries a quarter of it.
+        const int nearRow = y >> 1;
+        const int farRow = ClampPlaneIndex((y & 1) ? nearRow + 1 : nearRow - 1, (frameHeight + 1) / 2);
+        const unsigned char* uNear = uPlane.data() + static_cast<std::size_t>(nearRow) * uvStride;
+        const unsigned char* uFar = uPlane.data() + static_cast<std::size_t>(farRow) * uvStride;
+        const unsigned char* vNear = vPlane.data() + static_cast<std::size_t>(nearRow) * uvStride;
+        const unsigned char* vFar = vPlane.data() + static_cast<std::size_t>(farRow) * uvStride;
         unsigned char* out = bgra.data() + static_cast<std::size_t>(y) * frameWidth * 4;
         for (int x = 0; x < frameWidth; ++x) {
-            const int luma = yRow[x] - 16;
-            const int u = uRow[x / 2] - 128;
-            const int v = vRow[x / 2] - 128;
-            const int red = (298 * luma + 409 * v + 128) >> 8;
-            const int green = (298 * luma - 100 * u - 208 * v + 128) >> 8;
-            const int blue = (298 * luma + 516 * u + 128) >> 8;
-            out[x * 4 + 0] = static_cast<unsigned char>(Clip(blue, 0, 255));
-            out[x * 4 + 1] = static_cast<unsigned char>(Clip(green, 0, 255));
-            out[x * 4 + 2] = static_cast<unsigned char>(Clip(red, 0, 255));
+            const int nearColumn = x >> 1;
+            const int farColumn = ClampPlaneIndex((x & 1) ? nearColumn + 1 : nearColumn - 1, (frameWidth + 1) / 2);
+            const int luma = yRow[x];
+            const int u = SpreadChromaSample(uNear[nearColumn], uNear[farColumn], uFar[nearColumn], uFar[farColumn]);
+            const int v = SpreadChromaSample(vNear[nearColumn], vNear[farColumn], vFar[nearColumn], vFar[farColumn]);
+            // The colour conversion the format itself names: each channel is a fixed-point weighted
+            // sum of the luma and the two colour samples, with eight of the sixteen fractional bits
+            // shed before the sums are combined so the arithmetic matches the format figure for figure.
+            const int lumaTerm = (19077 * luma) >> 8;
+            const int red = Clip((lumaTerm + ((26149 * v) >> 8) - 14234) >> 6, 0, 255);
+            const int green = Clip((lumaTerm - ((6419 * u) >> 8) - ((13320 * v) >> 8) + 8708) >> 6, 0, 255);
+            const int blue = Clip((lumaTerm + ((33050 * u) >> 8) - 17685) >> 6, 0, 255);
+            out[x * 4 + 0] = static_cast<unsigned char>(blue);
+            out[x * 4 + 1] = static_cast<unsigned char>(green);
+            out[x * 4 + 2] = static_cast<unsigned char>(red);
             out[x * 4 + 3] = 255;
         }
     }

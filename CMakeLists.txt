@@ -123,6 +123,7 @@ add_library(RuntimeUi STATIC
     rendering/image/Vp8Image.h
     rendering/image/BmpImage.cpp
     rendering/image/IcoImage.cpp
+    rendering/image/TiffImage.cpp
     rendering/image/AvifImage.cpp
     engine/motion/Motion.cpp
     engine/motion/Motion.h

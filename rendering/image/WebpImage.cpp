@@ -36,6 +36,9 @@ bool IsChunkType(const WebpChunk& chunk, const char* type) {
 // body of an animation frame, which holds the same kinds of chunk as the file does. Chunk bodies sit
 // on even boundaries, so a chunk of odd length is followed by a padding byte that is not part of it.
 bool CollectChunks(const unsigned char* data, int size, int start, int end, std::vector<WebpChunk>& chunks) {
+    if (start < 0 || end > size) {
+        return false;
+    }
     for (int offset = start; offset + 8 <= end;) {
         WebpChunk chunk;
         std::memcpy(chunk.type, data + offset, 4);
@@ -61,24 +64,72 @@ const WebpChunk* FindChunk(const std::vector<WebpChunk>& chunks, const char* typ
     return nullptr;
 }
 
-// The alpha plane a lossy picture may carry beside it. It is either written out plainly, filtered the
-// way a row of a picture is filtered, or compressed as a lossless picture whose green channel is the
-// alpha the encoder wanted and whose color channels are there only to make that compress well.
+// The five bytes a lossless picture opens with: its signature, its width and height less one, whether
+// it uses its own alpha, and its version. An alpha plane's lossless stream leaves these out because
+// the picture beside it already states them, so they are put back before it can be read.
+std::vector<unsigned char> AlphaStreamHeader(int width, int height) {
+    unsigned int sizes = (static_cast<unsigned int>(width - 1) & 0x3fff) | ((static_cast<unsigned int>(height - 1) & 0x3fff) << 14);
+    return std::vector<unsigned char>{0x2f, static_cast<unsigned char>(sizes & 0xff), static_cast<unsigned char>((sizes >> 8) & 0xff),
+                                      static_cast<unsigned char>((sizes >> 16) & 0xff), static_cast<unsigned char>((sizes >> 24) & 0xff)};
+}
+
+// Turns the figures an alpha plane was stored as back into the alpha they stand for. Each figure is
+// the difference from a guess at the pixel, made from the neighbours that have already been put back:
+// none, the one to the left, the one above, or the one above plus the one to the left less the one
+// above and to the left. The guess that leans on the pixel above only exists from the second row on:
+// the first row has nothing above it, so every filter falls back to the guess that follows the row
+// itself. A guess that follows a row starts from the pixel above the first one, so the start of every
+// row after the first is carried by the pixel directly above it. Where a neighbour is missing the
+// guess does not use it.
+void UnfilterAlphaPlane(std::vector<unsigned char>& alpha, int width, int height, int filter) {
+    if (filter == 0) {
+        return;
+    }
+    for (int y = 0; y < height; ++y) {
+        int alongRow = y > 0 ? alpha[static_cast<std::size_t>(y - 1) * width] : 0;
+        for (int x = 0; x < width; ++x) {
+            const std::size_t index = static_cast<std::size_t>(y) * width + x;
+            int guess = alongRow;
+            if (y > 0 && filter != 1) {
+                if (filter == 2) {
+                    guess = alpha[index - width];
+                } else {
+                    // The guess that follows a gradient, which is the sum the two neighbours make of
+                    // each other; a step that would run past either end of a byte is held at it.
+                    const int steep = alpha[index - width] + (x > 0 ? alpha[index - 1] - alpha[index - width - 1] : 0);
+                    guess = steep < 0 ? 0 : (steep > 255 ? 255 : steep);
+                }
+            }
+            const int value = (alpha[index] + guess) & 0xff;
+            alpha[index] = static_cast<unsigned char>(value);
+            alongRow = value;
+        }
+    }
+}
+
+// The alpha plane a lossy picture may carry beside it. It is either written out plainly or compressed
+// as a lossless picture whose green channel is the alpha the encoder wanted and whose other channels
+// are there only to make that compress well; either way what is stored is a filtered difference from
+// a guess at each pixel, and the plane has to be turned back into alpha once it has been read.
 bool DecodeAlphaPlane(const WebpChunk& chunk, int width, int height, std::vector<unsigned char>& alpha) {
-    if (chunk.size < 1 || width < 1 || height < 1) {
+    if (chunk.size < 1 || width < 1 || height < 1 || width > kMaxCanvasEdge || height > kMaxCanvasEdge) {
         return false;
     }
     const int flags = chunk.body[0];
-    const bool lossless = (flags & 0x01) != 0;
-    const int method = (flags >> 2) & 0x03;
+    const int compression = flags & 0x03;
+    const int filter = (flags >> 2) & 0x03;
     const int preprocessing = (flags >> 4) & 0x03;
     const int pixels = width * height;
     alpha.assign(static_cast<std::size_t>(pixels), 255);
-    if (lossless) {
+    if (compression == 1) {
         int readWidth = 0;
         int readHeight = 0;
         std::vector<unsigned char> bgra;
-        if (!DecodeVp8LStream(chunk.body + 1, chunk.size - 1, readWidth, readHeight, bgra)) {
+        // The stream is read with the header the picture beside it already carries put back in front
+        // of it, so the same reader that handles any other lossless picture handles this one.
+        std::vector<unsigned char> stream = AlphaStreamHeader(width, height);
+        stream.insert(stream.end(), chunk.body + 1, chunk.body + chunk.size);
+        if (!DecodeVp8LStream(stream.data(), static_cast<int>(stream.size()), readWidth, readHeight, bgra)) {
             return false;
         }
         if (readWidth != width || readHeight != height) {
@@ -87,61 +138,22 @@ bool DecodeAlphaPlane(const WebpChunk& chunk, int width, int height, std::vector
         for (int index = 0; index < pixels; ++index) {
             alpha[static_cast<std::size_t>(index)] = bgra[static_cast<std::size_t>(index) * 4 + 1];
         }
-        return true;
-    }
-    if (chunk.size - 1 < pixels) {
-        return false;
-    }
-    const unsigned char* source = chunk.body + 1;
-    for (int y = 0; y < height; ++y) {
-        int predictor = 0;
-        for (int x = 0; x < width; ++x) {
-            const int filtered = source[y * width + x];
-            int value = 0;
-            switch (method) {
-                case 0:
-                    value = filtered;
-                    break;
-                case 1:
-                    // The difference from the pixel to the left.
-                    value = filtered + predictor;
-                    predictor = value;
-                    break;
-                case 2:
-                    // The difference from the pixel above.
-                    value = filtered + (y > 0 ? alpha[static_cast<std::size_t>((y - 1) * width + x)] : 0);
-                    predictor = value;
-                    break;
-                default: {
-                    // The difference from the pixel above plus the one to the left minus the one
-                    // above and to the left, which is a guess that follows a gradient.
-                    int guess = 0;
-                    if (y > 0) {
-                        guess += alpha[static_cast<std::size_t>((y - 1) * width + x)];
-                        if (x > 0) {
-                            guess -= alpha[static_cast<std::size_t>((y - 1) * width + x - 1)];
-                        }
-                    }
-                    if (x > 0) {
-                        guess += alpha[static_cast<std::size_t>(y * width + x - 1)];
-                    }
-                    value = (filtered + guess) & 0xff;
-                    break;
-                }
-            }
-            alpha[static_cast<std::size_t>(y * width + x)] = static_cast<unsigned char>(value & 0xff);
-            predictor = value;
+    } else {
+        if (chunk.size - 1 < pixels) {
+            return false;
         }
+        std::memcpy(alpha.data(), chunk.body + 1, static_cast<std::size_t>(pixels));
     }
-    // A picture whose alpha was stored at seven bits comes back with a pattern of light and dark
-    // added to it, so the step between two levels is not a hard edge. The pattern is the position of
-    // the pixel itself, which does not have to be kept anywhere.
+    UnfilterAlphaPlane(alpha, width, height, filter);
+    // A picture whose alpha was stored at fewer than eight bits comes back with a pattern of light and
+    // dark added to it, so the step between two levels is not a hard edge. The pattern is the position
+    // of the pixel itself, which does not have to be kept anywhere.
     if (preprocessing == 1) {
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 const int dither = ((x ^ y) & 1) ? 1 : 0;
-                const int index = y * width + x;
-                alpha[static_cast<std::size_t>(index)] = static_cast<unsigned char>((alpha[static_cast<std::size_t>(index)] & ~1) | dither);
+                const std::size_t index = static_cast<std::size_t>(y) * width + x;
+                alpha[index] = static_cast<unsigned char>((alpha[index] & ~1) | dither);
             }
         }
     }

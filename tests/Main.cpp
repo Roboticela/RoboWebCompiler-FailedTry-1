@@ -3722,7 +3722,7 @@ void TestCompilerSurface(TestContext& test) {
     Finish(test, "compiler surface", before);
 }
 
-bool EncodeBitmap(const GUID& format, std::vector<unsigned char>& bytes) {
+bool EncodeBitmap(const GUID& format, std::vector<unsigned char>& bytes, int width = 1, int height = 1) {
     const HRESULT start = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.GetAddressOf())))) {
@@ -3752,11 +3752,17 @@ bool EncodeBitmap(const GUID& format, std::vector<unsigned char>& bytes) {
         }
         return false;
     }
-    frame->SetSize(1, 1);
+    frame->SetSize(static_cast<UINT>(width), static_cast<UINT>(height));
     WICPixelFormatGUID pixel = GUID_WICPixelFormat32bppRGBA;
     frame->SetPixelFormat(&pixel);
-    const unsigned char pixelBytes[4] = {255, 0, 0, 255};
-    if (FAILED(frame->WritePixels(1, 4, 4, const_cast<unsigned char*>(pixelBytes))) || FAILED(frame->Commit()) || FAILED(encoder->Commit())) {
+    std::vector<unsigned char> pixelBytes(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u, 0);
+    for (std::size_t at = 0; at < pixelBytes.size(); at += 4) {
+        pixelBytes[at] = 255;
+        pixelBytes[at + 3] = 255;
+    }
+    if (FAILED(frame->WritePixels(static_cast<UINT>(height), static_cast<UINT>(width) * 4u,
+                                  static_cast<UINT>(pixelBytes.size()), pixelBytes.data())) ||
+        FAILED(frame->Commit()) || FAILED(encoder->Commit())) {
         if (start == S_OK) {
             CoUninitialize();
         }
@@ -4012,6 +4018,17 @@ void TestImage(TestContext& test) {
     }
     CHECK(test, std::filesystem::exists(picturePath));
     const std::string photo = picturePath.string();
+    // A picture larger than the boxes it is drawn into, so a picture that is shrunk rather than
+    // magnified can be read here as well: the corners of a box can only be written into a picture
+    // that has pixels small enough to hold them.
+    std::vector<unsigned char> encodedWide;
+    CHECK(test, EncodeBitmap(GUID_ContainerFormatPng, encodedWide, 200, 120));
+    const std::filesystem::path widePath = std::filesystem::temp_directory_path() / "runtime-image-element-wide-test.png";
+    {
+        std::ofstream file(widePath, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(encodedWide.data()), static_cast<std::streamsize>(encodedWide.size()));
+    }
+    const std::string widePhoto = widePath.string();
 
     // An image is a box drawn around a picture: it is a rectangle, so everything a rectangle is it
     // is, and the picture is the one thing it brings of its own.
@@ -4087,14 +4104,17 @@ void TestImage(TestContext& test) {
     // A picture that hangs over its box is cut off at the box whether it was asked to be clipped or
     // because covering the box is exactly the case where it hangs over.
     std::unique_ptr<Element> held = Layout(
-        ("<window width=\"400\" height=\"200\"><frame layout=\"none\" width=\"400\" height=\"200\">"
+        ("<window width=\"700\" height=\"200\"><frame layout=\"none\" width=\"700\" height=\"200\">"
          "<image id=\"loose\" x=\"10\" y=\"10\" width=\"120\" height=\"80\" fit=\"cover\" source=\"" +
          photo +
          "\"/><image id=\"clipped\" x=\"200\" y=\"10\" width=\"120\" height=\"80\" clip=\"true\" source=\"" + photo +
          "\"/><image id=\"rounded\" x=\"10\" y=\"120\" width=\"120\" height=\"80\" radius=\"16\" source=\"" + photo +
-         "\"/></frame></window>")
+         "\"/><image id=\"roundedOver\" x=\"200\" y=\"120\" width=\"120\" height=\"80\" radius=\"16\" fit=\"cover\" source=\"" +
+         photo +
+         "\"/><image id=\"roundedDown\" x=\"400\" y=\"120\" width=\"120\" height=\"80\" radius=\"16\" source=\"" +
+         widePhoto + "\"/></frame></window>")
             .c_str(),
-        400.0f, 200.0f);
+        700.0f, 200.0f);
     if (held != nullptr) {
         RecordingRenderer renderer;
         held->Paint(renderer);
@@ -4106,16 +4126,39 @@ void TestImage(TestContext& test) {
         const PaintRecord* cut = clipped == nullptr ? nullptr : PaintRecordFor(renderer, clipped->PictureBox());
         CHECK(test, covering != nullptr && covering->clipDepth > 0);
         CHECK(test, cut != nullptr && cut->clipDepth > 0);
-        // A box with corners is held inside the shape those corners draw rather than inside the box
-        // around it, so a picture that covers the box does not stand in the corners it never
-        // reached. The cut is a path, which is how a cut that is a shape rather than a box is made.
-        ImageElement* round = dynamic_cast<ImageElement*>(held->FindById("rounded"));
-        const PaintRecord* softened = round == nullptr ? nullptr : PaintRecordFor(renderer, round->PictureBox());
-        CHECK(test, softened != nullptr && softened->clipDepth > 0 && !softened->clipShape.empty() &&
-                        softened->clipShape.find("A ") != std::string::npos);
         // A box without corners needs no shape: the plain box is the cut it is given, and the corner
         // radii of the shape being square is what tells the two cuts apart.
         CHECK(test, cut != nullptr && cut->clipShape.empty());
+        // A box with corners costs the platform a mask, which it composites for every picture of
+        // every frame, so a picture that fills the box exactly and is no larger than its box carries
+        // the corners in its own pixels instead: it is cut out of nothing, because the corners are
+        // already in it.
+        ImageElement* round = dynamic_cast<ImageElement*>(held->FindById("roundedDown"));
+        const PaintRecord* filled = round == nullptr ? nullptr : PaintRecordFor(renderer, round->PictureBox());
+        CHECK(test, filled != nullptr && filled->clipDepth == 0 && filled->clipShape.empty());
+        // The corners written into it are the ones the box would have cut: the corner of the picture
+        // is gone and the middle of it is untouched.
+        if (round != nullptr) {
+            ImageElement::Picture carried;
+            CHECK(test, round->ReadPicture(carried));
+            if (carried.width == 200 && carried.height == 120 && carried.pixels != nullptr) {
+                CHECK(test, carried.pixels[0] == 0 && carried.pixels[1] == 0 && carried.pixels[2] == 0 && carried.pixels[3] == 0);
+                CHECK(test, carried.pixels[(60 * 200 + 40) * 4 + 3] == 255);
+            } else {
+                CHECK(test, false);
+            }
+        }
+        // A picture that hangs over its box is cut where it hangs over as well, which is a cut the
+        // picture cannot carry, and a picture magnified has corners finer than its own pixels, so
+        // those are still held inside the shape their corners draw. The cut is a path, which is how
+        // a cut that is a shape rather than a box is made.
+        ImageElement* over = dynamic_cast<ImageElement*>(held->FindById("roundedOver"));
+        const PaintRecord* softened = over == nullptr ? nullptr : PaintRecordFor(renderer, over->PictureBox());
+        CHECK(test, softened != nullptr && softened->clipDepth > 0 && !softened->clipShape.empty() &&
+                        softened->clipShape.find("A ") != std::string::npos);
+        ImageElement* tight = dynamic_cast<ImageElement*>(held->FindById("rounded"));
+        const PaintRecord* grown = tight == nullptr ? nullptr : PaintRecordFor(renderer, tight->PictureBox());
+        CHECK(test, grown != nullptr && grown->clipDepth > 0 && grown->clipShape.find("A ") != std::string::npos);
     }
 
     // What the document said about the picture reaches the node: the region of the file that is
@@ -4517,6 +4560,140 @@ void TestRemainingSurface(TestContext& test) {
         CHECK(test, frame.bgra[3] == 0 && frame.bgra[7] == 255);
         CHECK(test, frame.bgra[8] == 255 && frame.bgra[9] == 0 && frame.bgra[10] == 0);
     }
+
+    // A tagged picture is a list of named figures with the pixels kept somewhere else in the file,
+    // and the list says both how wide the picture is and how the run of bytes that holds it was
+    // squeezed. The four files below were written by the format's own library and are read back
+    // against the pixels it wrote: the same eight pixels in every squeeze, so a reader that got a
+    // run of codes wrong would be wrong in the pixels rather than in the size it reported.
+    const unsigned char kTiffLzw[] = {
+        0x49, 0x49, 0x2a, 0x00, 0x26, 0x00, 0x00, 0x00, 0x80, 0x02, 0x82, 0x81, 0xe1, 0x40, 0xc8, 0x78,
+        0x46, 0x28, 0x16, 0x8c, 0x86, 0xe3, 0xc2, 0x09, 0x18, 0x96, 0x50, 0x2a, 0x96, 0x8b, 0xe6, 0x43,
+        0x49, 0xb8, 0xe6, 0x78, 0x40, 0x40, 0x0a, 0x00, 0x00, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00, 0x01, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0x02, 0x01, 0x03, 0x00, 0x03, 0x00, 0x00, 0x00, 0xa4, 0x00, 0x00, 0x00, 0x03, 0x01, 0x03, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x06, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x11, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+        0x15, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x16, 0x01, 0x03, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x17, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x1e, 0x00, 0x00, 0x00, 0x1c, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x08, 0x00, 0x08, 0x00,
+    };
+    const unsigned char kTiffPackBits[] = {
+        0x49, 0x49, 0x2a, 0x00, 0x22, 0x00, 0x00, 0x00, 0x0b, 0x0a, 0x14, 0x1e, 0x28, 0x32, 0x3c, 0x46,
+        0x50, 0x5a, 0x64, 0x6e, 0x78, 0x0b, 0x82, 0x8c, 0x96, 0xa0, 0xaa, 0xb4, 0xbe, 0xc8, 0xd2, 0xdc,
+        0xe6, 0xf0, 0x0a, 0x00, 0x00, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,
+        0x01, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x01, 0x03, 0x00,
+        0x03, 0x00, 0x00, 0x00, 0xa0, 0x00, 0x00, 0x00, 0x03, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x05, 0x80, 0x00, 0x00, 0x06, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0x11, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x15, 0x01, 0x03, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x16, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x17, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00,
+        0x1c, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x08, 0x00, 0x08, 0x00, 0x08, 0x00,
+    };
+    const unsigned char kTiffDeflate[] = {
+        0x49, 0x49, 0x2a, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x78, 0x9c, 0xe3, 0x12, 0x91, 0xd3, 0x30, 0xb2,
+        0x71, 0x0b, 0x88, 0x4a, 0xc9, 0xab, 0x68, 0xea, 0x99, 0xb6, 0x60, 0xd5, 0x96, 0x7d, 0x27, 0x2e,
+        0xdd, 0x79, 0xf6, 0x01, 0x00, 0x65, 0xa8, 0x0b, 0xb9, 0x00, 0x0a, 0x00, 0x00, 0x01, 0x03, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x02, 0x01, 0x03, 0x00, 0x03, 0x00, 0x00, 0x00, 0xa8, 0x00, 0x00, 0x00,
+        0x03, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x06, 0x01, 0x03, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x11, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x08, 0x00, 0x00, 0x00, 0x15, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+        0x16, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x17, 0x01, 0x04, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x21, 0x00, 0x00, 0x00, 0x1c, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x08, 0x00, 0x08, 0x00,
+    };
+    const unsigned char kTiffBigEndian[] = {
+        0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08, 0x00, 0x0a, 0x01, 0x00, 0x00, 0x04, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x01, 0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x02, 0x01, 0x02, 0x00, 0x03, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x86, 0x01, 0x03,
+        0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x06, 0x00, 0x03, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x01, 0x11, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x8c, 0x01, 0x15, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x01, 0x16,
+        0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x01, 0x17, 0x00, 0x04, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x18, 0x01, 0x1c, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x08, 0x00, 0x08, 0x0a, 0x14, 0x1e, 0x28,
+        0x32, 0x3c, 0x46, 0x50, 0x5a, 0x64, 0x6e, 0x78, 0x82, 0x8c, 0x96, 0xa0, 0xaa, 0xb4, 0xbe, 0xc8,
+        0xd2, 0xdc, 0xe6, 0xf0,
+    };
+    const unsigned char kTiffPalette[] = {
+        0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x01, 0x04, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00,
+        0x00, 0x00, 0x02, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x01,
+        0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x01, 0x03, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x11, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x86, 0x00,
+        0x00, 0x00, 0x15, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x16, 0x01,
+        0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x40, 0x01, 0x03, 0x00, 0x06, 0x00,
+        0x00, 0x00, 0x7a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+        0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x55, 0xaa,
+    };
+    const unsigned char kTiffColours[32] = {30,20,10,255,60,50,40,255,90,80,70,255,120,110,100,255,150,140,130,255,180,170,160,255,210,200,190,255,240,230,220,255};
+    const unsigned char kTiffPaletteColours[64] = {0,0,255,255,0,255,0,255,0,0,255,255,0,255,0,255,0,0,255,255,0,255,0,255,0,0,255,255,0,255,0,255,0,255,0,255,0,0,255,255,0,255,0,255,0,0,255,255,0,255,0,255,0,0,255,255,0,255,0,255,0,0,255,255};
+
+    const unsigned char* const kTiffFiles[] = {kTiffLzw, kTiffPackBits, kTiffDeflate, kTiffBigEndian};
+    const int kTiffSizes[] = {
+        static_cast<int>(sizeof(kTiffLzw)), static_cast<int>(sizeof(kTiffPackBits)),
+        static_cast<int>(sizeof(kTiffDeflate)), static_cast<int>(sizeof(kTiffBigEndian)),
+    };
+    for (int file = 0; file < 4; ++file) {
+        DecodedImage tagged;
+        const bool read = DecodeImageBytes(kTiffFiles[file], kTiffSizes[file], tagged);
+        CHECK(test, read && tagged.format == "tiff" && tagged.frames.size() == 1);
+        if (!read || tagged.frames.empty()) {
+            continue;
+        }
+        const ImageFrame& frame = tagged.frames.front();
+        CHECK(test, frame.width == 4 && frame.height == 2 && frame.bgra.size() == sizeof(kTiffColours));
+        CHECK(test, std::memcmp(frame.bgra.data(), kTiffColours, sizeof(kTiffColours)) == 0);
+    }
+    // A picture of one bit a sample whose colours are named in a table rather than held in the
+    // pixels themselves. The table writes each colour as sixteen bits, which is what a table holds.
+    DecodedImage taggedPalette;
+    const bool readPalette = DecodeImageBytes(kTiffPalette, static_cast<int>(sizeof(kTiffPalette)), taggedPalette);
+    CHECK(test, readPalette && taggedPalette.format == "tiff" && taggedPalette.frames.size() == 1);
+    if (readPalette && !taggedPalette.frames.empty()) {
+        const ImageFrame& frame = taggedPalette.frames.front();
+        CHECK(test, frame.width == 8 && frame.height == 2 && frame.bgra.size() == sizeof(kTiffPaletteColours));
+        CHECK(test, std::memcmp(frame.bgra.data(), kTiffPaletteColours, sizeof(kTiffPaletteColours)) == 0);
+    }
+
+    // A picture drawn in a box with rounded corners carries those corners itself, so the platform
+    // does not have to cut it with a mask on every frame. The arcs are given in the pixels of the
+    // picture, and the pixels are premultiplied, so a corner that is cut is scaled in every channel
+    // rather than emptied of its alpha alone.
+    auto corners = [](std::vector<unsigned char>& pixels, float across, float down) {
+        RoundImageCorners(pixels, 8, 8, across, down);
+    };
+    auto lost = [](const std::vector<unsigned char>& pixels) {
+        int count = 0;
+        for (std::size_t at = 3; at < pixels.size(); at += 4) {
+            if (pixels[at] == 0) {
+                ++count;
+            }
+        }
+        return count;
+    };
+    std::vector<unsigned char> square(8 * 8 * 4, 200);
+    corners(square, 0.0f, 0.0f);
+    CHECK(test, lost(square) == 0 && square[72] == 200);
+    std::vector<unsigned char> rounded(8 * 8 * 4, 200);
+    corners(rounded, 3.0f, 3.0f);
+    // The very corner has gone in every channel, the pixel two in from it is untouched, and the
+    // far corner has gone as well.
+    CHECK(test, rounded[0] == 0 && rounded[1] == 0 && rounded[2] == 0 && rounded[3] == 0);
+    CHECK(test, rounded[252] == 0 && rounded[255] == 0);
+    CHECK(test, rounded[72] == 200 && rounded[75] == 200);
+    std::vector<unsigned char> narrow(8 * 8 * 4, 200);
+    corners(narrow, 1.0f, 4.0f);
+    std::vector<unsigned char> wide(8 * 8 * 4, 200);
+    corners(wide, 4.0f, 4.0f);
+    // An arc that reaches further across takes more of the picture, on each of its two axes.
+    CHECK(test, lost(wide) > lost(narrow));
+    std::vector<unsigned char> tiny(4 * 4 * 4, 200);
+    RoundImageCorners(tiny, 2, 2, 100.0f, 100.0f);
+    CHECK(test, tiny[3] < 200);
 
     // An animation is a PNG with frames: the picture's own bytes are the first frame, and every frame
     // after it is written as only the part of the picture that changed, laid where it changed. The

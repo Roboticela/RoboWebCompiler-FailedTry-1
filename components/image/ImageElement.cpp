@@ -7,6 +7,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -90,6 +91,26 @@ std::vector<std::string> SplitWords(const std::string& value) {
 bool Truthy(const std::string& value) {
     const std::string folded = FoldToken(value);
     return folded != "false" && folded != "0" && folded != "none" && folded != "hidden" && folded != "no";
+}
+
+// The width a box's edge is allowed to be out by and still be the same edge: two boxes worked out
+// from the same lengths land on each other exactly, so this only has to hold a number that came
+// through a division.
+constexpr float EDGE_EPSILON = 0.01f;
+
+// Two boxes that lie on each other: the same corner and the same two sides.
+bool SameBox(const Rect& one, const Rect& other) {
+    return std::fabs(one.x - other.x) <= EDGE_EPSILON && std::fabs(one.y - other.y) <= EDGE_EPSILON &&
+           std::fabs(one.width - other.width) <= EDGE_EPSILON && std::fabs(one.height - other.height) <= EDGE_EPSILON;
+}
+
+// The rectangle a rounded box leaves whole: the box brought in by its widest corner. A picture that
+// stands inside it never reaches a corner, so the corners of the box cannot cut it and it needs no
+// mask at all.
+bool InsideCorners(const Rect& area, float corner, const Rect& box) {
+    return box.x >= area.x + corner - EDGE_EPSILON && box.y >= area.y + corner - EDGE_EPSILON &&
+           box.x + box.width <= area.x + area.width - corner + EDGE_EPSILON &&
+           box.y + box.height <= area.y + area.height - corner + EDGE_EPSILON;
 }
 
 }  // namespace
@@ -374,9 +395,25 @@ bool ImageElement::ReadPicture(Picture& picture) {
     // look were asked for, so two pictures that are pixels apart are two images to the cache rather
     // than one drawn twice as the first of them.
     std::string name = source + "#" + std::to_string(index) + "#" + ImageLookName(region, look);
+    // A picture that fills its box exactly is drawn as the rounded box itself, so the corners of the
+    // box are folded into the picture once, when it is made ready to draw, rather than cut out of it
+    // by the platform on every frame, which is a mask the platform composites afresh for each picture
+    // of each frame. The radii are part of the name the pixels are held under, because the same file
+    // drawn into two boxes of different shapes is two pictures with two different corners in it.
+    float across = 0.0f;
+    float down = 0.0f;
+    const bool carried = CarriedCorners(across, down);
+    if (carried) {
+        char rounded[64];
+        std::snprintf(rounded, sizeof(rounded), ":r%.3f:%.3f", static_cast<double>(across), static_cast<double>(down));
+        name += rounded;
+    }
     if (name != adjustedName) {
         AdjustImage(frame.bgra.data(), frame.width, frame.height, frame.premultiplied, region, look, adjusted, adjustedWidth,
                     adjustedHeight);
+        if (carried) {
+            RoundImageCorners(adjusted, adjustedWidth, adjustedHeight, across, down);
+        }
         adjustedName = name;
     }
     if (adjusted.empty() || adjustedWidth < 1 || adjustedHeight < 1) {
@@ -387,6 +424,45 @@ bool ImageElement::ReadPicture(Picture& picture) {
     picture.height = adjustedHeight;
     picture.name = adjustedName;
     return true;
+}
+
+float ImageElement::EvenCornerRadius() const {
+    const float corner = CornerRadius(0);
+    if (corner <= TURN_EPSILON) {
+        return 0.0f;
+    }
+    for (int index = 1; index < 4; ++index) {
+        if (std::fabs(CornerRadius(index) - corner) > TURN_EPSILON) {
+            return 0.0f;
+        }
+    }
+    return corner;
+}
+
+bool ImageElement::CarriedCorners(float& across, float& down) {
+    across = 0.0f;
+    down = 0.0f;
+
+    const float corner = EvenCornerRadius();
+    if (corner <= 0.0f) {
+        return false;
+    }
+    const Rect box = PictureBox();
+    const Rect area = Bounds();
+    if (box.width <= 0.0f || box.height <= 0.0f || !SameBox(box, area)) {
+        return false;
+    }
+    // A round corner of the box is an oval of the picture whenever the box and the picture are not
+    // the same shape, so the picture is told the two radii of the oval it carries. A picture drawn
+    // larger than it came has no pixel small enough to hold those arcs, so it is left to the
+    // platform: a corner cut out of a magnified picture would be a corner the file never had.
+    const Size art = Intrinsic();
+    if (art.width < 1.0f || art.height < 1.0f || box.width > art.width + EDGE_EPSILON || box.height > art.height + EDGE_EPSILON) {
+        return false;
+    }
+    across = corner * art.width / box.width;
+    down = corner * art.height / box.height;
+    return across > 0.0f && down > 0.0f;
 }
 
 Size ImageElement::Measure(TextMeasurer&, float availableWidth, float availableHeight, bool) {
@@ -456,16 +532,26 @@ void ImageElement::OnPaint(Renderer& renderer) {
         // rectangle around it.
         const bool held = clip || fit == ImageFit::COVER;
         const bool rounded = Radius() > TURN_EPSILON;
-        if (rounded) {
+        // The picture carries the corners of the box itself when it fills the box and the box has one
+        // corner to carry, and a picture that stands inside the widest corner of the box is never
+        // reached by the corners at all. Neither case asks the platform for a mask.
+        float across = 0.0f;
+        float down = 0.0f;
+        const bool carried = CarriedCorners(across, down);
+        const bool clear = rounded && InsideCorners(area, Radius(), box);
+        bool cut = false;
+        if (rounded && !carried && !clear) {
             // The box's own outline, which is the shape the corners of this node already draw, so
             // the picture is cut off at exactly the box it is drawn in.
             const std::string outline = CornerPath(area.width, area.height);
             renderer.PushClipPath(area, outline);
-        } else if (held) {
+            cut = true;
+        } else if (!rounded && held) {
             renderer.PushClip(area);
+            cut = true;
         }
         renderer.DrawCachedImage(picture.name, box, picture.pixels, picture.width, picture.height);
-        if (rounded || held) {
+        if (cut) {
             renderer.PopClip();
         }
         if (turned) {

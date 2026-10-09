@@ -54,4 +54,17 @@ void AdjustImage(const unsigned char* bgra, int width, int height, bool premulti
 // which is what lets a plain picture keep the key it always had.
 std::string ImageLookName(const ImageCrop& crop, const ImageLook& look);
 
+// A picture drawn in a box with rounded corners is the shape of the box: the corners are the arcs
+// the box cuts, so they are written into the picture itself rather than cut out of it by the
+// platform on every frame. A cut is a mask the platform has to composite, and a picture drawn every
+// frame would otherwise be a mask composited every frame, while a corner written into the picture
+// is written once, when the picture is made ready to draw.
+//
+// The arcs are given in the pixels of the picture rather than of the box, and once across and once
+// down, because the platform draws the picture at whatever size the box asks for: a round corner of
+// the box is an oval of the picture whenever the box and the picture are not the same shape, and it
+// is the outside of that oval that is cleared here. The pixels are premultiplied, so a cleared
+// corner is scaled in all four of its channels rather than emptied of its alpha alone.
+void RoundImageCorners(std::vector<unsigned char>& bgra, int width, int height, float acrossRadius, float downRadius);
+
 }  // namespace Runtime

@@ -46,6 +46,12 @@ bool DecodeRaster(const unsigned char* data, int size, DecodedImage& image) {
     if (size >= 4 && data[0] == 0 && data[1] == 0 && (data[2] == 1 || data[2] == 2) && data[3] == 0) {
         return DecodeIcoImage(data, size, image);
     }
+    // A tagged picture names the order of its own bytes in the first two of them, and then the
+    // number that says it is one of these, which is the same figure read either way round.
+    if (size >= 4 && ((data[0] == 'I' && data[1] == 'I' && data[2] == 42 && data[3] == 0) ||
+                      (data[0] == 'M' && data[1] == 'M' && data[2] == 0 && data[3] == 42))) {
+        return DecodeTiffImage(data, size, image);
+    }
     if (size >= 12 && std::memcmp(data + 4, "ftyp", 4) == 0) {
         return DecodeAvifImage(data, size, image);
     }
