@@ -3,6 +3,7 @@
 #include "components/rectangle/RectangleElement.h"
 #include "rendering/image/ImageAdjust.h"
 #include "rendering/image/ImageDecoder.h"
+#include "rendering/image/VideoStream.h"
 
 #include <string>
 #include <vector>
@@ -40,6 +41,15 @@ enum class ImageFit {
 // leaves a box named after the file, so a gap in a design is visible where it stands rather than
 // silent. A picture with more than one frame is drawn as the frame this moment of the animation
 // lands in, so a GIF plays by being drawn.
+//
+// A file is read one of two ways, and which one it is is a fact about the file. A still picture, a
+// GIF, and an animated WebP hold every frame of themselves in one piece, so they are read whole and
+// kept: there are few enough frames of them and each is small enough that holding them costs
+// nothing. A container of moving pictures — an AVI of Motion JPEG or an IVF of whole VP8 pictures —
+// holds thousands of frames, so it is not read whole: the container is walked for where its frames
+// lie and each frame is read when it is wanted, with only the frame being drawn held. Both ways end
+// in the same place, which is the frame this moment lands in, so nothing above here has to know
+// which of them a file took.
 class ImageElement : public RectangleElement {
 public:
     // A picture with no size of its own is the size of the picture it holds, so it does not start
@@ -104,8 +114,44 @@ public:
 protected:
     void OnPaint(Renderer& renderer) override;
 
+    // How many frames the picture holds, and how long one pass through them lasts. A frame with no
+    // delay written stands for a tenth of a second, which is the timing a reader that found none
+    // still has to draw something for.
+    int PictureFrameCount() const;
+    unsigned long long PictureDurationMilliseconds() const;
+    // The frame this node is drawn at this moment. A still picture is frame zero, and a picture with
+    // more than one frame is the frame the clock has reached. It is the one thing a node that plays
+    // its own picture changes: an image is drawn for the moment it has been shown, and a video is
+    // drawn for the moment its own playhead stands at, which its pause, its speed and its seek move.
+    virtual int FrameAtMoment() const;
+    // Whether the file is a container of moving pictures, read frame by frame rather than whole. It
+    // is asked once for each file, and a file that is not a container is read whole and kept the way
+    // a picture always was.
+    bool StreamOpen() const;
+    // The frame a moment that many milliseconds into a pass falls in. A pass is a loop, so a moment
+    // past the end of one has come round to the beginning of it again; a caller that means a stopped
+    // picture to hold the frame it stopped on asks for the moment inside its end rather than for the
+    // end itself.
+    int FrameForMilliseconds(unsigned long long milliseconds) const;
+    // What a picture that could not be read is named inside its own box. A picture with no file is
+    // named after what it would have been, which is the one thing a node holding no picture still
+    // knows about itself.
+    virtual const char* MissingLabel() const;
+    ImageLook Look() const;
+
 private:
-    bool EnsureDecoded();
+    // The file is read where the size of the node or the pixels it draws are first needed, and the
+    // reading is held, so the picture is read once however many passes ask for it. It is asked from
+    // places that only read what they are given, which is what makes the reading a part of what the
+    // node already holds rather than something a pass has to be allowed to change.
+    bool EnsureDecoded() const;
+    // How long the frame with this index of the picture is held for, in milliseconds, whichever of
+    // the two ways the file was read. A frame the file wrote no timing for stands a tenth of a
+    // second, which is the timing a reader that found none still has to draw something for.
+    unsigned long long FrameDelayMillisecondsAt(int index) const;
+    // The pixels of one frame, read from where the container lies if the file is one of those and
+    // from the whole picture otherwise. Nothing for a frame the file does not hold or cannot yield.
+    const ImageFrame* FrameForDraw(int index) const;
     // The radius of this box's corners when all four are the same, and nought when they are not: a
     // picture can carry the corners of its box only when the box has one corner to carry.
     float EvenCornerRadius() const;
@@ -115,15 +161,15 @@ private:
     // than it came, because a corner magnified is a corner the picture never held: the arcs of the
     // box would be finer than one pixel of it.
     bool CarriedCorners(float& across, float& down);
-    // The frame of the animation this moment of the clock lands in. A still picture is frame zero.
-    int FrameIndex(unsigned long long milliseconds) const;
-    ImageLook Look() const;
-
     std::string source;
     ImageFit fit = ImageFit::FILL;
     bool clip = false;
-    bool decodedReady = false;
-    DecodedImage decoded;
+    mutable bool decodedReady = false;
+    mutable DecodedImage decoded;
+    // The container the file turned out to be, and whether it has been asked about yet. A picture
+    // read whole leaves this shut, so the cost of it is one attempt per file and nothing after that.
+    mutable VideoStream stream;
+    mutable bool streamTried = false;
     int cropX = 0;
     int cropY = 0;
     int cropWidth = 0;

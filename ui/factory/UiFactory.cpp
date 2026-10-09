@@ -19,6 +19,7 @@
 #include "components/text/SpanElement.h"
 #include "components/text/TextElement.h"
 #include "components/vector/VectorElement.h"
+#include "components/video/VideoElement.h"
 #include "rendering/image/ImageDecoder.h"
 
 #include <algorithm>
@@ -1384,6 +1385,34 @@ void ApplyImage(ImageElement& image, const IrNode& node) {
     }
 }
 
+// A video is a picture that is played rather than shown, so it reads everything a picture reads:
+// the file, the region of it that is drawn, where it sits inside the box when it does not cover it,
+// the look it is washed with, and the box all of those are drawn in. What is left to say is the
+// playing of it: whether it runs, whether the end of it comes round to its beginning, the rate it
+// runs at, where in the picture it starts, and whether the bar of it is drawn.
+void ApplyVideo(VideoElement& video, const IrNode& node) {
+    // A video is a picture, so it has to be asked first: the image branch below would otherwise take
+    // it and leave the playing unread.
+    ApplyImage(video, node);
+    if (const UiValue* value = FindProperty(node, "playing")) {
+        video.SetPlaying(value->boolean);
+    }
+    if (const UiValue* value = FindProperty(node, "loop")) {
+        video.SetLoop(value->boolean);
+    }
+    if (const UiValue* value = FindProperty(node, "speed")) {
+        video.SetSpeed(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "time")) {
+        // The time a picture is told to start at is a seek into it rather than a length of its box,
+        // so it is read in the seconds the file's own delays are written in.
+        video.SetTime(static_cast<float>(value->number));
+    }
+    if (const UiValue* value = FindProperty(node, "controls")) {
+        video.SetControls(value->boolean);
+    }
+}
+
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
     switch (node.kind) {
     case NodeKind::WINDOW:
@@ -1412,6 +1441,8 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<BooleanElement>();
     case NodeKind::IMAGE:
         return std::make_unique<ImageElement>();
+    case NodeKind::VIDEO:
+        return std::make_unique<VideoElement>();
     case NodeKind::SHADOW:
         return nullptr;
     case NodeKind::TEXT:
@@ -1482,6 +1513,10 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         // A boolean group is a rectangle, so it has to be asked first: the rectangle branch below
         // would otherwise take it and leave the operation unsaid.
         ApplyBoolean(*boolean, node);
+    } else if (VideoElement* video = dynamic_cast<VideoElement*>(&element)) {
+        // A video is a picture, so it has to be asked before the image underneath it: the image
+        // branch below would otherwise take it and leave the playing unread.
+        ApplyVideo(*video, node);
     } else if (ImageElement* image = dynamic_cast<ImageElement*>(&element)) {
         // An image is a rectangle, so it has to be asked first: the rectangle branch below would
         // otherwise take it and leave the picture unread.

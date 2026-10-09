@@ -16,6 +16,7 @@ in portable C++ and lives in `rendering/image/`; nothing in it calls into the op
 | ICO / CUR | `IcoImage.cpp` | The largest picture in the file, whether it is a PNG inside or a bitmap without a file header. The cursor hotspot is ignored. |
 | TIFF | `TiffImage.cpp` | Either byte order, the first picture of a file, and both strips and tiles: none, PackBits, LZW with the early-change rule and Deflate. 1, 4, 8 and 16-bit samples; greyscale, palette and RGB; the horizontal predictor; alpha and its meaning. |
 | AVIF | `AvifImage.cpp` | The container is read here, so the format and the stated size are the runtime's own. The pixels need an AV1 decoder, which the runtime does not carry. |
+| AVI / IVF | `VideoStream.cpp` | Containers of moving pictures whose frames are whole pictures: Motion JPEG in an AVI, whole VP8 pictures in an IVF. Read where the frames lie rather than whole, one frame at a time. |
 
 A WebP's lossless pictures are read by `Vp8LImage.cpp` and its lossy ones by `Vp8Image.cpp`; both are
 the container's picture and not a wrapper around anybody else's decoder. Every stage the formats
@@ -93,8 +94,48 @@ states a size. `DecodedImage::declaredWidth` and `declaredHeight` carry that sta
 AVIF on a machine with no AV1 codec therefore leaves a gap of the right size and shape rather than a
 box of a fixed size.
 
+## Playing a picture
+
+A picture that holds more than one frame is drawn a frame at a time, and which frame is drawn is a
+fact about the moment. The `image` element draws the frame the clock has reached, which is what makes
+a GIF play by being drawn: there is no state to pause and none to seek. The `video` element draws the
+frame its own playhead stands in, so the same picture can be paused, started again, run slower or
+faster, seeked to a moment, stopped at its end, or looped back to its beginning, and a click anywhere
+on it starts it or stops it. The element carries the playing of a picture and nothing else about it:
+it is built on `image`, which is built on the rectangle, so it is a box with corners, a turn, a
+fitting and a look by being one rather than by copying any of them.
+
+A picture held whole and a picture read out of a container are two different things to the element,
+and which of the two a file is is a fact about the file rather than a flag on the node. A still
+picture, a GIF and an animated WebP are read whole and kept, because there are few enough frames of
+them and each is small enough that holding them costs nothing. A container of moving pictures is not:
+a minute of one is thousands of frames and a frame of a large one is megabytes, which is more than a
+document has any right to hold. `VideoStream.cpp` walks the container for where its frames lie and
+reads one frame when it is wanted, holding only the frame being drawn. It opens an AVI whose frames
+are Motion JPEG and an IVF whose frames are whole VP8 pictures, and it opens them only when every
+frame of the file stands on its own — a frame that leans on the ones before it cannot be read out of
+the middle of a file, so such a file is refused whole rather than drawn with gaps in it. A file the
+container reader does not open is read the way any other picture is, so nothing above it has to know
+which of the two happened.
+
+Either way the element is handed the same four things — how many frames there are, how big the
+picture is, the moment each frame begins at, and the frame that moment falls in — so a video playing
+an AVI is the same video as one playing a GIF. Widening what plays means writing a reader for another
+container or another codec, which is the same work as any other format in this document and is costed
+the same way, rather than a switch that turns video on.
+
+A container keeps its file open for as long as it stands, because it is an index of where the frames
+lie rather than a copy of them. A file that is a container is therefore open in the sense the
+operating system means: it can be read by anything else, and it cannot be removed or replaced while
+the element holding it is alive.
+
 ## Not supported
 
+- **MP4, WebM and MOV, and the H.264, HEVC, VP9 and AV1 frames they carry** — a `video` element
+  naming one draws the gap an unreadable picture draws. Only a container whose every frame is a
+  whole picture is opened: an AVI of Motion JPEG and an IVF of whole VP8 pictures are read, and a
+  container whose frames lean on each other is refused whole.
+- **Sound** — nothing here reads an audio track, and a container's sound track is skipped.
 - **HEIC / HEIF** — uses HEVC, the same class of problem as AV1.
 - **AV1 pictures inside AVIF** — the container is read and the size it states is kept; the pixels
   need the optional decoder above. An animated AVIF names and measures its frames but could only

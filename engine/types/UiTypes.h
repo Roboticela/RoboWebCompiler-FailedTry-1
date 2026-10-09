@@ -33,6 +33,9 @@ enum class NodeKind : std::uint8_t {
     RICHTEXT,
     SPAN,
     IMAGE,
+    // A picture that is played rather than shown: the same box and the same picture, under the
+    // control of the node instead of the clock.
+    VIDEO,
     VECTOR,
     SVG,
     PATH,
@@ -329,6 +332,8 @@ inline const char* NodeKindName(NodeKind kind) {
         return "span";
     case NodeKind::IMAGE:
         return "image";
+    case NodeKind::VIDEO:
+        return "video";
     case NodeKind::VECTOR:
         return "vector";
     case NodeKind::SVG:

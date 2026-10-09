@@ -355,6 +355,20 @@ std::vector<PropertySpec> ImageProperties() {
                                        {"rotation", TypeKind::FLOAT}});
 }
 
+// A video is a picture that is played rather than shown, so it takes everything a picture takes:
+// the file, the fitting, the region of it that is drawn, the look it is washed with, the box, the
+// corners and the turn. What it adds is the playing of it: whether the picture is running, whether
+// the end of it comes round to its beginning, the rate the playhead runs at, where in the picture
+// the playhead stands, and whether the bar with the button and the progress on it is drawn. Nothing
+// is refused here that a picture takes, because a video is a picture and a picture is a box.
+std::vector<PropertySpec> VideoProperties() {
+    return With(ImageProperties(), {{"playing", TypeKind::BOOL},
+                                    {"loop", TypeKind::BOOL},
+                                    {"speed", TypeKind::FLOAT},
+                                    {"time", TypeKind::FLOAT},
+                                    {"controls", TypeKind::BOOL}});
+}
+
 // A vector is a shape, so it takes the values that describe a shape and nothing that describes a
 // box of content: no layout, no padding, no gap, no overflow, no scrolling. It draws path
 // geometry, so it also takes the path it draws, the view box that path is written in, the rule
@@ -656,6 +670,7 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"richtext", NodeKind::RICHTEXT, true, TypographyProperties()},
         {"span", NodeKind::SPAN, false, SpanProperties()},
         {"image", NodeKind::IMAGE, false, ImageProperties()},
+        {"video", NodeKind::VIDEO, false, VideoProperties()},
         {"vector", NodeKind::VECTOR, true, VectorProperties()},
         {"svg", NodeKind::SVG, true, SvgProperties()},
         {"path", NodeKind::PATH, false, PathProperties()},

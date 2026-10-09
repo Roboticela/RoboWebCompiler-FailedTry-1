@@ -93,6 +93,13 @@ bool Truthy(const std::string& value) {
     return folded != "false" && folded != "0" && folded != "none" && folded != "hidden" && folded != "no";
 }
 
+// How long a frame of an animation is held for, in milliseconds. A frame with no delay written
+// stands for a tenth of a second, which is what a reader that found no timing still has to draw
+// something for.
+unsigned long long FrameDelayMilliseconds(const ImageFrame& frame) {
+    return static_cast<unsigned long long>(frame.delayMs > 0 ? frame.delayMs : 100);
+}
+
 // The width a box's edge is allowed to be out by and still be the same edge: two boxes worked out
 // from the same lengths land on each other exactly, so this only has to hold a number that came
 // through a division.
@@ -129,9 +136,12 @@ NodeKind ImageElement::Kind() const {
 void ImageElement::SetSource(std::string value) {
     source = std::move(value);
     // The picture is read again because the file it is read from changed, which is also what makes
-    // the pixels the renderer was last handed no longer the pixels this node draws.
+    // the pixels the renderer was last handed no longer the pixels this node draws. A container is
+    // closed with the picture, because the file it holds is no longer the file this node points at.
     decodedReady = false;
     decoded = {};
+    streamTried = false;
+    stream.Close();
     adjusted.clear();
     adjustedWidth = 0;
     adjustedHeight = 0;
@@ -279,7 +289,7 @@ void ImageElement::SetFlipY(bool value) {
     flipY = value;
 }
 
-bool ImageElement::EnsureDecoded() {
+bool ImageElement::EnsureDecoded() const {
     // The file is read once, where the size of the node or the pixels it draws are first needed.
     // A reader that failed leaves the picture empty, which is drawn as the box a picture with no
     // file is drawn as rather than as nothing at all.
@@ -290,29 +300,100 @@ bool ImageElement::EnsureDecoded() {
     return !decoded.frames.empty();
 }
 
-int ImageElement::FrameIndex(unsigned long long milliseconds) const {
-    const std::size_t count = decoded.frames.size();
-    if (count <= 1) {
-        return 0;
+bool ImageElement::StreamOpen() const {
+    if (!streamTried) {
+        streamTried = true;
+        // A file that was read whole is already a picture the node holds frame by frame, so the
+        // container is tried only for the files no whole reading produced: a run of moving pictures
+        // is exactly what a whole reading cannot give, because a minute of it is thousands of frames
+        // and a document has no business holding them. The picture is read first so that the size of
+        // it is known before the container is asked about, whichever way the file turns out to be
+        // read.
+        EnsureDecoded();
+        if (!source.empty() && decoded.frames.empty()) {
+            stream.Open(source);
+        }
+    }
+    return stream.Ready();
+}
+
+int ImageElement::PictureFrameCount() const {
+    EnsureDecoded();
+    if (StreamOpen()) {
+        return stream.FrameCount();
+    }
+    return static_cast<int>(decoded.frames.size());
+}
+
+unsigned long long ImageElement::PictureDurationMilliseconds() const {
+    EnsureDecoded();
+    if (StreamOpen()) {
+        return stream.DurationMilliseconds();
     }
     unsigned long long total = 0;
     for (const ImageFrame& frame : decoded.frames) {
-        total += static_cast<unsigned long long>(frame.delayMs > 0 ? frame.delayMs : 100);
+        total += FrameDelayMilliseconds(frame);
     }
+    return total;
+}
+
+unsigned long long ImageElement::FrameDelayMillisecondsAt(int index) const {
+    // Where the file is a container, the timing of a frame is what the container wrote between this
+    // frame's moment and the next one's, which is a fact about the file rather than about the frame
+    // itself: a frame of a moving picture is not given a delay the way a frame of a GIF is.
+    if (StreamOpen()) {
+        return static_cast<unsigned long long>(std::max(1, stream.DelayAt(index)));
+    }
+    if (index < 0 || index >= static_cast<int>(decoded.frames.size())) {
+        return 100;
+    }
+    return FrameDelayMilliseconds(decoded.frames[static_cast<std::size_t>(index)]);
+}
+
+int ImageElement::FrameForMilliseconds(unsigned long long milliseconds) const {
+    // The picture is read here too, because this is reached first when a node is drawn before it has
+    // ever been measured.
+    EnsureDecoded();
+    const int count = PictureFrameCount();
+    if (count <= 1) {
+        return 0;
+    }
+    const unsigned long long total = PictureDurationMilliseconds();
     if (total == 0) {
         return 0;
     }
-    // A frame with no delay written is held for a tenth of a second, which is what a reader that
-    // finds no timing still has to draw something for.
-    const unsigned long long at = milliseconds % total;
+    // A pass is a loop, so a moment past the end of one has come round to the beginning of it again.
+    // A caller that means the end of a pass to be inside its last frame asks for the moment just
+    // inside it, rather than relying on this coming round again.
+    const unsigned long long at = milliseconds < total ? milliseconds : (milliseconds - total) % total;
     unsigned long long spent = 0;
-    for (std::size_t index = 0; index < count; ++index) {
-        spent += static_cast<unsigned long long>(decoded.frames[index].delayMs > 0 ? decoded.frames[index].delayMs : 100);
+    for (int index = 0; index < count; ++index) {
+        spent += FrameDelayMillisecondsAt(index);
         if (at < spent) {
-            return static_cast<int>(index);
+            return index;
         }
     }
-    return static_cast<int>(count - 1);
+    return count - 1;
+}
+
+const ImageFrame* ImageElement::FrameForDraw(int index) const {
+    if (StreamOpen()) {
+        // A frame of a container is read out of the file now, which is why the caller is handed
+        // pixels that stand only until the next frame is asked for.
+        return stream.FrameAt(index);
+    }
+    if (!EnsureDecoded() || index < 0 || index >= static_cast<int>(decoded.frames.size())) {
+        return nullptr;
+    }
+    return &decoded.frames[static_cast<std::size_t>(index)];
+}
+
+int ImageElement::FrameAtMoment() const {
+    return FrameForMilliseconds(ElapsedMilliseconds());
+}
+
+const char* ImageElement::MissingLabel() const {
+    return "Image";
 }
 
 ImageLook ImageElement::Look() const {
@@ -338,6 +419,12 @@ Size ImageElement::Intrinsic() {
         if (first.width > 0 && first.height > 0) {
             return Size{static_cast<float>(first.width), static_cast<float>(first.height)};
         }
+    }
+    // A container of moving pictures states the size of its picture in its own header before it says
+    // anything about the frames, so the box a video lays out as is known without any frame of it
+    // being read.
+    if (StreamOpen() && stream.Width() > 0 && stream.Height() > 0) {
+        return Size{static_cast<float>(stream.Width()), static_cast<float>(stream.Height())};
     }
     // The pixels could not be produced, but the file still says how big the picture in it is: an
     // AVIF whose codec the runtime does not carry lays out at the size its container states, so the
@@ -379,14 +466,11 @@ Rect ImageElement::PictureBox() {
 }
 
 bool ImageElement::ReadPicture(Picture& picture) {
-    if (!EnsureDecoded() || decoded.frames.empty()) {
-        return false;
-    }
-    // Which frame is drawn is a fact about the clock, so it is read once and both the pixels and
+    // Which frame is drawn is a fact about this moment, so it is read once and both the pixels and
     // the name they are cached under are the same frame.
-    const int index = FrameIndex(ElapsedMilliseconds());
-    const ImageFrame& frame = decoded.frames[static_cast<std::size_t>(index)];
-    if (frame.width < 1 || frame.height < 1 || frame.bgra.empty()) {
+    const int index = FrameAtMoment();
+    const ImageFrame* frame = FrameForDraw(index);
+    if (frame == nullptr || frame->width < 1 || frame->height < 1 || frame->bgra.empty()) {
         return false;
     }
     const ImageCrop region = Crop();
@@ -409,7 +493,7 @@ bool ImageElement::ReadPicture(Picture& picture) {
         name += rounded;
     }
     if (name != adjustedName) {
-        AdjustImage(frame.bgra.data(), frame.width, frame.height, frame.premultiplied, region, look, adjusted, adjustedWidth,
+        AdjustImage(frame->bgra.data(), frame->width, frame->height, frame->premultiplied, region, look, adjusted, adjustedWidth,
                     adjustedHeight);
         if (carried) {
             RoundImageCorners(adjusted, adjustedWidth, adjustedHeight, across, down);
@@ -568,7 +652,7 @@ void ImageElement::OnPaint(Renderer& renderer) {
     style.color = IMAGE_UNKNOWN_INK;
     style.horizontal = TextAlign::CENTER;
     style.vertical = TextAlign::CENTER;
-    renderer.DrawString(source.empty() ? "Image" : source, area, style);
+    renderer.DrawString(source.empty() ? MissingLabel() : source, area, style);
 }
 
 }  // namespace Runtime

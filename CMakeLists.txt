@@ -63,6 +63,8 @@ add_library(RuntimeUi STATIC
     components/group/GroupElement.h
     components/image/ImageElement.cpp
     components/image/ImageElement.h
+    components/video/VideoElement.cpp
+    components/video/VideoElement.h
     components/rectangle/RectangleElement.cpp
     components/rectangle/RectangleElement.h
     components/polygon/PolygonElement.cpp
@@ -125,6 +127,8 @@ add_library(RuntimeUi STATIC
     rendering/image/IcoImage.cpp
     rendering/image/TiffImage.cpp
     rendering/image/AvifImage.cpp
+    rendering/image/VideoStream.cpp
+    rendering/image/VideoStream.h
     engine/motion/Motion.cpp
     engine/motion/Motion.h
 )

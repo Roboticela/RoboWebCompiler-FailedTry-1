@@ -215,6 +215,15 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "source", "image.png");
         AddDefaultAttribute(node, "width", "120");
         AddDefaultAttribute(node, "height", "80");
+    } else if (name == "video") {
+        // A video is a picture that is played, so a new one starts as the box a picture starts as,
+        // naming a file to play. The bar of it is asked for, because without one a new video is a
+        // picture in every way a person can see, and the one thing that makes it a video is the
+        // playing of it.
+        AddDefaultAttribute(node, "source", "video.webp");
+        AddDefaultAttribute(node, "width", "160");
+        AddDefaultAttribute(node, "height", "90");
+        AddDefaultAttribute(node, "controls", "true");
     } else if (name == "vector") {
         AddDefaultAttribute(node, "shape", "ellipse");
         AddDefaultAttribute(node, "width", "64");

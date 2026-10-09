@@ -20,12 +20,14 @@
 #include "components/text/SpanElement.h"
 #include "components/text/TextElement.h"
 #include "components/vector/VectorElement.h"
+#include "components/video/VideoElement.h"
 #include "designer/model/DesignDocument.h"
 #include "designer/tools/EditorTool.h"
 #include "engine/motion/Motion.h"
 #include "platform/windows/WicImageProvider.h"
 #include "rendering/image/ImageAdjust.h"
 #include "rendering/image/ImageDecoder.h"
+#include "rendering/image/VideoStream.h"
 #include "rendering/renderer/Renderer.h"
 #include "rendering/path/PathBoolean.h"
 #include "rendering/path/PathCurve.h"
@@ -4241,6 +4243,518 @@ void TestImage(TestContext& test) {
     Finish(test, "image", before);
 }
 
+// A picture of two frames held for a tenth of a second each, which is the kind of file a video
+// plays: one pass through it is a fifth of a second, so a moment inside it can be named and a moment
+// past its end is a fact a test can measure. Both frames are the same lone pixel, so which of the
+// two is being drawn is read from the name the pixels are held under rather than from their colour.
+const unsigned char VIDEO_TWO_FRAME_GIF[] = {
+    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x21, 0xF9, 0x04, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x21, 0xF9, 0x04, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00,
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3B};
+
+// The same picture with one frame. A picture is a video only when there is more than one frame to
+// run through, so a file of a single frame has no length, never runs, and asks for no next pass.
+const unsigned char VIDEO_ONE_FRAME_GIF[] = {
+    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x21, 0xF9, 0x04, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3B};
+
+// Whether a picture drawn from a file is the frame with that number of it. A frame is drawn from the
+// name the pixels are cached under, so the number the name carries is the number that was drawn.
+bool DrawnFrame(const ImageElement::Picture& picture, int frame) {
+    return picture.name.find("#" + std::to_string(frame) + "#") != std::string::npos;
+}
+
+// A container of moving pictures is written here byte by byte, because a test cannot lean on a codec
+// of the machine under it: the frames inside are the ones the runtime's own readers already carry,
+// and the container around them is the plainest one each format allows. Two containers are written
+// because the two are walked very differently: an IVF is a flat run of frames each of which states
+// its own size, and an AVI nests its frames inside lists inside the file.
+namespace {
+
+void PutTwo(std::vector<unsigned char>& out, unsigned value) {
+    out.push_back(static_cast<unsigned char>(value & 0xFFu));
+    out.push_back(static_cast<unsigned char>((value >> 8) & 0xFFu));
+}
+
+void PutFour(std::vector<unsigned char>& out, unsigned value) {
+    PutTwo(out, value & 0xFFFFu);
+    PutTwo(out, (value >> 16) & 0xFFFFu);
+}
+
+void PutEight(std::vector<unsigned char>& out, unsigned long long value) {
+    PutFour(out, static_cast<unsigned>(value & 0xFFFFFFFFull));
+    PutFour(out, static_cast<unsigned>((value >> 32) & 0xFFFFFFFFull));
+}
+
+void PutName(std::vector<unsigned char>& out, const char* name) {
+    out.insert(out.end(), name, name + 4);
+}
+
+// A chunk of a RIFF file: what it is called, how long what it holds is, and then what it holds,
+// padded to an even length because every chunk of a RIFF file begins on an even byte.
+void PutChunk(std::vector<unsigned char>& out, const char* name, const std::vector<unsigned char>& payload) {
+    PutName(out, name);
+    PutFour(out, static_cast<unsigned>(payload.size()));
+    out.insert(out.end(), payload.begin(), payload.end());
+    if (payload.size() % 2u != 0u) {
+        out.push_back(0);
+    }
+}
+
+// A list of a RIFF file, which is a chunk whose payload begins by naming what kind of list it is.
+void PutList(std::vector<unsigned char>& out, const char* kind, const std::vector<unsigned char>& content) {
+    std::vector<unsigned char> payload;
+    PutName(payload, kind);
+    payload.insert(payload.end(), content.begin(), content.end());
+    PutChunk(out, "LIST", payload);
+}
+
+std::vector<unsigned char> MakeIvf(const std::vector<std::vector<unsigned char>>& frames, unsigned width, unsigned height,
+                                   unsigned timescale, unsigned scale) {
+    std::vector<unsigned char> out;
+    PutName(out, "DKIF");
+    PutTwo(out, 0);        // the version of the format
+    PutTwo(out, 32);       // how much room the header takes, which is where the frames begin
+    PutName(out, "VP80");  // the codec every frame of it is written in
+    PutTwo(out, width);
+    PutTwo(out, height);
+    PutFour(out, timescale);  // the denominator of the rate the moments are written at
+    PutFour(out, scale);      // the numerator of it
+    PutFour(out, static_cast<unsigned>(frames.size()));
+    PutFour(out, 0);
+    for (std::size_t index = 0; index < frames.size(); ++index) {
+        PutFour(out, static_cast<unsigned>(frames[index].size()));
+        PutEight(out, static_cast<unsigned long long>(index));  // the moment this frame begins at
+        // The frames of an IVF stand one after another with nothing between them.
+        out.insert(out.end(), frames[index].begin(), frames[index].end());
+    }
+    return out;
+}
+
+std::vector<unsigned char> MakeAvi(const std::vector<std::vector<unsigned char>>& frames, unsigned width, unsigned height,
+                                   unsigned microsecondsPerFrame) {
+    // The stream header: a stream of pictures, written as Motion JPEG.
+    std::vector<unsigned char> strh;
+    PutName(strh, "vids");
+    PutName(strh, "MJPG");
+    PutFour(strh, 0);
+    PutTwo(strh, 0);
+    PutTwo(strh, 0);
+    PutFour(strh, 0);
+    PutFour(strh, 1);
+    PutFour(strh, microsecondsPerFrame > 0u ? 1000000u / microsecondsPerFrame : 10u);
+    PutFour(strh, 0);
+    PutFour(strh, static_cast<unsigned>(frames.size()));
+    PutFour(strh, 0);
+    PutFour(strh, 0);
+    PutFour(strh, 0);
+    PutTwo(strh, 0);
+    PutTwo(strh, 0);
+    PutTwo(strh, 0);
+    PutTwo(strh, 0);
+
+    // The format header of the stream: the shape of the picture its frames are written in.
+    std::vector<unsigned char> strf;
+    PutFour(strf, 40);
+    PutFour(strf, width);
+    PutFour(strf, height);
+    PutTwo(strf, 1);
+    PutTwo(strf, 24);
+    PutName(strf, "MJPG");  // the codec, written where a bitmap header names one
+    PutFour(strf, width * height * 3u);
+    PutFour(strf, 0);
+    PutFour(strf, 0);
+    PutFour(strf, 0);
+    PutFour(strf, 0);
+
+    std::vector<unsigned char> stream;
+    PutChunk(stream, "strh", strh);
+    PutChunk(stream, "strf", strf);
+
+    // The header of the file: how long a frame is held for, and the shape of the picture.
+    std::vector<unsigned char> avih;
+    PutFour(avih, microsecondsPerFrame);
+    PutFour(avih, 0);
+    PutFour(avih, 0);
+    PutFour(avih, 0);
+    PutFour(avih, static_cast<unsigned>(frames.size()));
+    PutFour(avih, 0);
+    PutFour(avih, 1);
+    PutFour(avih, 0);
+    PutFour(avih, width);
+    PutFour(avih, height);
+    PutFour(avih, 0);
+    PutFour(avih, 0);
+    PutFour(avih, 0);
+    PutFour(avih, 0);
+
+    std::vector<unsigned char> header;
+    PutChunk(header, "avih", avih);
+    PutList(header, "strl", stream);
+
+    std::vector<unsigned char> pictures;
+    for (const std::vector<unsigned char>& frame : frames) {
+        PutChunk(pictures, "00dc", frame);
+    }
+
+    std::vector<unsigned char> body;
+    PutName(body, "AVI ");
+    PutList(body, "hdrl", header);
+    PutList(body, "movi", pictures);
+
+    std::vector<unsigned char> out;
+    PutChunk(out, "RIFF", body);
+    return out;
+}
+
+void WriteBytes(const std::filesystem::path& path, const std::vector<unsigned char>& bytes) {
+    std::ofstream file(path, std::ios::binary);
+    file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+}  // namespace
+
+// A container of moving pictures is walked for where its frames lie rather than read whole, which is
+// the one thing the whole-file reading of a picture cannot do: a minute of a moving picture is
+// thousands of frames and a document has no business holding them. What is proved here is the
+// walking of the container and not the codec inside it, so the frames written into the two
+// containers are the ones the runtime's own readers were already carrying.
+void TestVideoContainers(TestContext& test) {
+    const int before = test.failed;
+
+    // The lossy WebP of a lone red pixel, the file the image tests already read. Everything around
+    // the picture in it is a RIFF chunk header and nothing else, so the payload of its `VP8 ` chunk
+    // is a whole VP8 picture: a frame of an IVF carries no more than that.
+    const unsigned char webp[] = {
+        0x52, 0x49, 0x46, 0x46, 0x3C, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, 0x30, 0x00, 0x00, 0x00, 0xD0, 0x01,
+        0x00, 0x9D, 0x01, 0x2A, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x34, 0x25, 0xA0, 0x02, 0x74, 0xBA, 0x01, 0xF8, 0x00, 0x03, 0xB0, 0x00,
+        0xFE, 0xF0, 0xC4, 0x0B, 0xFF, 0x20, 0xB9, 0x61, 0x75, 0xC8, 0xD7, 0xFF, 0x20, 0x3F, 0xE4, 0x07, 0xFC, 0x80, 0xFF, 0xF8, 0xF2, 0x00,
+        0x00, 0x00};
+    const std::vector<unsigned char> vp8Frame(webp + 20, webp + sizeof(webp));
+
+    // Two frames of a tenth of a second each, so one pass through the container is a fifth of a
+    // second and a moment inside it can be named the way a moment inside a GIF is.
+    const std::filesystem::path ivfPath = std::filesystem::temp_directory_path() / "runtime-video-container-test.ivf";
+    WriteBytes(ivfPath, MakeIvf({vp8Frame, vp8Frame}, 1, 1, 10, 1));
+    const std::filesystem::path webpPath = std::filesystem::temp_directory_path() / "runtime-video-not-a-container-test.webp";
+    WriteBytes(webpPath, std::vector<unsigned char>(webp, webp + sizeof(webp)));
+    CHECK(test, std::filesystem::exists(ivfPath) && std::filesystem::exists(webpPath));
+
+    VideoStream stream;
+    CHECK(test, stream.Open(ivfPath.string()) && stream.Ready());
+    CHECK(test, stream.Format() == "ivf");
+    // The size of the picture is stated in the header of the container, so the box a video lays out
+    // as is known without a frame of it having been read.
+    CHECK(test, stream.FrameCount() == 2 && stream.Width() == 1 && stream.Height() == 1);
+    CHECK(test, stream.DurationMilliseconds() == 200ull);
+    const ImageFrame* first = stream.FrameAt(0);
+    CHECK(test, first != nullptr && first->width == 1 && first->height == 1 && first->bgra.size() >= 4u);
+    CHECK(test, first != nullptr && first->bgra[2] > 240 && first->bgra[1] < 16 && first->bgra[0] < 16);
+    // The frame already in hand is the frame asked for again, which is what makes a picture standing
+    // on one frame cost nothing to stand there.
+    CHECK(test, stream.FrameAt(0) == first);
+    CHECK(test, stream.FrameAt(2) == nullptr && stream.FrameAt(-1) == nullptr);
+
+    // A file that is not a container of moving pictures is refused, and so is one that is not there,
+    // so that the element which asked is free to read it the way it reads any other file.
+    VideoStream still;
+    CHECK(test, !still.Open(webpPath.string()) && !still.Ready());
+    CHECK(test, !still.Open((std::filesystem::temp_directory_path() / "runtime-video-nowhere-test.mp4").string()));
+
+    // The other container, and the other whole-picture codec: every frame of a Motion JPEG AVI is a
+    // JPEG, and the file is nested lists rather than a flat run.
+    std::vector<unsigned char> jpegFrame;
+    CHECK(test, EncodeBitmap(GUID_ContainerFormatJpeg, jpegFrame, 16, 16));
+    const std::filesystem::path aviPath = std::filesystem::temp_directory_path() / "runtime-video-container-test.avi";
+    if (!jpegFrame.empty()) {
+        WriteBytes(aviPath, MakeAvi({jpegFrame, jpegFrame}, 16, 16, 100000));
+        VideoStream motion;
+        CHECK(test, motion.Open(aviPath.string()) && motion.Ready());
+        CHECK(test, motion.Format() == "avi");
+        CHECK(test, motion.FrameCount() == 2 && motion.Width() == 16 && motion.Height() == 16);
+        CHECK(test, motion.DurationMilliseconds() == 200ull);
+        const ImageFrame* drawn = motion.FrameAt(1);
+        CHECK(test, drawn != nullptr && drawn->width == 16 && drawn->height == 16 && drawn->bgra.size() == 1024u);
+    }
+
+    // And through the element a document actually asks for, because a container is only useful if
+    // the video playing it is the same video as one playing a GIF: the same length, the same frames
+    // at the same moments, and a box that is the size the container states when the document states
+    // no size of its own.
+    std::unique_ptr<Element> tree = Layout(("<window width=\"240\" height=\"120\"><frame layout=\"none\" width=\"240\" "
+                                            "height=\"120\"><video id=\"clip\" x=\"0\" y=\"0\" width=\"60\" height=\"40\" "
+                                            "controls=\"true\" source=\"" +
+                                            ivfPath.string() + "\"/><video id=\"sized\" x=\"80\" y=\"0\" source=\"" +
+                                            ivfPath.string() + "\"/></frame></window>")
+                                               .c_str(),
+                                           240.0f, 120.0f);
+    VideoElement* clip = dynamic_cast<VideoElement*>(tree != nullptr ? tree->FindById("clip") : nullptr);
+    VideoElement* sized = dynamic_cast<VideoElement*>(tree != nullptr ? tree->FindById("sized") : nullptr);
+    CHECK(test, clip != nullptr && sized != nullptr);
+    if (clip != nullptr) {
+        CHECK(test, std::fabs(clip->Bounds().width - 60.0f) < 0.01f && std::fabs(clip->Bounds().height - 40.0f) < 0.01f);
+        CHECK(test, clip->Playing() && clip->Looping() && clip->ControlsShown() && clip->WantsHandCursor());
+        CHECK(test, std::fabs(clip->Duration() - 0.2f) < 0.001f);
+        clip->Seek(0.0);
+        ImageElement::Picture frame;
+        CHECK(test, clip->ReadPicture(frame) && DrawnFrame(frame, 0));
+        clip->Seek(0.15);
+        CHECK(test, clip->ReadPicture(frame) && DrawnFrame(frame, 1));
+        // A playhead at the end of the container stands inside its last frame rather than past it.
+        clip->Seek(0.4);
+        CHECK(test, std::fabs(clip->Position() - 0.2f) < 0.001f);
+        CHECK(test, clip->ReadPicture(frame) && DrawnFrame(frame, 1));
+        // Running moves the playhead by the time it was given times the rate it runs at.
+        clip->Seek(0.0);
+        CHECK(test, clip->Tick(0.01f));
+        CHECK(test, std::fabs(clip->Position() - 0.01f) < 0.001f);
+        // And the box of a video with no size of its own is the size the container states.
+        CHECK(test, std::fabs(sized->Bounds().width - 1.0f) < 0.01f && std::fabs(sized->Bounds().height - 1.0f) < 0.01f);
+    }
+
+    // A container holds its file open for as long as it stands, so the tree is let go of before the
+    // files are: a file this machine still has open is a file it will not remove. The removing is
+    // asked for by way of the error it may report rather than by way of an exception, because a
+    // temporary file that could not be let go of is no reason to bring the whole run down.
+    tree.reset();
+    std::error_code ignored;
+    std::filesystem::remove(ivfPath, ignored);
+    std::filesystem::remove(webpPath, ignored);
+    std::filesystem::remove(aviPath, ignored);
+    Finish(test, "video containers", before);
+}
+
+void TestVideo(TestContext& test) {
+    const int before = test.failed;
+    // A video is a picture that is played rather than shown, so it is read from the same files a
+    // picture is read from whenever one of them holds more than one frame. The file here is written
+    // where the test can name it, because an element reads its picture from a file rather than from
+    // the bytes of one.
+    const std::filesystem::path clipPath = std::filesystem::temp_directory_path() / "runtime-video-element-test.gif";
+    const std::filesystem::path stillPath = std::filesystem::temp_directory_path() / "runtime-video-still-test.gif";
+    {
+        std::ofstream file(clipPath, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(VIDEO_TWO_FRAME_GIF), static_cast<std::streamsize>(sizeof(VIDEO_TWO_FRAME_GIF)));
+    }
+    {
+        std::ofstream file(stillPath, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(VIDEO_ONE_FRAME_GIF), static_cast<std::streamsize>(sizeof(VIDEO_ONE_FRAME_GIF)));
+    }
+    CHECK(test, std::filesystem::exists(clipPath) && std::filesystem::exists(stillPath));
+    const std::string clip = clipPath.string();
+    const std::string still = stillPath.string();
+
+    std::unique_ptr<Element> tree = Layout(
+        ("<window width=\"420\" height=\"300\"><frame layout=\"none\" width=\"420\" height=\"300\">"
+         "<video id=\"clip\" x=\"10\" y=\"10\" width=\"160\" height=\"90\" controls=\"true\" source=\"" +
+         clip +
+         "\"/><video id=\"held\" x=\"200\" y=\"10\" width=\"160\" height=\"90\" controls=\"true\" playing=\"false\" "
+         "time=\"0.15\" source=\"" +
+         clip +
+         "\"/><video id=\"still\" x=\"10\" y=\"120\" width=\"160\" height=\"90\" source=\"" + still +
+         "\"/></frame></window>")
+            .c_str(),
+        420.0f, 300.0f);
+    VideoElement* playing = dynamic_cast<VideoElement*>(tree != nullptr ? tree->FindById("clip") : nullptr);
+    VideoElement* held = dynamic_cast<VideoElement*>(tree != nullptr ? tree->FindById("held") : nullptr);
+    VideoElement* single = dynamic_cast<VideoElement*>(tree != nullptr ? tree->FindById("still") : nullptr);
+    CHECK(test, playing != nullptr && held != nullptr && single != nullptr);
+    if (playing != nullptr) {
+        // A video is a picture, so it is the box the document gave it rather than the size of the
+        // lone pixel inside it, and the name it answers to is the component's own.
+        CHECK(test, playing->Kind() == NodeKind::VIDEO);
+        CHECK(test, std::fabs(playing->Bounds().width - 160.0f) < 0.01f && std::fabs(playing->Bounds().height - 90.0f) < 0.01f);
+        // A video with nothing written about its playing runs, loops, and runs at the rate the file's
+        // own delays were written at, which is what a document that writes no playing expects.
+        CHECK(test, playing->Playing() && playing->Looping() && playing->ControlsShown());
+        CHECK(test, std::fabs(playing->Speed() - 1.0f) < 0.01f);
+        CHECK(test, std::fabs(playing->Duration() - 0.2f) < 0.001f);
+        // The frame drawn is the frame the playhead stands in, so a moment inside the picture names
+        // the frame that moment falls in and the end of a pass is inside its last frame.
+        playing->Seek(0.0);
+        ImageElement::Picture frame;
+        CHECK(test, playing->ReadPicture(frame) && DrawnFrame(frame, 0));
+        playing->Seek(0.15);
+        CHECK(test, playing->ReadPicture(frame) && DrawnFrame(frame, 1));
+        playing->Seek(0.4);
+        CHECK(test, std::fabs(playing->Position() - 0.2f) < 0.001f);
+        CHECK(test, playing->ReadPicture(frame) && DrawnFrame(frame, 1));
+        // Running: the pass that drew this frame is never the last one, and the playhead moves by
+        // the time it was given times the rate it runs at.
+        playing->Seek(0.0);
+        CHECK(test, playing->Tick(0.01f));
+        CHECK(test, std::fabs(playing->Position() - 0.01f) < 0.001f);
+        playing->Seek(0.0);
+        playing->SetSpeed(2.0f);
+        CHECK(test, playing->Tick(0.01f));
+        CHECK(test, std::fabs(playing->Position() - 0.02f) < 0.001f);
+        playing->SetSpeed(1.0f);
+        // A picture that is stopped stands where it was left: the playhead does not move and there
+        // is nothing new to draw, so the pass is not asked for again.
+        playing->SetPlaying(false);
+        const float stopped = playing->Position();
+        CHECK(test, !playing->Tick(0.01f));
+        CHECK(test, std::fabs(playing->Position() - stopped) < 0.0001f);
+        // A click anywhere on the picture is what starts it and stops it, the way it is on every
+        // player, and the click a document hears is still a click.
+        int clicks = 0;
+        playing->Connect("click", [&clicks](const KeyEvent&) { ++clicks; });
+        playing->Activate();
+        CHECK(test, playing->Playing() && clicks == 1);
+        // The bar is a control and not only a mark on the picture. The track stands the playhead
+        // where the pointer is and carries it along as the pointer moves, and lifting the pointer
+        // there does not start or stop the picture, because the press has already said what it
+        // meant. The button is what starts and stops it, and so is anywhere else on the picture.
+        playing->SetPlaying(false);
+        playing->Seek(0.0);
+        playing->OnPointerDown(Point{74.5f, 80.0f});
+        CHECK(test, std::fabs(playing->Position() - 0.05f) < 0.005f);
+        CHECK(test, playing->OnDrag(Point{127.5f, 80.0f}));
+        CHECK(test, std::fabs(playing->Position() - 0.15f) < 0.005f);
+        playing->Activate();
+        // The click is still heard, and the picture is still stopped: a click on the track is a
+        // click that moved the playhead rather than one that started or stopped anything.
+        CHECK(test, !playing->Playing() && clicks == 2);
+        playing->OnPointerDown(Point{32.0f, 80.0f});
+        playing->Activate();
+        CHECK(test, playing->Playing());
+        // A drag that did not begin on the track is nobody's drag here, so the element underneath
+        // is free to take it.
+        playing->OnPointerDown(Point{100.0f, 20.0f});
+        CHECK(test, !playing->OnDrag(Point{120.0f, 20.0f}));
+        playing->Activate();
+        CHECK(test, !playing->Playing());
+        playing->SetPlaying(true);
+        // A pass that has run out comes round to the beginning, so the playhead is inside the
+        // picture again rather than past its end.
+        CHECK(test, playing->Tick(0.5f));
+        CHECK(test, playing->Position() >= 0.0f && playing->Position() < playing->Duration());
+        // Without a loop the picture stops at its end and holds the frame it stopped on.
+        playing->SetLoop(false);
+        playing->Seek(0.19);
+        CHECK(test, playing->Tick(0.05f));
+        CHECK(test, !playing->Playing() && std::fabs(playing->Position() - 0.2f) < 0.001f);
+        CHECK(test, playing->ReadPicture(frame) && DrawnFrame(frame, 1));
+        // Started again from its end it plays again from its beginning, which is what a play button
+        // at the end of a video does anywhere.
+        playing->SetPlaying(true);
+        CHECK(test, playing->Playing() && std::fabs(playing->Position()) < 0.001f);
+        // The playing of it is what a binding reaches, and a value the language does not read as a
+        // boolean leaves the video as it was rather than stopping it.
+        playing->ApplyBound("playing", "false");
+        CHECK(test, !playing->Playing());
+        playing->ApplyBound("playing", "true");
+        CHECK(test, playing->Playing());
+        playing->ApplyBound("playing", "sometimes");
+        CHECK(test, playing->Playing());
+        playing->ApplyBound("speed", "3");
+        CHECK(test, std::fabs(playing->Speed() - 3.0f) < 0.01f);
+        playing->ApplyBound("loop", "false");
+        CHECK(test, !playing->Looping());
+        playing->ApplyBound("controls", "false");
+        CHECK(test, !playing->ControlsShown());
+        playing->ApplyBound("controls", "true");
+        CHECK(test, playing->ControlsShown());
+        playing->ApplyBound("time", "0.05");
+        CHECK(test, std::fabs(playing->Position() - 0.05f) < 0.001f);
+        // A rate a picture cannot be played at is kept to one that can, rather than stopping it.
+        playing->ApplyBound("speed", "100");
+        CHECK(test, playing->Speed() > 0.0f && playing->Speed() <= 16.0f);
+        // A picture that can be played is something the pointer acts on, so the pointer says so.
+        CHECK(test, playing->WantsHandCursor());
+    }
+    if (held != nullptr) {
+        // A picture that was told where to start stands there rather than at its beginning, and it
+        // is drawn at the frame that moment falls in.
+        CHECK(test, !held->Playing() && std::fabs(held->Position() - 0.15f) < 0.001f);
+        ImageElement::Picture frame;
+        CHECK(test, held->ReadPicture(frame) && DrawnFrame(frame, 1));
+        // Nothing is running, so nothing asks for another pass.
+        CHECK(test, !held->Tick(1.0f / 60.0f));
+    }
+    if (single != nullptr) {
+        // A picture of one frame is a picture rather than a video: there is nothing to play, so it
+        // has no length, it does not run, and it asks for no next pass.
+        CHECK(test, single->Playing());
+        CHECK(test, single->Duration() == 0.0f && std::fabs(single->Progress()) < 0.001f);
+        CHECK(test, !single->Tick(1.0f / 60.0f));
+        // It is still drawn as the picture it holds, which is the frame there is only one of.
+        ImageElement::Picture sole;
+        CHECK(test, single->ReadPicture(sole) && DrawnFrame(sole, 0));
+    }
+
+    // A video is drawn as the picture it plays, with the bar of it at the foot of the box the
+    // picture was drawn in, and the shape on the bar is the shape of the thing that will happen: the
+    // picture that is stopped draws the mark a picture is started with, and the one that is running
+    // draws the two bars it is stopped with.
+    if (tree != nullptr) {
+        RecordingRenderer renderer;
+        tree->Paint(renderer);
+        int playMarks = 0;
+        bool pictureDrawn = false;
+        for (const PaintRecord& record : renderer.records) {
+            if (record.vector && record.path.find("13.5 8") != std::string::npos) {
+                ++playMarks;
+            }
+            if (record.imagePixels && record.imageName.find(clip) != std::string::npos) {
+                pictureDrawn = true;
+            }
+        }
+        CHECK(test, pictureDrawn);
+        // One mark for each picture that is stopped. The one that is running draws bars instead.
+        CHECK(test, playMarks == 1);
+        // The bar stands inside the foot of the box, an inset from each edge of it.
+        CHECK(test, PaintRecordFor(renderer, Rect{18.0f, 10.0f + 90.0f - 8.0f - 24.0f, 160.0f - 16.0f, 24.0f}) != nullptr);
+    }
+
+    // A video whose file cannot be read is the gap a picture with no file is, named after what it
+    // would have been. There is nothing to play, so nothing runs and no bar is drawn over it.
+    std::unique_ptr<Element> absentTree = Layout(
+        "<window width=\"300\" height=\"200\"><frame layout=\"none\" width=\"300\" height=\"200\">"
+        "<video id=\"gap\" x=\"10\" y=\"10\" width=\"160\" height=\"90\" controls=\"true\" source=\"Nowhere.mp4\"/></frame></window>",
+        300.0f, 200.0f);
+    VideoElement* absent = dynamic_cast<VideoElement*>(absentTree != nullptr ? absentTree->FindById("gap") : nullptr);
+    CHECK(test, absent != nullptr);
+    if (absent != nullptr) {
+        // Nothing was read, so there is no length to play and no frame to hold.
+        CHECK(test, absent->Duration() == 0.0f);
+        CHECK(test, !absent->Tick(1.0f / 60.0f));
+        CHECK(test, !absent->WantsHandCursor());
+        RecordingRenderer renderer;
+        absentTree->Paint(renderer);
+        int marks = 0;
+        bool named = false;
+        for (const PaintRecord& record : renderer.records) {
+            if (record.vector) {
+                ++marks;
+            }
+            if (record.text == "Nowhere.mp4") {
+                named = true;
+            }
+        }
+        CHECK(test, marks == 0 && named);
+        CHECK(test, PaintRecordFor(renderer, Rect{18.0f, 10.0f + 90.0f - 8.0f - 24.0f, 160.0f - 16.0f, 24.0f}) == nullptr);
+    }
+
+    // What a video takes and what it refuses. It takes the box, the corners, the turn, the picture
+    // and the playing of it; it refuses everything that describes a box of content, because a video
+    // is a picture and a picture is one thing in the flow of its parent.
+    CHECK(test, CompileUi(Source("<window><video source=\"clip.webp\" fit=\"cover\" crop=\"0 0 8 8\" objectPosition=\"top right\" "
+                                  "radius=\"8\" clip=\"true\" rotation=\"15\" playing=\"false\" loop=\"false\" speed=\"0.5\" "
+                                  "time=\"1.5\" controls=\"true\" width=\"160\" height=\"90\"/></window>"))
+                    .Ok());
+    CHECK(test, !CompileUi(Source("<window><video layout=\"vertical\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><video padding=\"8\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><video overflow=\"scroll\"/></window>")).Ok());
+    CHECK(test, !CompileUi(Source("<window><video playing=\"sometimes\"/></window>")).Ok());
+
+    std::filesystem::remove(clipPath);
+    std::filesystem::remove(stillPath);
+    Finish(test, "video", before);
+}
+
 void TestRemainingSurface(TestContext& test) {
     const int before = test.failed;
     const std::vector<PathSample> cubic = SamplePath("M0 0 C0 40 30 40 30 0");
@@ -5465,6 +5979,8 @@ int RunUnitTests() {
     TestSvg(test);
     TestRichText(test);
     TestImage(test);
+    TestVideo(test);
+    TestVideoContainers(test);
     TestLine(test);
     TestArrow(test);
     TestBoolean(test);

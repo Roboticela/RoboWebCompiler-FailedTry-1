@@ -12,6 +12,7 @@ enum class EditorTool {
     TEXT,
     RICH_TEXT,
     IMAGE,
+    VIDEO,
     SVG,
     LINE,
     ARROW,
@@ -40,6 +41,8 @@ inline const char* EditorToolName(EditorTool tool) {
         return "Rich Text";
     case EditorTool::IMAGE:
         return "Image";
+    case EditorTool::VIDEO:
+        return "Video";
     case EditorTool::SVG:
         return "Svg";
     case EditorTool::LINE:
@@ -74,6 +77,8 @@ inline const char* EditorToolComponent(EditorTool tool) {
         return "richtext";
     case EditorTool::IMAGE:
         return "image";
+    case EditorTool::VIDEO:
+        return "video";
     case EditorTool::SVG:
         return "svg";
     case EditorTool::LINE:
@@ -112,6 +117,10 @@ inline const char* EditorToolShortcut(EditorTool tool) {
         return "";
     case EditorTool::IMAGE:
         return "I";
+    // The letter a video is named by is the letter selecting is made with, so the tool is reached
+    // through the command list rather than by a key of its own, the way a vector file is.
+    case EditorTool::VIDEO:
+        return "";
     // The letters a vector file would be named by are already spoken for, so the tool is reached
     // through the command list rather than by a key of its own.
     case EditorTool::SVG:

@@ -563,6 +563,13 @@ void DrawMenuIcon(Renderer& renderer, float x, float y, int action, Color color)
         DrawStroke(renderer, x + 3.0f, y + 12.0f, x + 8.0f, y + 8.0f, color, 1.3f);
         DrawStroke(renderer, x + 8.0f, y + 8.0f, x + 13.0f, y + 12.0f, color, 1.3f);
         break;
+    case 86:
+        // A picture with the shape a picture is started with laid over it, which is what tells the
+        // mark of a video from the mark of a picture beside it in the same list.
+        renderer.StrokeRectangle(Rect{x + 1.0f, y + 3.0f, 14.0f, 11.0f}, color, 1.25f, 1.5f);
+        renderer.FillRectangle(Rect{x + 4.0f, y + 6.0f, 2.5f, 2.5f}, color, 1.2f);
+        FillTriangle(renderer, x + 8.5f, y + 5.5f, x + 8.5f, y + 11.5f, x + 13.0f, y + 8.5f, color);
+        break;
     case 41:
         renderer.StrokeRectangle(Rect{x + 3.0f, y + 2.0f, 10.0f, 12.0f}, color, 1.25f, 2.0f);
         renderer.FillRectangle(Rect{x + 6.0f, y + 6.0f, 4.0f, 1.3f}, color, 0.5f);
@@ -942,6 +949,12 @@ ExplorerIcon DescribeExplorerIcon(const std::filesystem::path& path) {
         extension == "avif" || extension == "svg") {
         return ShapeIcon(9, ICON_PURPLE);
     }
+    if (extension == "mp4" || extension == "webm" || extension == "mov" || extension == "mkv" || extension == "m4v" || extension == "avi" ||
+        extension == "ivf") {
+        // A file of moving pictures is told from a file of one picture by what it is labelled with,
+        // because a title of three letters is a title whatever the shape of the file underneath.
+        return BadgeIcon("VID", ICON_PURPLE, false);
+    }
     if (extension == "zip" || extension == "7z" || extension == "rar" || extension == "tar" || extension == "gz") {
         return ShapeIcon(11, ICON_SLATE);
     }
@@ -981,6 +994,17 @@ void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& n
         renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
         renderer.FillRectangle(Rect{x + 3.0f, y + 3.0f, 4.0f, 4.0f}, ink, 2.0f);
         renderer.FillRectangle(Rect{x + 2.0f, y + size - 6.0f, size - 4.0f, 3.0f}, quiet, 1.0f);
+    } else if (name == "video") {
+        // A picture with the mark of a player on it: the box a picture is drawn in, with the shape a
+        // picture is started with laid in the middle of it. The mark is drawn the way every other
+        // triangle in the chrome is drawn, which is the shape a button is drawn with as well.
+        renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
+        renderer.FillRectangle(Rect{x + 3.0f, y + 3.0f, 4.0f, 4.0f}, ink, 2.0f);
+        renderer.FillRectangle(Rect{x + 2.0f, y + size - 6.0f, size - 4.0f, 3.0f}, quiet, 1.0f);
+        const float mark = size * 0.4f;
+        const float markX = x + (size - mark) * 0.5f;
+        const float markY = y + (size - mark) * 0.5f;
+        FillTriangle(renderer, markX, markY, markX, markY + mark, markX + mark, markY + mark * 0.5f, ink);
     } else if (name == "vector") {
         renderer.StrokeRectangle(Rect{x + 2.0f, y + 2.0f, size - 4.0f, size - 4.0f}, ink, 1.5f, (size - 4.0f) * 0.5f);
     } else if (name == "svg") {
@@ -2191,8 +2215,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
                                                      {"Shape", "ellipse"},  {"Shape", "vector"},
                                                      {"Shape", "svg"},      {"Shape", "line"},
                                                      {"Shape", "boolean"},  {"Scrollbar", "scrollbar"},
-                                                     {"Media", "image"},    {"Type", "text"},
-                                                     {"Type", "richtext"}};
+                                                     {"Media", "image"},    {"Media", "video"},
+                                                     {"Type", "text"},     {"Type", "richtext"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;
@@ -2771,6 +2795,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Text", "T", 44, activeTool == EditorTool::TEXT);
                 addCommand("Rich Text", "", 64, activeTool == EditorTool::RICH_TEXT);
                 addCommand("Image", "I", 45, activeTool == EditorTool::IMAGE);
+                addCommand("Video", "", 86, activeTool == EditorTool::VIDEO);
                 addCommand("Svg", "", 62, activeTool == EditorTool::SVG);
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
                 addCommand("Arrow", "A", 57, activeTool == EditorTool::ARROW);
@@ -3783,6 +3808,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
             activeTool = EditorTool::RICH_TEXT;
         } else if (action == 45) {
             activeTool = EditorTool::IMAGE;
+        } else if (action == 86) {
+            activeTool = EditorTool::VIDEO;
         } else if (action == 62) {
             activeTool = EditorTool::SVG;
         } else if (action == 63) {
@@ -6702,6 +6729,10 @@ int DesignerApp::Run(const DesignerOptions& options) {
             LogError("Self-test preview did not update from XML.");
             return 1;
         }
+        // The panel of components is opened for this pass, so that every card of it is laid out and
+        // drawn: a card that cannot be drawn is a component a person cannot place, and the card of a
+        // component is the one place its mark is drawn before it is ever put in a document.
+        leftNav = 2;
         clientWidth = window.ClientWidthDip();
         clientHeight = window.ClientHeightDip();
         layoutChrome(clientWidth, clientHeight);
@@ -6713,7 +6744,7 @@ int DesignerApp::Run(const DesignerOptions& options) {
         // editor writes defaults of its own for each of them and a default the component
         // does not declare would leave a document that no longer compiles.
         const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "star", "frame",       "text",   "richtext",
-                                  "image",     "line",    "arrow",  "vector",  "svg",   "boolean", "group"};
+                                  "image",     "video",   "line",    "arrow",   "vector", "svg",    "boolean", "group"};
         for (const char* component : drawable) {
             std::vector<int> drawnShape;
             if (!document.InsertChild({0}, component, drawnShape) || !document.SetAttribute(drawnShape, "id", "drawnShape") ||
