@@ -144,6 +144,8 @@ bool VideoElement::Tick(float seconds) {
     return true;
 }
 
+bool VideoElement::AnswersActivation() const { return true; }
+
 void VideoElement::Activate() {
     // A click on a video is still the click a document hears, and what it does to the picture is
     // what a player does with it: the button starts it or stops it, anywhere on the picture does the

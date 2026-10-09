@@ -684,13 +684,15 @@ std::vector<PropertySpec> EmbedProperties() {
     return With(FrameProperties(), {{"src", TypeKind::STRING}, {"description", TypeKind::STRING}, {"badge", TypeKind::BOOL}});
 }
 
-// A link is a frame drawn as a link, so it takes everything a frame takes and the two names a link
-// can go to: `href` is a name the system opens, `to` is a screen of this document. It also takes the
-// label drawn when it holds no content of its own and the frame a name is opened in.
+// A link is a frame drawn as a link that carries a label, so it takes everything a block of text
+// takes and the values a link has of its own: the two names it can go to -- `href` is a name the
+// system opens and `to` is a screen of this document -- the frame a name is opened in, and what the
+// link is for. Writing the label is writing text on the link, so everything that sets a run of text
+// sets the label: the size, the colour, and the weight are written the way they are written on a
+// text node, because the label is drawn as the run of text it is.
 std::vector<PropertySpec> LinkProperties() {
-    return With(FrameProperties(),
-                {{"href", TypeKind::STRING}, {"to", TypeKind::STRING}, {"target", TypeKind::STRING}, {"text", TypeKind::STRING},
-                 {"description", TypeKind::STRING}});
+    return With(TypographyProperties(),
+                {{"href", TypeKind::STRING}, {"to", TypeKind::STRING}, {"target", TypeKind::STRING}, {"description", TypeKind::STRING}});
 }
 
 std::vector<PropertySpec> ShadowProperties() {

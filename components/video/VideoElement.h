@@ -41,6 +41,9 @@ public:
     bool OnPointerDown(Point point) override;
     bool OnDrag(Point point) override;
     void Activate() override;
+    // A picture answers the activation itself: a click on it starts it or stops it, so the click is
+    // the player's rather than an activation handed on to whatever holds the picture.
+    bool AnswersActivation() const override;
     bool WantsHandCursor() const override;
 
     // Whether the picture is running. A video that is not running is drawn at the moment its

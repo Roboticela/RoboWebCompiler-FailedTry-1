@@ -12,7 +12,6 @@ namespace {
 // The blue a link is drawn in, so a link that was given no colour of its own still reads as a link.
 // A document that wrote a colour of its own keeps it: this is the default, not a rule.
 inline constexpr Color LINK_LABEL{0.055f, 0.478f, 1.0f, 1.0f};
-inline constexpr float LINK_LABEL_FONT_SIZE = 15.0f;
 
 bool HoldsContent(const Element& element) {
     for (const std::unique_ptr<Element>& child : element.Children()) {
@@ -49,6 +48,12 @@ const std::string& LinkElement::Description() const { return description; }
 
 void LinkElement::SetActivateHandler(ActivateHandler handler) { activateHandler = std::move(handler); }
 
+// A link the program handed a handler answers the activation itself, so a click on the label written
+// inside it is a click on the link rather than a click on the run of text. A link the program handed
+// nothing is a link that goes nowhere, so it answers nothing and the activation is handed on to
+// whatever is around it.
+bool LinkElement::AnswersActivation() const { return activateHandler != nullptr || Frame::AnswersActivation(); }
+
 // A link is activated the way anything else is, so a link answers the keyboard the way it answers the
 // mouse. What is left to do is hand the names it carries to the program, which is the one thing only
 // the program can decide.
@@ -61,17 +66,22 @@ void LinkElement::Activate() {
 
 bool LinkElement::WantsHandCursor() const { return true; }
 
+// A label is drawn here only for a link that was built by hand and holds neither content nor the
+// label child the factory builds from one: a link read from a document holds its label as a run of
+// text, so the label is laid out and drawn the way every other run of text is. The place the link
+// covers is not measured from this drawing, which is why a link read from a document never depends
+// on it.
 void LinkElement::OnPaint(Renderer& renderer) {
     Frame::OnPaint(renderer);
     if (Display() == FrameDisplay::NONE || label.empty() || HoldsContent(*this)) {
         return;
     }
     const Rect area = Bounds();
-    if (area.height < LINK_LABEL_FONT_SIZE) {
+    if (area.height < LABEL_FONT_SIZE) {
         return;
     }
     TextStyle style;
-    style.fontSize = LINK_LABEL_FONT_SIZE;
+    style.fontSize = LABEL_FONT_SIZE;
     style.color = LINK_LABEL;
     style.horizontal = TextAlign::CENTER;
     style.vertical = TextAlign::CENTER;

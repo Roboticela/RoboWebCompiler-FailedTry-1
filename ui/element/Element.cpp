@@ -116,7 +116,21 @@ bool Element::OnWheel(int, bool, int) {
     return false;
 }
 
+bool Element::AnswersActivation() const {
+    const auto found = handlers.find("click");
+    return found != handlers.end() && found->second != nullptr;
+}
+
 void Element::Activate() {
+    if (!AnswersActivation()) {
+        // Nothing here answers the activation, so it is handed to the element around it, and on up
+        // until something does something with it. A click on the label of a link is a click on the
+        // link for the same reason a child is drawn under the cursor of the container around it.
+        if (Element* around = Parent()) {
+            around->Activate();
+        }
+        return;
+    }
     KeyEvent event;
     event.key = "Enter";
     event.code = "Enter";

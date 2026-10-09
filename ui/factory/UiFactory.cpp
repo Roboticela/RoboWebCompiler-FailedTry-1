@@ -1632,7 +1632,13 @@ void ApplyLink(LinkElement& link, const IrNode& node, const LinkElement::Activat
     if (const UiValue* value = FindProperty(node, "href")) link.SetHref(value->text);
     if (const UiValue* value = FindProperty(node, "to")) link.SetTo(value->text);
     if (const UiValue* value = FindProperty(node, "target")) link.SetTarget(value->text);
-    if (const UiValue* value = FindProperty(node, "text")) link.SetLabel(value->text);
+    if (const UiValue* value = FindProperty(node, "text")) {
+        link.SetLabel(value->text);
+    } else if (const UiValue* spelled = FindProperty(node, "value")) {
+        // A label is also readable through the other spelling a run of text is written with, so a
+        // link reads the same whichever of the two the document wrote.
+        link.SetLabel(spelled->text);
+    }
     if (const UiValue* value = FindProperty(node, "description")) link.SetDescription(value->text);
     if (onActivate) {
         link.SetActivateHandler(onActivate);
@@ -1642,6 +1648,56 @@ void ApplyLink(LinkElement& link, const IrNode& node, const LinkElement::Activat
     if (link.Cursor().empty()) {
         link.SetCursor("pointer");
     }
+}
+
+// The values a link's label is set by: everything that sets a run of text and the values that belong
+// to the block of text around it. What is not handed on is everything the link wrote about its own
+// box -- its place, its size, its background, the way it lays its content out -- because the label is
+// a run of text inside the link and not a second link: handed those, the label would draw the box its
+// link already drew.
+bool SetsLabelText(const std::string& name) {
+    static const char* const kNames[] = {
+        "text", "value", "fontFamily", "fontSize", "fontWeight", "fontStyle", "letterSpacing",
+        "wordSpacing", "textColor", "tone", "textCase", "textDecoration", "underline", "lineThrough",
+        "decorationColor", "decorationWidth", "decorationStyle", "textTransform", "fontFeatures",
+        "language", "fontFile", "lineHeight", "textAlign", "verticalAlign", "sizing", "maxLines",
+        "ellipsis", "overline", "writingMode", "level", "size",
+    };
+    for (const char* candidate : kNames) {
+        if (name == candidate) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The label of a link that wrote a label rather than content, written down as the run of text it is.
+// A link holding a label over no place is a link that cannot be seen or pressed, so the label is
+// built as a child and measured with the text it holds. The size and the colour are said here rather
+// than left to the defaults of a block of text, so that a link reads as a link with nothing written.
+IrNode LinkLabelNode(const IrNode& node) {
+    IrNode label;
+    label.kind = NodeKind::TEXT;
+    label.name = "text";
+    label.location = node.location;
+    for (const auto& property : node.properties) {
+        if (SetsLabelText(property.first)) {
+            label.properties.push_back(property);
+        }
+    }
+    if (FindProperty(label, "fontSize") == nullptr) {
+        UiValue size;
+        size.kind = TypeKind::FONT_SIZE;
+        size.number = LinkElement::LABEL_FONT_SIZE;
+        label.properties.emplace_back("fontSize", size);
+    }
+    if (FindProperty(label, "tone") == nullptr && FindProperty(label, "textColor") == nullptr) {
+        UiValue tone;
+        tone.kind = TypeKind::STRING;
+        tone.text = "link";
+        label.properties.emplace_back("tone", tone);
+    }
+    return label;
 }
 
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
@@ -1849,6 +1905,20 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         }
         Populate(*created, child, clicks, onLink, root);
         element.AddChild(std::move(created));
+    }
+    // A link that wrote a label rather than content holds the label as the run of text it is: the
+    // label is measured and laid out the way every other run of text is, so the link hugs the place
+    // its label covers. A link that wrote content of its own keeps that content, and its label is
+    // then nothing that is drawn.
+    if (LinkElement* link = dynamic_cast<LinkElement*>(&element)) {
+        if (link->Children().empty() && !link->Label().empty()) {
+            const IrNode label = LinkLabelNode(node);
+            std::unique_ptr<Element> created = CreateElement(label);
+            if (created != nullptr) {
+                Populate(*created, label, clicks, onLink, root);
+                link->AddChild(std::move(created));
+            }
+        }
     }
     // A node that names a handler is wired to it here, where the program's handlers are in hand. The
     // same wiring serves the mouse and the keyboard, because a click and Enter are the same event to

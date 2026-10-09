@@ -62,6 +62,12 @@ public:
     virtual bool OnDrag(Point point);
     virtual bool OnWheel(int delta, bool shift = false, int axis = 0);
     virtual void Activate();
+    // Whether this element does anything of its own when it is activated. Activation climbs up the
+    // tree: a click on the text written inside a link is a click on the link, the way the hand cursor
+    // the text is drawn under belongs to the link around it. So an element that answers nothing hands
+    // the activation to the element around it, and the first element that answers it is the one that
+    // is activated. An element that names a handler of its own answers, and nothing above it hears.
+    virtual bool AnswersActivation() const;
     virtual bool WantsHandCursor() const;
     virtual bool TakesTextFocus() const;
     virtual void SetFocused(bool focused);
