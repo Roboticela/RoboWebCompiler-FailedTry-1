@@ -24,6 +24,31 @@ void AddDiagnostic(std::vector<Diagnostic>& diagnostics, std::string code, std::
     diagnostics.push_back(std::move(diagnostic));
 }
 
+// A warning is written down without stopping the document: what it reports is a part of the document
+// that will not be drawn, not a document that cannot be read.
+void AddWarning(std::vector<Diagnostic>& diagnostics, std::string code, std::string message, SourceLocation location, int span) {
+    Diagnostic diagnostic;
+    diagnostic.severity = DiagnosticSeverity::WARNING;
+    diagnostic.code = std::move(code);
+    diagnostic.message = std::move(message);
+    diagnostic.location = std::move(location);
+    diagnostic.spanLength = span;
+    diagnostics.push_back(std::move(diagnostic));
+}
+
+// The key a definition is kept under. A component that draws one of several variants is kept under
+// its name and that variant, so the variants of one component stand beside each other rather than
+// replacing one another.
+std::string ComponentKey(std::string_view name, std::string_view variant) {
+    if (variant.empty()) {
+        return std::string(name);
+    }
+    std::string key(name);
+    key += '/';
+    key += variant;
+    return key;
+}
+
 const XmlAttribute* FindAttribute(const XmlNode& node, std::string_view name) {
     for (const XmlAttribute& attribute : node.attributes) {
         if (attribute.name == name) {
@@ -38,6 +63,79 @@ std::string AttributeText(const XmlNode& node, std::string_view name) {
         return std::string(TrimCopyView(attribute->value));
     }
     return {};
+}
+
+// The names a definition offers to the copies placed from it. A copy replaces a layer by naming it
+// and fills a place by naming it, so the names are gathered the way a copy says them: a layer by its
+// id or its name, and a place by the name of the slot, which is `content` when the slot was left
+// unnamed.
+void CollectTargets(const XmlNode& node, ComponentTargets& targets) {
+    for (const XmlNode& child : node.children) {
+        if (child.name == "slot") {
+            const std::string slotName = AttributeText(child, "name");
+            targets.slots.insert(slotName.empty() ? "content" : slotName);
+        } else {
+            const std::string id = AttributeText(child, "id");
+            const std::string name = AttributeText(child, "name");
+            if (!id.empty()) {
+                targets.layers.insert(id);
+            }
+            if (!name.empty()) {
+                targets.layers.insert(name);
+            }
+        }
+        CollectTargets(child, targets);
+    }
+}
+
+// The screens a document holds, by the id each one answers to. A link to a screen is checked against
+// these, so a link that names a screen the document does not hold is reported where it was written.
+void CollectScreenIds(const XmlNode& node, std::unordered_set<std::string>& ids) {
+    if (node.name == "window" || node.name == "board") {
+        const std::string id = AttributeText(node, "id");
+        if (!id.empty()) {
+            ids.insert(id);
+        }
+    }
+    for (const XmlNode& child : node.children) {
+        CollectScreenIds(child, ids);
+    }
+}
+
+// A child of a copy says what it is for by naming a layer of the definition it replaces, or a place
+// of the definition it fills. A child that names neither cannot be placed by anything, so it is
+// reported rather than dropped in silence.
+void ReportUnplaceableChildren(const XmlNode& node, const DocumentModel& model, std::vector<Diagnostic>& diagnostics) {
+    if (node.name == "instance" && !node.children.empty()) {
+        const std::string componentName = AttributeText(node, "component");
+        const auto targets = model.componentTargets.find(componentName);
+        if (!componentName.empty() && targets != model.componentTargets.end()) {
+            const ComponentTargets& offered = targets->second;
+            for (const XmlNode& child : node.children) {
+                const std::string slotName = AttributeText(child, "slot");
+                if (!slotName.empty()) {
+                    if (offered.slots.count(slotName) == 0) {
+                        AddWarning(diagnostics, DIAGNOSTIC_UNKNOWN_OVERRIDE,
+                                   "Component '" + componentName + "' offers no place named '" + slotName + "'.", child.location,
+                                   static_cast<int>(child.name.size()));
+                    }
+                    continue;
+                }
+                const std::string id = AttributeText(child, "id");
+                const std::string name = AttributeText(child, "name");
+                const bool replaces = (!id.empty() && offered.layers.count(id) != 0) || (!name.empty() && offered.layers.count(name) != 0);
+                if (!replaces) {
+                    AddWarning(diagnostics, DIAGNOSTIC_UNKNOWN_OVERRIDE,
+                               "A child of the copy names no layer of component '" + componentName +
+                                   "'; name it after a layer of the definition or give it a slot.",
+                               child.location, static_cast<int>(child.name.size()));
+                }
+            }
+        }
+    }
+    for (const XmlNode& child : node.children) {
+        ReportUnplaceableChildren(child, model, diagnostics);
+    }
 }
 
 int StylePhase(std::string_view name) {
@@ -302,7 +400,14 @@ bool ExpandNode(XmlNode& node, const DocumentModel& model, std::vector<Diagnosti
         AddDiagnostic(diagnostics, DIAGNOSTIC_TREE_DEPTH, "Component expansion is too deep.", node.location, static_cast<int>(node.name.size()));
         return false;
     }
-    const auto definition = model.components.find(node.name);
+    // A usage of a component that draws one of several variants is expanded from the definition that
+    // draws that variant, so the variants of one component are placed apart from one another. A
+    // usage that names no variant, or names one no definition draws, is expanded from the definition
+    // the plain name holds, which is the first one written.
+    auto definition = model.components.find(ComponentKey(node.name, AttributeText(node, "variant")));
+    if (definition == model.components.end()) {
+        definition = model.components.find(node.name);
+    }
     if (definition == model.components.end()) {
         for (XmlNode& child : node.children) {
             if (!ExpandNode(child, model, diagnostics, depth + 1)) {
@@ -347,6 +452,9 @@ bool ExpandNode(XmlNode& node, const DocumentModel& model, std::vector<Diagnosti
     if (!ExpandNode(expanded, model, diagnostics, depth + 1)) {
         return false;
     }
+    // What was placed stands in place of the definition it was placed from, so the ids it carries
+    // name the definition's layers rather than making new ones.
+    expanded.fromDefinition = true;
     node = std::move(expanded);
     return true;
 }
@@ -536,9 +644,37 @@ bool Harvest(XmlNode& node, DocumentModel& model, std::vector<Diagnostic>& diagn
                 body.attributes.back().value = "vertical";
                 body.children = std::move(visual);
             }
-            model.components[name] = std::move(body);
+            // The variants of one component stand beside each other rather than replacing one
+            // another, so the key carries the variant the definition draws. The plain name keeps
+            // the first definition that answered to it, which is the one a usage that names no
+            // variant is drawn from, and is the same definition the runtime falls back to.
+            const std::string variant = AttributeText(child, "variant");
+            const std::string key = ComponentKey(name, variant);
+            if (!model.declaredComponents.insert(key).second) {
+                const std::string written =
+                    variant.empty() ? "Component '" + name + "'" : "Variant '" + variant + "' of component '" + name + "'";
+                AddDiagnostic(diagnostics, DIAGNOSTIC_UNKNOWN_COMPONENT, written + " is written more than once.", child.location,
+                              static_cast<int>(name.size()));
+                ok = false;
+                continue;
+            }
+            ComponentTargets& targets = model.componentTargets[name];
+            CollectTargets(child, targets);
+            if (variant.empty()) {
+                model.components[key] = std::move(body);
+            } else {
+                model.components[key] = body;
+                // The first variant that answered to the name is the one a usage that names no variant
+                // is drawn from, which is the same definition the runtime falls back to.
+                model.components.emplace(name, body);
+            }
         }
         ok = Harvest(child, model, diagnostics) && ok;
+        // A definition borrowed from another document stays in the tree so that the copies placed
+        // from it can be resolved, but it is marked as borrowed: importing a library is what makes
+        // its names usable here, not what places every definition it holds on the screen. The mark is
+        // carried into the tree the runtime builds, which is what keeps the definitions out of the
+        // drawing while leaving them findable.
         kept.push_back(std::move(child));
     }
     node.children = std::move(kept);
@@ -673,6 +809,11 @@ bool PrepareDocument(XmlNode& root, DocumentModel& model, std::vector<Diagnostic
             ok = false;
         }
     }
+    // A copy is checked once every definition has been read and every usage of one has been expanded,
+    // so a copy that names something its definition does not offer is reported against the document
+    // as it was finally written rather than as it was first read.
+    ReportUnplaceableChildren(root, model, diagnostics);
+    CollectScreenIds(root, model.screenIds);
     return ok;
 }
 

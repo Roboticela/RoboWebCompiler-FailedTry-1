@@ -1,5 +1,6 @@
 #include "app/Application.h"
 
+#include "app/LinkRoute.h"
 #include "compiler/semantic/UiCompiler.h"
 #include "engine/core/Log.h"
 #include "platform/windows/Dx11Renderer.h"
@@ -10,8 +11,13 @@
 #include "ui/input/PointerInput.h"
 #include "xml/diagnostics/Diagnostic.h"
 
+// The shell is what opens a page, and it lives beside the window system rather than inside it: a
+// program that draws its own windows still asks the machine's shell to open a name it was given.
+#include <shellapi.h>
+
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Runtime {
@@ -24,10 +30,54 @@ struct LiveSurface {
     PointerInput input;
     Element* focused = nullptr;
     UiContext context;
+    // The handlers the screen was built with, kept so that a screen shown in place of this one is
+    // built with the same ones: navigating is not a reason for a program to stop answering.
+    std::unordered_map<std::string, std::function<void()>> clicks;
+    // The screen this window shows, by the id it was written with, so a link that names a screen can
+    // tell which window already shows it.
+    std::string screenId;
     float clientWidth = 0.0f;
     float clientHeight = 0.0f;
     bool layoutDirty = true;
     bool paintDirty = true;
+};
+
+std::string ScreenId(const IrNode& node) {
+    if (const UiValue* value = FindProperty(node, "id")) {
+        return value->text;
+    }
+    return {};
+}
+
+// Every screen a document holds, by the id it answers to. A link may name any of them, including the
+// ones that do not launch on this device: what a link does is show the screen, and a screen that was
+// not shown at startup is exactly the one worth being able to reach.
+void CollectScreens(const IrNode& node, std::unordered_map<std::string, const IrNode*>& screens) {
+    if (node.kind == NodeKind::WINDOW || node.kind == NodeKind::BOARD) {
+        const std::string id = ScreenId(node);
+        if (!id.empty()) {
+            screens.emplace(id, &node);
+        }
+    }
+    for (const IrNode& child : node.children) {
+        CollectScreens(child, screens);
+    }
+}
+
+// The windows of one document and the screens it holds: what a link is answered with. A link is
+// answered after the input that asked for it has finished rather than while it is being handled,
+// because showing a screen takes the element that was clicked out of the tree, and an element cannot
+// be taken out from under itself.
+struct Stage {
+    std::vector<std::unique_ptr<LiveSurface>> surfaces;
+    std::unordered_map<std::string, const IrNode*> screens;
+    const IrNode* document = nullptr;
+    LiveSurface* pendingSurface = nullptr;
+    std::string pendingScreen;
+    bool pendingRaise = false;
+    // How many links have been answered, so a run that clicks one can tell that something answered it
+    // rather than that nothing did.
+    int answeredLinks = 0;
 };
 
 float MonitorWidthDip() {
@@ -72,6 +122,96 @@ float WindowLength(const IrNode& node, const char* name, float fallback) {
     return value->length.value;
 }
 
+LinkHandler MakeLinkHandler(Stage& stage, LiveSurface& view);
+
+// Shows a screen in the window a link stands in. The old tree is let go only once the new one is
+// built, so a screen that cannot be built leaves the window as it was rather than blank.
+void ShowScreen(Stage& stage, LiveSurface& view, const IrNode& screen) {
+    std::unique_ptr<Element> built = Instantiate(screen, view.clicks, MakeLinkHandler(stage, view), stage.document);
+    if (built == nullptr) {
+        LogError("A screen named by a link could not be built.");
+        return;
+    }
+    // The pointers the pointer input keeps are into the tree that is about to go, so they are let go
+    // before it does rather than left pointing at what is no longer there.
+    view.input.OnLeave();
+    view.focused = nullptr;
+    view.root = std::move(built);
+    view.screenId = ScreenId(screen);
+    view.context.Bind(view.root.get());
+    view.layoutDirty = true;
+    view.paintDirty = true;
+    const std::string shown = ScreenId(screen);
+    LogInfo("Showed screen '" + shown + "'.");
+    if (view.window.Hwnd() != nullptr) {
+        SetWindowTextW(view.window.Hwnd(), ToWide(WindowTitle(screen)).c_str());
+    }
+}
+
+// What a link is answered with. A page is opened with the system, which is the only thing a name
+// outside this document can mean; a screen is shown or brought forward, which is a window the runtime
+// already has. Neither is done here: what is done here is written down, and it is done after the input
+// that asked for it has finished.
+LinkHandler MakeLinkHandler(Stage& stage, LiveSurface& view) {
+    return [&stage, &view](const std::string& href, const std::string& to, const std::string& target) {
+        ++stage.answeredLinks;
+        const LinkRoute route = RouteLink(href, to, target);
+        if (route.action == LinkAction::OPEN) {
+            const std::wstring page = ToWide(route.name);
+            SHELLEXECUTEINFOW request{};
+            request.cbSize = sizeof(request);
+            // A name that opens nowhere is a mistake in a document rather than something to say to the
+            // person who clicked, so the shell is asked not to raise anything of its own about it: the
+            // failure is written down where the program's other troubles are written down.
+            request.fMask = SEE_MASK_FLAG_NO_UI;
+            request.lpVerb = L"open";
+            request.lpFile = page.c_str();
+            request.nShow = SW_SHOWNORMAL;
+            if (!ShellExecuteExW(&request)) {
+                LogError("A link could not be opened: " + route.name);
+            } else {
+                LogInfo("Opened '" + route.name + "'.");
+            }
+            return;
+        }
+        if (route.action == LinkAction::NONE) {
+            return;
+        }
+        stage.pendingSurface = &view;
+        stage.pendingScreen = route.name;
+        stage.pendingRaise = route.action == LinkAction::RAISE;
+    };
+}
+
+// The link a person clicked, answered once the click is over. A screen asked for in a window of its
+// own is brought forward when a window already shows it, and shown in the window the link stood in
+// when none does -- a link that does nothing because its screen happens to be closed is not a link.
+void ApplyPendingLink(Stage& stage) {
+    if (stage.pendingSurface == nullptr || stage.pendingScreen.empty()) {
+        return;
+    }
+    LiveSurface* view = stage.pendingSurface;
+    const std::string id = stage.pendingScreen;
+    const bool raise = stage.pendingRaise;
+    stage.pendingSurface = nullptr;
+    stage.pendingScreen.clear();
+    stage.pendingRaise = false;
+    if (raise) {
+        for (const std::unique_ptr<LiveSurface>& other : stage.surfaces) {
+            if (other.get() == view || other->screenId != id || other->window.Hwnd() == nullptr) {
+                continue;
+            }
+            ShowWindow(other->window.Hwnd(), SW_RESTORE);
+            SetForegroundWindow(other->window.Hwnd());
+            return;
+        }
+    }
+    const auto found = stage.screens.find(id);
+    if (found != stage.screens.end()) {
+        ShowScreen(stage, *view, *found->second);
+    }
+}
+
 }  // namespace
 
 void UiContext::Bind(Element* rootElement) {
@@ -99,7 +239,9 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
     RegisterWicImageProvider();
     CompileResult compiled = CompileUiFile(xmlPath);
     if (!compiled.Ok()) {
-        PrintDiagnostics(compiled.source, compiled.diagnostics, std::cerr);
+        // A document may be read from several files, so the report names the file each diagnostic was
+        // found in rather than the file the program was started with.
+        PrintDiagnostics(compiled.sources, compiled.diagnostics, std::cerr);
         return 1;
     }
 
@@ -117,16 +259,22 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
         return 1;
     }
 
-    std::vector<std::unique_ptr<LiveSurface>> surfaces;
-    surfaces.reserve(launching.size());
+    Stage stage;
+    stage.document = compiled.root ? &*compiled.root : nullptr;
+    CollectScreens(*compiled.root, stage.screens);
+    stage.surfaces.reserve(launching.size());
     for (const IrNode* node : launching) {
         auto surface = std::make_unique<LiveSurface>();
         LiveSurface* view = surface.get();
-        std::unordered_map<std::string, std::function<void()>> clicks;
         for (const auto& entry : handlers) {
-            clicks.emplace(entry.first, [view, handler = entry.second]() { handler(view->context); });
+            view->clicks.emplace(entry.first, [view, handler = entry.second]() { handler(view->context); });
         }
-        view->root = Instantiate(*node, clicks);
+        view->screenId = ScreenId(*node);
+        // The screen is built, and the document it belongs to is what its copies of components are
+        // resolved against: a definition borrowed from another file lives in the document, not in
+        // every screen that places a copy of it. The links the screen holds are answered here, where
+        // the windows they can reach and the screens they can show are in hand.
+        view->root = Instantiate(*node, view->clicks, MakeLinkHandler(stage, *view), stage.document);
         if (view->root == nullptr) {
             LogError("Failed to instantiate a window.");
             return 1;
@@ -271,25 +419,29 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
                 view->paintDirty = true;
             }
         });
-        surfaces.push_back(std::move(surface));
+        stage.surfaces.push_back(std::move(surface));
     }
 
     if (!options.selfTest) {
-        LogInfo(std::to_string(surfaces.size()) + " window(s) open. Press Esc to close one.");
+        LogInfo(std::to_string(stage.surfaces.size()) + " window(s) open. Press Esc to close one.");
     }
 
     bool running = true;
     bool selfTestClicked = false;
     int sizeWaits = 0;
     while (running) {
-        surfaces.front()->window.Pump(running);
+        stage.surfaces.front()->window.Pump(running);
         if (!running) {
             break;
         }
+        // A link clicked a moment ago is answered here, once the click is over: the screen it asked
+        // for takes the place of the one that was clicked, which cannot happen while the click is
+        // still being handled.
+        ApplyPendingLink(stage);
         bool anyOpen = false;
         bool paintWaiting = true;
         bool animating = false;
-        for (const std::unique_ptr<LiveSurface>& surface : surfaces) {
+        for (const std::unique_ptr<LiveSurface>& surface : stage.surfaces) {
             if (surface->window.Hwnd() == nullptr || surface->root == nullptr) {
                 continue;
             }
@@ -316,7 +468,7 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
                 surface->root->Arrange(Rect{0.0f, 0.0f, surface->clientWidth, surface->clientHeight});
                 surface->layoutDirty = false;
             }
-            if (options.selfTest && !selfTestClicked && surface.get() == surfaces.front().get()) {
+            if (options.selfTest && !selfTestClicked && surface.get() == stage.surfaces.front().get()) {
                 // A document may name the element the self-test clicks by giving it the id `mark`.
                 // When it does not, the root stands for the document itself: it is laid out in the
                 // box the window gave it, and a click at its centre is dispatched through the same
@@ -334,10 +486,19 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
                 // was found rather than only that one was.
                 const std::string marked = frame->Id().empty() ? std::string() : " '" + frame->Id() + "'";
                 LogInfo("Self-test clicked " + std::string(NodeKindName(frame->Kind())) + marked + " at its centre.");
+                const bool wasLink = frame->Kind() == NodeKind::LINK;
+                const int answeredBefore = stage.answeredLinks;
                 const Rect bounds = frame->Bounds();
                 const Point center{bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f};
                 surface->input.OnDown(*surface->root, center);
                 surface->input.OnUp(*surface->root, center);
+                // A link the self-test clicks has to be answered rather than merely drawn: a link
+                // that is wired to nothing is exactly the failure a run like this is for, and it is
+                // invisible to a test that only checks the window still opens.
+                if (wasLink && stage.answeredLinks == answeredBefore) {
+                    LogError("The self-test clicked a link and nothing answered it.");
+                    return 1;
+                }
                 selfTestClicked = true;
             }
             if (surface->paintDirty) {
@@ -360,6 +521,9 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
         }
         sizeWaits = 0;
         if (options.selfTest && selfTestClicked) {
+            // A link the self-test clicked is answered before the run ends, so a document whose links
+            // are part of what it does is exercised rather than merely built.
+            ApplyPendingLink(stage);
             return 0;
         }
         if (options.selfTest) {
@@ -368,9 +532,9 @@ int Application::Run(const std::filesystem::path& xmlPath, const HandlerMap& han
         if (animating) {
             // Keep advancing an in-flight scroll or motion at about 60 frames a second
             // even while no input arrives, instead of spinning or stalling.
-            surfaces.front()->window.WaitForMessage(16);
+            stage.surfaces.front()->window.WaitForMessage(16);
         } else if (paintWaiting) {
-            surfaces.front()->window.WaitForMessage();
+            stage.surfaces.front()->window.WaitForMessage();
         }
     }
     return 0;

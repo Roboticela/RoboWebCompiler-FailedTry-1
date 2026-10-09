@@ -6,6 +6,7 @@
 #include "compiler/semantic/Suggestions.h"
 #include "compiler/types/ValueParser.h"
 #include "xml/parser/XmlParser.h"
+#include "xml/project/ProjectLoader.h"
 
 #include <unordered_set>
 
@@ -186,6 +187,11 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
             static const char* options[] = {"clamping", "bouncing"};
             choices = options;
             choiceCount = 2;
+        } else if (attribute.name == "target") {
+            // Where a link is opened: in the place it stands, beside it, or in a window of its own.
+            static const char* options[] = {"self", "blank", "window"};
+            choices = options;
+            choiceCount = 3;
         }
         if (choices != nullptr) {
             bool matched = false;
@@ -361,8 +367,11 @@ bool ParseProperty(const PropertySpec& spec, const XmlAttribute& attribute, UiVa
     return false;
 }
 
+// `idIsReference` says the node being read is a child of a copy of a component. Such a child stands
+// in place of a layer of the definition it was placed from, so the id it carries names that layer
+// rather than making a second layer of its own, and it is allowed to repeat the id it replaces.
 std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagnostics, std::unordered_set<std::string>& ids,
-                            const DocumentModel& model, int depth) {
+                            const DocumentModel& model, int depth, bool idIsReference = false) {
     if (depth > MAX_TREE_DEPTH) {
         AddDiagnostic(diagnostics, DIAGNOSTIC_TREE_DEPTH, "Element nesting exceeds the supported depth.", node.location,
                       static_cast<int>(node.name.size()));
@@ -389,6 +398,7 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
     lowered.kind = spec->kind;
     lowered.name = spec->name;
     lowered.location = node.location;
+    lowered.fromImport = node.fromImport;
 
     std::unordered_set<std::string> seen;
     for (const XmlAttribute& attribute : node.attributes) {
@@ -458,7 +468,7 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
             continue;
         }
         if (canonical == "id") {
-            if (!value.text.empty() && !ids.insert(value.text).second) {
+            if (!value.text.empty() && !idIsReference && !ids.insert(value.text).second) {
                 AddDiagnostic(diagnostics, DIAGNOSTIC_DUPLICATE_ID, "Duplicate id '" + value.text + "'.",
                               attribute.valueLocation, attribute.valueSpan);
             }
@@ -485,6 +495,25 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
     if (depth == 1) {
         lowered.states = model.states;
     }
+    if (spec->kind == NodeKind::LINK) {
+        // A link that names nowhere is a shape that looks like one and does nothing, so it is
+        // refused. A link that names a screen is checked against the screens the document holds, so
+        // a name that leads nowhere is reported where it was written rather than doing nothing when
+        // it is clicked.
+        const UiValue* href = FindProperty(lowered, "href");
+        const UiValue* to = FindProperty(lowered, "to");
+        const bool hasHref = href != nullptr && !TrimCopyView(href->text).empty();
+        const bool hasTo = to != nullptr && !TrimCopyView(to->text).empty();
+        if (!hasHref && !hasTo) {
+            AddDiagnostic(diagnostics, DIAGNOSTIC_LINK_TARGET, "A link needs an href or a to.", node.location,
+                          static_cast<int>(node.name.size()));
+        } else if (hasTo && model.screenIds.count(std::string(TrimCopyView(to->text))) == 0) {
+            AddDiagnostic(diagnostics, DIAGNOSTIC_LINK_UNKNOWN,
+                          "A link points at '" + std::string(TrimCopyView(to->text)) +
+                              "', which is not a screen of this document.",
+                          node.location, static_cast<int>(node.name.size()));
+        }
+    }
 
     if ((node.name == "window" || node.name == "board") && depth > 1) {
         const char* message = node.name == "board" ? "A board is independent and cannot be nested."
@@ -498,8 +527,15 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
                       "Component '" + node.name + "' cannot contain child elements.", node.children.front().location,
                       static_cast<int>(node.children.front().name.size()));
     } else {
+        // The children of an element placed from a definition are the definition's layers, so the ids
+        // they carry name those layers rather than making new ones, the same way the children of a
+        // copy do. An embedded document's content is that document's, so the names in it are its own
+        // as well. A subtree once entered as a reference stays one all the way down, so the children
+        // of such a child are references too.
+        const bool childIsReference =
+            idIsReference || node.fromDefinition || spec->kind == NodeKind::INSTANCE || spec->kind == NodeKind::EMBED;
         for (const XmlNode& child : node.children) {
-            auto loweredChild = Lower(child, diagnostics, ids, model, depth + 1);
+            auto loweredChild = Lower(child, diagnostics, ids, model, depth + 1, childIsReference);
             if (loweredChild.has_value()) {
                 lowered.children.push_back(std::move(*loweredChild));
             }
@@ -513,21 +549,46 @@ std::optional<IrNode> Lower(const XmlNode& node, std::vector<Diagnostic>& diagno
 CompileResult CompileUi(const SourceFile& source) {
     CompileResult result;
     result.source = source;
-    ParseResult parsed = ParseXml(source);
-    result.diagnostics = std::move(parsed.diagnostics);
-    if (!parsed.root.has_value() || HasFailure(result.diagnostics)) {
+    // A document may be written across several files: every `import` is replaced by what it borrowed
+    // and every `embed` is inlined, so what is compiled is one tree made of several files. Each file
+    // is named beside the document that wrote it, so a document split across a folder of files reads
+    // as one document.
+    std::filesystem::path baseDirectory;
+    if (!source.path.empty()) {
+        baseDirectory = std::filesystem::path(source.path).parent_path();
+    }
+    ProjectLoad project = LoadProject(source, baseDirectory);
+    result.sources = std::move(project.sources);
+    result.diagnostics = std::move(project.diagnostics);
+    if (!project.root.has_value() || HasFailure(result.diagnostics)) {
         return result;
     }
-    const bool forest = parsed.root->name == "screens";
-    if (!forest && parsed.root->name != "window" && parsed.root->name != "board") {
-        AddDiagnostic(result.diagnostics, DIAGNOSTIC_ROOT_WINDOW, "The root element must be 'window' or 'board'.",
-                      parsed.root->location, static_cast<int>(parsed.root->name.size()));
+    XmlNode root = std::move(*project.root);
+    // A library is written to be borrowed from: it holds the definitions of a document and no screen
+    // of its own, so it compiles to a tree that holds the definitions and nothing else. It is read
+    // the same way a document is, which is what lets a library be checked on its own.
+    const bool library = root.name == "library";
+    const bool forest = root.name == "screens";
+    if (!forest && !library && root.name != "window" && root.name != "board") {
+        AddDiagnostic(result.diagnostics, DIAGNOSTIC_ROOT_WINDOW,
+                      "The root element must be 'window', 'board', 'screens', or 'library'.", root.location,
+                      static_cast<int>(root.name.size()));
         return result;
+    }
+    if (library) {
+        for (const XmlNode& child : root.children) {
+            if (IsDefinitionElement(child.name)) {
+                continue;
+            }
+            AddDiagnostic(result.diagnostics, DIAGNOSTIC_IMPORT_IGNORED,
+                          "A library holds definitions, and '" + child.name + "' is not one.", child.location,
+                          static_cast<int>(child.name.size()));
+            return result;
+        }
     }
     if (forest) {
-        for (const XmlNode& child : parsed.root->children) {
-            if (child.name == "window" || child.name == "board" || child.name == "tokens" || child.name == "style" ||
-                child.name == "state" || child.name == "animate" || child.name == "animation" || child.name == "component") {
+        for (const XmlNode& child : root.children) {
+            if (child.name == "window" || child.name == "board" || IsDefinitionElement(child.name)) {
                 continue;
             }
             AddDiagnostic(result.diagnostics, DIAGNOSTIC_ROOT_WINDOW, "Each root element must be 'window' or 'board'.",
@@ -537,15 +598,32 @@ CompileResult CompileUi(const SourceFile& source) {
     }
     DocumentModel model;
     SetSuppressedFoundations(&model.removedTokens);
-    const bool prepared = PrepareDocument(*parsed.root, model, result.diagnostics);
+    const bool prepared = PrepareDocument(root, model, result.diagnostics);
     if (!prepared) {
         SetSuppressedFoundations(nullptr);
         return result;
     }
     std::unordered_set<std::string> ids;
     const std::size_t before = result.diagnostics.size();
-    if (!forest) {
-        auto lowered = Lower(*parsed.root, result.diagnostics, ids, model, 1);
+    if (library) {
+        IrNode host;
+        host.kind = NodeKind::FRAME;
+        host.name = "library";
+        host.location = root.location;
+        bool ok = true;
+        for (const XmlNode& child : root.children) {
+            auto lowered = Lower(child, result.diagnostics, ids, model, 1);
+            if (!lowered.has_value()) {
+                ok = false;
+                continue;
+            }
+            host.children.push_back(std::move(*lowered));
+        }
+        if (ok && result.diagnostics.size() == before) {
+            result.root = std::move(host);
+        }
+    } else if (!forest) {
+        auto lowered = Lower(root, result.diagnostics, ids, model, 1);
         if (result.diagnostics.size() == before && lowered.has_value()) {
             for (const AnimationSpec& animation : model.animations) {
                 lowered->visual.motions.push_back(MotionFromAnimation(animation));
@@ -556,10 +634,15 @@ CompileResult CompileUi(const SourceFile& source) {
         IrNode host;
         host.kind = NodeKind::FRAME;
         host.name = "screens";
-        host.location = parsed.root->location;
+        host.location = root.location;
         bool ok = result.diagnostics.size() == before;
-        for (const XmlNode& child : parsed.root->children) {
-            if (child.name != "window" && child.name != "board") {
+        for (const XmlNode& child : root.children) {
+            // A definition the document holds belongs to the document rather than to one of its
+            // screens, so it is lowered into the forest next to the screens. It is marked as borrowed
+            // when it came from another file, so it is in the tree a copy is resolved from without
+            // being built into any screen.
+            const bool screen = child.name == "window" || child.name == "board";
+            if (!screen && !IsDefinitionElement(child.name)) {
                 continue;
             }
             auto lowered = Lower(child, result.diagnostics, ids, model, 1);
@@ -567,8 +650,10 @@ CompileResult CompileUi(const SourceFile& source) {
                 ok = false;
                 continue;
             }
-            for (const AnimationSpec& animation : model.animations) {
-                lowered->visual.motions.push_back(MotionFromAnimation(animation));
+            if (screen) {
+                for (const AnimationSpec& animation : model.animations) {
+                    lowered->visual.motions.push_back(MotionFromAnimation(animation));
+                }
             }
             host.children.push_back(std::move(*lowered));
         }

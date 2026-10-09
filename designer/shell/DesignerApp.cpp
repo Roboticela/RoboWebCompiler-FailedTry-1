@@ -1048,6 +1048,17 @@ void DrawLibraryGlyph(Renderer& renderer, const Rect& well, const std::string& n
     } else if (name == "instance") {
         renderer.StrokeRectangle(Rect{x, y, size, size}, ink, 1.5f, 3.0f);
         renderer.FillRectangle(Rect{x + size * 0.28f, y + size * 0.28f, size * 0.44f, size * 0.44f}, ink, 2.0f);
+    } else if (name == "embed") {
+        // A document inside a document: a page with a folded corner, drawn inside a frame.
+        renderer.StrokeRectangle(Rect{x, y, size, size * 0.72f}, quiet, 1.5f, 2.0f);
+        renderer.StrokeRectangle(Rect{x + size * 0.22f, y + size * 0.24f, size * 0.56f, size * 0.56f}, ink, 1.5f, 2.0f);
+        renderer.FillRectangle(Rect{x + size * 0.62f, y + size * 0.24f, size * 0.16f, size * 0.16f}, ink, 0.0f);
+    } else if (name == "link") {
+        // A link: a line that leaves the page, which is the shape a link is drawn as everywhere.
+        renderer.FillRectangle(Rect{x, y + size * 0.5f, size * 0.62f, 2.5f}, ink, 0.0f);
+        renderer.StrokeRectangle(Rect{x + size * 0.42f, y + size * 0.2f, size * 0.5f, size * 0.5f}, ink, 1.5f, 3.0f);
+        renderer.FillRectangle(Rect{x + size * 0.7f, y + size * 0.14f, size * 0.24f, 2.0f}, ink, 0.0f);
+        renderer.FillRectangle(Rect{x + size * 0.7f, y + size * 0.14f, 2.0f, size * 0.24f}, ink, 0.0f);
     } else if (name == "slot") {
         renderer.FillRectangle(Rect{x, y, size * 0.28f, 1.5f}, ink, 0.0f);
         renderer.FillRectangle(Rect{x + size * 0.72f, y, size * 0.28f, 1.5f}, ink, 0.0f);
@@ -2224,7 +2235,8 @@ int DesignerApp::Run(const DesignerOptions& options) {
                                                      {"Media", "image"},        {"Media", "video"},
                                                      {"Type", "text"},          {"Type", "richtext"},
                                                      {"Component", "component"},  {"Component", "componentSet"},
-                                                     {"Component", "instance"},   {"Component", "slot"}};
+                                                     {"Component", "instance"},   {"Component", "slot"},
+                                                     {"Document", "embed"},       {"Document", "link"}};
             const std::string query = LowerCopy(libraryQuery);
             const float contentWidth = std::max(0.0f, fullSidebar.width - 24.0f);
             const float gap = 8.0f;
@@ -2808,6 +2820,12 @@ int DesignerApp::Run(const DesignerOptions& options) {
                 addCommand("Line", "L", 46, activeTool == EditorTool::LINE);
                 addCommand("Arrow", "A", 57, activeTool == EditorTool::ARROW);
                 addCommand("Boolean", "B", 63, activeTool == EditorTool::BOOLEAN);
+                addCommand("Component", "", 87, activeTool == EditorTool::COMPONENT);
+                addCommand("Component Set", "", 88, activeTool == EditorTool::COMPONENT_SET);
+                addCommand("Instance", "", 89, activeTool == EditorTool::INSTANCE);
+                addCommand("Slot", "", 92, activeTool == EditorTool::SLOT);
+                addCommand("Embed", "", 93, activeTool == EditorTool::EMBED);
+                addCommand("Link", "", 94, activeTool == EditorTool::LINK);
                 addCommand("Hand", "H", 47, activeTool == EditorTool::HAND);
                 addCommand("Zoom", "Z", 48, activeTool == EditorTool::ZOOM);
                 break;
@@ -3826,6 +3844,18 @@ int DesignerApp::Run(const DesignerOptions& options) {
             activeTool = EditorTool::SVG;
         } else if (action == 63) {
             activeTool = EditorTool::BOOLEAN;
+        } else if (action == 87) {
+            activeTool = EditorTool::COMPONENT;
+        } else if (action == 88) {
+            activeTool = EditorTool::COMPONENT_SET;
+        } else if (action == 89) {
+            activeTool = EditorTool::INSTANCE;
+        } else if (action == 92) {
+            activeTool = EditorTool::SLOT;
+        } else if (action == 93) {
+            activeTool = EditorTool::EMBED;
+        } else if (action == 94) {
+            activeTool = EditorTool::LINK;
         } else if (action == 46) {
             activeTool = EditorTool::LINE;
         } else if (action == 57) {
@@ -6755,8 +6785,10 @@ int DesignerApp::Run(const DesignerOptions& options) {
         // Every component a shape tool can draw has to survive that trip, because the
         // editor writes defaults of its own for each of them and a default the component
         // does not declare would leave a document that no longer compiles.
-        const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "star", "frame",       "text",   "richtext",
-                                  "image",     "video",   "line",    "arrow",   "vector", "svg",    "boolean", "group"};
+        const char* drawable[] = {"rectangle", "ellipse", "circle", "polygon", "star",     "frame",  "text",      "richtext",
+                                  "image",     "video",   "line",   "arrow",   "vector",   "svg",    "boolean",   "group",
+                                  "component", "componentSet",       "instance", "slot",
+                                  "embed",           "link"};
         for (const char* component : drawable) {
             std::vector<int> drawnShape;
             if (!document.InsertChild({0}, component, drawnShape) || !document.SetAttribute(drawnShape, "id", "drawnShape") ||

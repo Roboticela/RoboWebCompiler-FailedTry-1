@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <string_view>
 
 namespace Runtime {
 namespace {
@@ -23,6 +24,38 @@ std::string_view LineText(const std::string& text, int lineNumber) {
         }
     }
     return {};
+}
+
+// One diagnostic, shown beside the text of the file it points into. The text is what is known of the
+// file: a diagnostic whose file was not read is reported with no line under it rather than with a
+// line of some other file, which would point at the wrong place.
+void PrintDiagnostic(const std::string* fileText, const Diagnostic& diagnostic, std::ostream& output) {
+    const char* severity = "note";
+    if (diagnostic.severity == DiagnosticSeverity::WARNING) {
+        severity = "warning";
+    } else if (diagnostic.severity == DiagnosticSeverity::FAILURE) {
+        severity = "error";
+    }
+    output << diagnostic.location.path << ':' << diagnostic.location.line << ':' << diagnostic.location.column
+           << '\n';
+    output << severity << ' ' << diagnostic.code << ": " << diagnostic.message << '\n';
+    if (fileText == nullptr || diagnostic.location.line <= 0) {
+        return;
+    }
+    const std::string_view line = LineText(*fileText, diagnostic.location.line);
+    output << line << '\n';
+    int caretColumn = diagnostic.location.column;
+    if (caretColumn < 1) {
+        caretColumn = 1;
+    }
+    for (int index = 1; index < caretColumn; ++index) {
+        output << ' ';
+    }
+    const int span = diagnostic.spanLength < 1 ? 1 : diagnostic.spanLength;
+    for (int index = 0; index < span; ++index) {
+        output << '^';
+    }
+    output << '\n';
 }
 
 }  // namespace
@@ -57,31 +90,21 @@ bool HasFailure(const std::vector<Diagnostic>& diagnostics) {
 
 void PrintDiagnostics(const SourceFile& source, const std::vector<Diagnostic>& diagnostics, std::ostream& output) {
     for (const Diagnostic& diagnostic : diagnostics) {
-        const char* severity = "note";
-        if (diagnostic.severity == DiagnosticSeverity::WARNING) {
-            severity = "warning";
-        } else if (diagnostic.severity == DiagnosticSeverity::FAILURE) {
-            severity = "error";
+        PrintDiagnostic(&source.text, diagnostic, output);
+    }
+}
+
+void PrintDiagnostics(const std::vector<SourceFile>& sources, const std::vector<Diagnostic>& diagnostics,
+                      std::ostream& output) {
+    for (const Diagnostic& diagnostic : diagnostics) {
+        const std::string* text = nullptr;
+        for (const SourceFile& source : sources) {
+            if (source.path == diagnostic.location.path) {
+                text = &source.text;
+                break;
+            }
         }
-        output << diagnostic.location.path << ':' << diagnostic.location.line << ':' << diagnostic.location.column
-               << '\n';
-        output << severity << ' ' << diagnostic.code << ": " << diagnostic.message << '\n';
-        if (diagnostic.location.line > 0) {
-            const std::string_view line = LineText(source.text, diagnostic.location.line);
-            output << line << '\n';
-            int caretColumn = diagnostic.location.column;
-            if (caretColumn < 1) {
-                caretColumn = 1;
-            }
-            for (int index = 1; index < caretColumn; ++index) {
-                output << ' ';
-            }
-            int span = diagnostic.spanLength < 1 ? 1 : diagnostic.spanLength;
-            for (int index = 0; index < span; ++index) {
-                output << '^';
-            }
-            output << '\n';
-        }
+        PrintDiagnostic(text, diagnostic, output);
     }
 }
 

@@ -48,6 +48,10 @@ enum class NodeKind : std::uint8_t {
     COMPONENTSET,
     INSTANCE,
     SLOT,
+    // A document placed inside another: the box an embedded document is drawn in, and the shape a
+    // link to another place is drawn as.
+    EMBED,
+    LINK,
     SCROLL,
     BOARD,
 };
@@ -356,6 +360,10 @@ inline const char* NodeKindName(NodeKind kind) {
         return "instance";
     case NodeKind::SLOT:
         return "slot";
+    case NodeKind::EMBED:
+        return "embed";
+    case NodeKind::LINK:
+        return "link";
     case NodeKind::SCROLL:
         return "scroll";
     case NodeKind::BOARD:

@@ -1,0 +1,16 @@
+<screens>
+    <import src="Theme.xml"/>
+    <import src="Parts.xml"/>
+    <window id="Main" title="Main" width="400" height="320" layout="vertical" gap="12" padding="16" background="#F5F5F7">
+        <frame id="card" style="Card" layout="vertical" gap="8" width="fill" heightMode="hug">
+            <instance id="heroBadge" component="Badge"/>
+            <instance id="tagChip" component="Chip"/>
+            <embed id="partBox" src="Part.xml" width="200" height="40"/>
+            <link id="docsLink" href="https://example.com/docs" text="Docs"/>
+            <link id="settingsLink" to="Settings" text="Settings"/>
+        </frame>
+    </window>
+    <window id="Settings" title="Settings" width="320" height="220" layout="vertical" padding="16">
+        <text text="Settings" fontSize="16" textColor="#1D1D1F"/>
+    </window>
+</screens>

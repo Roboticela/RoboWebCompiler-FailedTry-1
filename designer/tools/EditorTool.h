@@ -17,6 +17,12 @@ enum class EditorTool {
     LINE,
     ARROW,
     BOOLEAN,
+    COMPONENT,
+    COMPONENT_SET,
+    INSTANCE,
+    SLOT,
+    EMBED,
+    LINK,
     HAND,
     ZOOM,
 };
@@ -51,6 +57,18 @@ inline const char* EditorToolName(EditorTool tool) {
         return "Arrow";
     case EditorTool::BOOLEAN:
         return "Boolean";
+    case EditorTool::COMPONENT:
+        return "Component";
+    case EditorTool::COMPONENT_SET:
+        return "Component Set";
+    case EditorTool::INSTANCE:
+        return "Instance";
+    case EditorTool::SLOT:
+        return "Slot";
+    case EditorTool::EMBED:
+        return "Embed";
+    case EditorTool::LINK:
+        return "Link";
     case EditorTool::HAND:
         return "Hand";
     case EditorTool::ZOOM:
@@ -87,6 +105,18 @@ inline const char* EditorToolComponent(EditorTool tool) {
         return "arrow";
     case EditorTool::BOOLEAN:
         return "boolean";
+    case EditorTool::COMPONENT:
+        return "component";
+    case EditorTool::COMPONENT_SET:
+        return "componentSet";
+    case EditorTool::INSTANCE:
+        return "instance";
+    case EditorTool::SLOT:
+        return "slot";
+    case EditorTool::EMBED:
+        return "embed";
+    case EditorTool::LINK:
+        return "link";
     case EditorTool::SELECT:
     case EditorTool::HAND:
     case EditorTool::ZOOM:
@@ -132,6 +162,16 @@ inline const char* EditorToolShortcut(EditorTool tool) {
     case EditorTool::BOOLEAN:
         // The letter a board is added with is already spoken for, so a boolean group is reached
         // through the command list rather than by a key of its own, the way an SVG is.
+        return "";
+    // Every letter a tool could answer to is already spoken for by a shape tool or by a view action,
+    // and giving one of these a letter would take it away from what it already draws or does, so all
+    // four are reached through the command list rather than by keys of their own.
+    case EditorTool::COMPONENT:
+    case EditorTool::COMPONENT_SET:
+    case EditorTool::INSTANCE:
+    case EditorTool::SLOT:
+    case EditorTool::EMBED:
+    case EditorTool::LINK:
         return "";
     case EditorTool::HAND:
         return "H";

@@ -1,0 +1,4 @@
+<window id="UsesScreenParts" width="320" height="200" layout="vertical" gap="8" padding="12">
+    <import src="ScreenWithParts.xml"/>
+    <instance id="inner" component="Inner"/>
+</window>

@@ -677,6 +677,22 @@ std::vector<PropertySpec> SlotProperties() {
     return With(FrameProperties(), {{"text", TypeKind::STRING}, {"fallback", TypeKind::STRING}});
 }
 
+// An embed is a frame that holds another document, so it takes everything a frame takes and the name
+// of the document it inlines. The name is resolved beside the file that wrote it, the way every other
+// name a document writes is, so the same embed written in two files reads the two files it means.
+std::vector<PropertySpec> EmbedProperties() {
+    return With(FrameProperties(), {{"src", TypeKind::STRING}, {"description", TypeKind::STRING}, {"badge", TypeKind::BOOL}});
+}
+
+// A link is a frame drawn as a link, so it takes everything a frame takes and the two names a link
+// can go to: `href` is a name the system opens, `to` is a screen of this document. It also takes the
+// label drawn when it holds no content of its own and the frame a name is opened in.
+std::vector<PropertySpec> LinkProperties() {
+    return With(FrameProperties(),
+                {{"href", TypeKind::STRING}, {"to", TypeKind::STRING}, {"target", TypeKind::STRING}, {"text", TypeKind::STRING},
+                 {"description", TypeKind::STRING}});
+}
+
 std::vector<PropertySpec> ShadowProperties() {
     return {
         {"shadow", TypeKind::STRING},
@@ -717,6 +733,8 @@ const std::vector<ComponentSpec>& ComponentCatalog() {
         {"componentSet", NodeKind::COMPONENTSET, true, ComponentSetProperties()},
         {"instance", NodeKind::INSTANCE, true, InstanceProperties()},
         {"slot", NodeKind::SLOT, true, SlotProperties()},
+        {"embed", NodeKind::EMBED, true, EmbedProperties()},
+        {"link", NodeKind::LINK, true, LinkProperties()},
         {"scroll", NodeKind::SCROLL, true, ScrollProperties()},
     };
     return catalog;

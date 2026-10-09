@@ -24,6 +24,8 @@ add_library(RuntimeXml STATIC
     xml/parser/XmlParser.cpp
     xml/parser/XmlParser.h
     xml/ast/XmlAst.h
+    xml/project/ProjectLoader.cpp
+    xml/project/ProjectLoader.h
     xml/serializer/XmlSerializer.cpp
     xml/serializer/XmlSerializer.h
 )
@@ -71,6 +73,10 @@ add_library(RuntimeUi STATIC
     components/instance/InstanceElement.h
     components/slot/SlotElement.cpp
     components/slot/SlotElement.h
+    components/embed/EmbedElement.cpp
+    components/embed/EmbedElement.h
+    components/link/LinkElement.cpp
+    components/link/LinkElement.h
     components/rectangle/RectangleElement.cpp
     components/rectangle/RectangleElement.h
     components/polygon/PolygonElement.cpp
@@ -165,13 +171,29 @@ target_compile_definitions(RuntimePlatform PUBLIC "RUNTIME_SOURCE_DIR=\"${CMAKE_
 add_library(RuntimeApp STATIC
     app/Application.cpp
     app/Application.h
+    app/LinkRoute.cpp
+    app/LinkRoute.h
 )
 target_include_directories(RuntimeApp PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(RuntimeApp PUBLIC RuntimePlatform)
+# A link that names a page is opened with the system, which is the shell of the machine: that is the
+# one thing about a link the runtime cannot do for itself, so the layer that knows the platform is
+# what links it.
+target_link_libraries(RuntimeApp PUBLIC RuntimePlatform shell32)
 
 add_executable(Hello examples/Hello/Main.cpp)
 target_link_libraries(Hello PRIVATE RuntimeApp)
 target_compile_definitions(Hello PRIVATE "HELLO_XML_PATH=\"${CMAKE_SOURCE_DIR}/examples/Hello/Hello.xml\"")
+
+# One screen written across four XML files and the program behind it written across three C++ files:
+# Theme.xml and Parts/Header.xml are read by MultiFile.xml, and Handlers.cpp answers the click the
+# screen declares. Nothing about it is special -- it is what any program here may do.
+add_executable(MultiFile
+    examples/MultiFile/Main.cpp
+    examples/MultiFile/Handlers.cpp
+    examples/MultiFile/Handlers.h
+)
+target_link_libraries(MultiFile PRIVATE RuntimeApp)
+target_compile_definitions(MultiFile PRIVATE "MULTIFILE_XML_PATH=\"${CMAKE_SOURCE_DIR}/examples/MultiFile/MultiFile.xml\"")
 
 add_executable(myui tools/cli/Main.cpp)
 target_link_libraries(myui PRIVATE RuntimeApp)
@@ -197,7 +219,9 @@ target_compile_definitions(RoboUIDesigner PRIVATE "DESIGNER_HELLO_XML=\"${CMAKE_
 # The tests link the platform as well as the user interface, because the one reader that is not the
 # runtime's own is the platform's: a test has to be able to offer it the same way a program does.
 add_executable(RuntimeTests tests/Main.cpp tests/TestHarness.h)
-target_link_libraries(RuntimeTests PRIVATE RuntimePlatform RuntimeDesigner)
+# The tests link the application as well as the platform, because what a link means is decided by the
+# layer that knows what a window is, and that decision is worth testing without opening one.
+target_link_libraries(RuntimeTests PRIVATE RuntimePlatform RuntimeDesigner RuntimeApp)
 target_compile_definitions(RuntimeTests PRIVATE "RUNTIME_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
 
 add_executable(RuntimeBenchmarks benchmarks/Main.cpp)
@@ -206,5 +230,6 @@ target_link_libraries(RuntimeBenchmarks PRIVATE RuntimeUi)
 enable_testing()
 add_test(NAME UnitTests COMMAND RuntimeTests)
 add_test(NAME HelloSelfTest COMMAND Hello --self-test)
+add_test(NAME MultiFileSelfTest COMMAND MultiFile --self-test)
 add_test(NAME DesignerSelfTest COMMAND RoboUIDesigner --self-test)
-set_tests_properties(HelloSelfTest DesignerSelfTest PROPERTIES TIMEOUT 60)
+set_tests_properties(HelloSelfTest MultiFileSelfTest DesignerSelfTest PROPERTIES TIMEOUT 60)

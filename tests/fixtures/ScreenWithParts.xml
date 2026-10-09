@@ -1,0 +1,7 @@
+<window id="Host" width="320" height="200" layout="vertical" gap="8" padding="12">
+    <frame id="hostBox" layout="vertical" gap="8">
+        <component name="Inner" width="120" height="32" background="#30D158" radius="8">
+            <text id="innerLabel" text="Inner" fontSize="13" textColor="#FFFFFF"/>
+        </component>
+    </frame>
+</window>

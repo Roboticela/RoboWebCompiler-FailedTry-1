@@ -1,0 +1,11 @@
+<library>
+    <tokens>
+        <color name="brand" value="#0E7AFF"/>
+        <color name="paper" value="#F5F5F7"/>
+        <color name="ink" value="#1D1D1F"/>
+    </tokens>
+    <style name="Panel" background="#FFFFFF" radius="12" padding="16"/>
+    <component name="Badge" width="80" height="28" background="$brand" radius="14">
+        <text id="badgeLabel" text="New" fontSize="13" textColor="#FFFFFF"/>
+    </component>
+</library>

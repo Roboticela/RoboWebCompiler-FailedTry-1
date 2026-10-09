@@ -1,0 +1,9 @@
+<library>
+    <tokens>
+        <color name="brand" value="#0E7AFF"/>
+    </tokens>
+    <style name="Card" background="#FFFFFF" radius="10" padding="12"/>
+    <component name="Badge" width="80" height="28" background="$brand" radius="14">
+        <text id="badgeLabel" text="New" fontSize="13" textColor="#FFFFFF"/>
+    </component>
+</library>

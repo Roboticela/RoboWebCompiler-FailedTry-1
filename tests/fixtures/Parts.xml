@@ -1,0 +1,5 @@
+<library>
+    <component name="Chip" layout="horizontal" gap="6" width="120" height="32" background="#EEEEF2" radius="16">
+        <text id="chipText" text="Chip" fontSize="13" textColor="#1D1D1F"/>
+    </component>
+</library>

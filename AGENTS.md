@@ -1096,5 +1096,5 @@ If **this** works beautifully, you have the foundation for the rest.
 22. Instance [Done]
 23. Slot [Done]
 
-24. Embed
-25. Link
+24. Embed [Done]
+25. Link [Done]

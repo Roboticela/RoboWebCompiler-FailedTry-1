@@ -352,6 +352,29 @@ XmlNode MakeComponent(std::string_view name) {
         AddDefaultAttribute(node, "text", "Content");
         AddDefaultAttribute(node, "width", "120");
         AddDefaultAttribute(node, "height", "48");
+    } else if (name == "embed") {
+        // An embed is a document placed inside the one being edited. A new one names no file yet,
+        // because the file it will show is the one thing the editor cannot guess: it is born as a
+        // place waiting for a name, holding a label that says so, and the name is filled in from the
+        // inspector. An embed that names no file is a real document that compiles, which is what lets
+        // a part be designed before the file behind it exists.
+        AddDefaultAttribute(node, "width", "240");
+        AddDefaultAttribute(node, "height", "120");
+        AddDefaultAttribute(node, "background", "#F2F2F4");
+        AddDefaultAttribute(node, "radius", "8");
+        XmlNode label = MakeComponent("text");
+        AddAttribute(label, "name", "Embedded");
+        AddAttribute(label, "text", "Embedded document");
+        node.children.push_back(std::move(label));
+    } else if (name == "link") {
+        // A link is a shape that goes somewhere, so a new one comes with a label and a place to go.
+        // The place it goes is a name the system opens, because that is the one kind of name a
+        // designer can write without knowing the screens of the document it is being placed in.
+        AddDefaultAttribute(node, "href", "https://example.com");
+        AddDefaultAttribute(node, "text", "Link");
+        AddDefaultAttribute(node, "cursor", "pointer");
+        AddDefaultAttribute(node, "width", "80");
+        AddDefaultAttribute(node, "height", "24");
     }
     return node;
 }

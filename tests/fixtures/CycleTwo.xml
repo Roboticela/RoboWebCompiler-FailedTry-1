@@ -1,0 +1,3 @@
+<window id="CycleTwo" width="200" height="120">
+    <import src="CycleOne.xml"/>
+</window>

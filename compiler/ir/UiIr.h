@@ -36,10 +36,17 @@ struct IrNode {
     std::vector<IrNode> children;
     VisualStyle visual;
     std::vector<std::pair<std::string, std::string>> states;
+    // A definition borrowed from another document. It is part of the tree so that a copy placed from
+    // it can be resolved, and it is not built into the live tree: a borrowed definition is a name a
+    // document can use, not a box it draws.
+    bool fromImport = false;
 };
 
 struct CompileResult {
     SourceFile source;
+    // Every file the document was read from, the entry file first, so a diagnostic is shown beside
+    // the file it was found in rather than beside the file the program was started with.
+    std::vector<SourceFile> sources;
     std::vector<Diagnostic> diagnostics;
     std::optional<IrNode> root;
 

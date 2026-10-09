@@ -1,0 +1,5 @@
+<window id="Twice" width="200" height="120">
+    <import src="Theme.xml"/>
+    <import src="Theme.xml"/>
+    <instance component="Badge"/>
+</window>

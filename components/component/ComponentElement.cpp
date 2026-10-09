@@ -46,7 +46,14 @@ void ComponentElement::SetVariant(std::string value) { variant = std::move(value
 const std::string& ComponentElement::Variant() const { return variant; }
 bool ComponentElement::HasVariant() const { return !variant.empty(); }
 
-void ComponentElement::SetDescription(std::string value) { description = std::move(value); }
+// What a definition is for is drawn where every other description in the document is drawn: as the
+// tip a layer shows while it is hovered. A definition is the one node whose name is already taken by
+// the component it defines, so the description is the only thing left to say about it on the canvas,
+// and it is said without a code somewhere else having to be read to learn it.
+void ComponentElement::SetDescription(std::string value) {
+    description = value;
+    SetTip(value);
+}
 const std::string& ComponentElement::Description() const { return description; }
 
 void ComponentElement::SetBadgeVisible(bool value) { badgeVisible = value; }
@@ -62,7 +69,10 @@ void ComponentElement::OnPaint(Renderer& renderer) {
 
 NodeKind ComponentSetElement::Kind() const { return NodeKind::COMPONENTSET; }
 
-void ComponentSetElement::SetDescription(std::string value) { description = std::move(value); }
+void ComponentSetElement::SetDescription(std::string value) {
+    description = value;
+    SetTip(value);
+}
 const std::string& ComponentSetElement::Description() const { return description; }
 
 int ComponentSetElement::VariantCount() const {

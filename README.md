@@ -27,6 +27,7 @@ Outputs:
 
 ```text
 build\Hello.exe
+build\MultiFile.exe
 build\RoboUIDesigner.exe
 build\myui.exe
 build\RuntimeTests.exe
@@ -37,9 +38,11 @@ build\RuntimeBenchmarks.exe
 
 ```bat
 build\Hello.exe
+build\MultiFile.exe
 build\RoboUIDesigner.exe examples\Hello\Hello.xml
 build\myui.exe check examples\Hello\Hello.xml
 build\myui.exe inspect examples\Hello\Hello.xml
+build\myui.exe files examples\MultiFile\MultiFile.xml
 build\myui.exe run examples\Hello\Hello.xml
 build\RuntimeTests.exe
 build\RuntimeBenchmarks.exe
@@ -52,12 +55,15 @@ ctest --test-dir build --output-on-failure
 
 `Hello.exe --self-test` creates the window, lays the button out, synthesizes a click, and exits after one presented frame.
 
+`MultiFile.exe` is the same runtime with the screen split across four XML files and the program behind it split across three C++ files: the screen imports its tokens, style, and component from `Theme.xml`, embeds `Parts/Header.xml`, and links to a page, and `Handlers.cpp` answers the click it declares. See [Multi-file documents](docs/MultiFile.md).
+
 ## CLI
 
 ```text
 myui check <file>
 myui run <file>
 myui inspect <file>
+myui files <file>
 ```
 
 `new`, `build`, `format`, `test`, `package`, and `profile` are reserved and report that they arrive in a later milestone.
@@ -72,6 +78,7 @@ myui inspect <file>
 - [UI IR](docs/UiIr.md)
 - [Runtime object model](docs/RuntimeObjectModel.md)
 - [Components](docs/Components.md)
+- [Multi-file documents](docs/MultiFile.md)
 - [Designer](docs/DesignerArchitecture.md)
 - [Compiler pipeline](docs/CompilerPipeline.md)
 - [Roadmap](docs/MilestoneRoadmap.md)

@@ -1,0 +1,3 @@
+<window id="MissingImport" width="200" height="120">
+    <import src="Nowhere.xml"/>
+</window>

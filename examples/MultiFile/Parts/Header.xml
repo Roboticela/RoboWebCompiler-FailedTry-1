@@ -1,0 +1,4 @@
+<window width="fill" height="64" layout="horizontal" gap="12" padding="16" background="#FFFFFF" radius="12">
+    <text id="headerTitle" text="Multi-file app" fontSize="20" textColor="$ink"/>
+    <instance component="Badge" width="80" height="28"/>
+</window>

@@ -66,6 +66,14 @@ error UI014: Property 'width' expects Length. Received String.
                 ^^^^^
 ```
 
+## Several files
+
+A document may be written across several files. `import` borrows the definitions of another document;
+`embed` inlines the content of one where it stands; a file written to be borrowed from has a `library`
+root; and `link` is a frame that goes somewhere when it is clicked. Each name is resolved beside the
+file that wrote it, and every diagnostic is shown beside the file it was found in. See
+[Multi-file documents](MultiFile.md) for the whole of it.
+
 | Code | Meaning |
 | --- | --- |
 | UI000 | Syntax error |
@@ -81,3 +89,9 @@ error UI014: Property 'width' expects Length. Received String.
 | UI031 | Event handler name is not an identifier |
 | UI040 | Binding expression |
 | UI102 | Unknown property |
+| UI105 | Child of a copy names nothing the definition offers (warning) |
+| UI106 | A document imports a document that imports it back |
+| UI107 | A document named by an import is not a document that can be borrowed from |
+| UI108 | A library holds something a definition cannot be (warning) |
+| UI109 | A link names neither `href` nor `to` |
+| UI110 | A link names a screen the document does not hold |

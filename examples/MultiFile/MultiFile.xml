@@ -1,0 +1,26 @@
+<screens>
+    <import src="Theme.xml"/>
+    <window id="Main" title="Multi-file" width="560" height="380" layout="vertical" gap="16" padding="20" background="$paper">
+        <embed id="header" src="Parts/Header.xml" width="fill" height="64"/>
+        <frame id="body" style="Panel" layout="vertical" gap="10" width="fill" heightMode="hug">
+            <text text="One app written across several files." fontSize="14" textColor="#6E6E73"/>
+            <frame id="status" width="fill" height="24">
+                <text id="statusText" text="Nothing clicked yet" fontSize="14" textColor="$ink"/>
+            </frame>
+            <frame id="helloButton" role="button" cursor="pointer" onClick="hello" layout="horizontal" align="center"
+                   justify="center" width="160" height="36" background="$brand" radius="10">
+                <text text="Click me" fontSize="14" textColor="#FFFFFF"/>
+            </frame>
+            <link id="docsLink" href="https://example.com/docs" text="Open the docs"/>
+            <link id="mark" to="Settings" text="Go to settings"/>
+        </frame>
+    </window>
+    <window id="Settings" title="Settings" width="560" height="380" layout="vertical" gap="16" padding="20" background="$paper">
+        <embed id="settingsHeader" src="Parts/Header.xml" width="fill" height="64"/>
+        <frame id="settingsBody" style="Panel" layout="vertical" gap="10" width="fill" heightMode="hug">
+            <text text="Settings" fontSize="20" textColor="$ink"/>
+            <text text="The second screen of the same document, in the same four files." fontSize="14" textColor="#6E6E73"/>
+            <link id="backLink" to="Main" text="Back"/>
+        </frame>
+    </window>
+</screens>

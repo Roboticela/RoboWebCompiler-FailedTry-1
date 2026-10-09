@@ -4,6 +4,7 @@
 #include "components/arrow/ArrowElement.h"
 #include "components/boolean/BooleanElement.h"
 #include "components/component/ComponentElement.h"
+#include "components/embed/EmbedElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
 #include "components/image/ImageElement.h"
@@ -13,6 +14,7 @@
 #include "components/primitive/PrimitiveElement.h"
 #include "components/ellipse/EllipseElement.h"
 #include "components/line/LineElement.h"
+#include "components/link/LinkElement.h"
 #include "components/polygon/PolygonElement.h"
 #include "components/rectangle/RectangleElement.h"
 #include "components/slot/SlotElement.h"
@@ -1129,55 +1131,116 @@ const IrNode* FindNamedComponent(const IrNode& node, std::string_view name, std:
     return found != nullptr ? found : fallback;
 }
 
-// Fills one master from one copy: a slot takes the content the copy sent to it, a child the copy
-// names is replaced by the copy's version of it, and everything else is carried over as the master
-// wrote it. The number of children the copy replaced is reported so a copy can say how much it
-// differs from its master.
-std::vector<IrNode> ResolveInstance(const IrNode& master, const IrNode& instance, int& overrideCount) {
-    std::unordered_map<std::string, std::vector<const IrNode*>> slotted;
-    std::unordered_map<std::string, const IrNode*> overrides;
-    std::vector<const IrNode*> unnamed;
+// One child a copy sent, with the names it answers to inside the definition it was placed from: the
+// id and the name it carries. A child with neither is one nothing can place.
+struct InstanceChild {
+    const IrNode* node = nullptr;
+    std::vector<std::string> keys;
+    bool used = false;
+};
+
+// What a copy sent to its definition: the children that fill each place, the children that replace a
+// layer, and the children that named nothing at all.
+struct InstanceFiles {
+    std::vector<InstanceChild> children;
+    std::unordered_map<std::string, std::size_t> byKey;
+    std::unordered_map<std::string, std::vector<std::size_t>> slotted;
+    std::vector<std::size_t> unnamed;
+};
+
+InstanceFiles GatherInstanceFiles(const IrNode& instance) {
+    InstanceFiles files;
     for (const IrNode& child : instance.children) {
+        InstanceChild entry;
+        entry.node = &child;
+        const std::size_t index = files.children.size();
         const std::string slot = SlotOf(child);
         if (!slot.empty()) {
-            slotted[slot].push_back(&child);
-            continue;
+            files.slotted[slot].push_back(index);
+        } else {
+            // A child stands in place of the layer it names, and it may name that layer by either of
+            // the two names the layer answers to, so both are recorded against it.
+            if (!child.id.empty()) {
+                entry.keys.push_back(child.id);
+            }
+            const std::string name = NodeNameOf(child);
+            if (!name.empty()) {
+                entry.keys.push_back(name);
+            }
+            if (entry.keys.empty()) {
+                files.unnamed.push_back(index);
+            }
+            for (const std::string& key : entry.keys) {
+                files.byKey[key] = index;
+            }
         }
-        const std::string name = NodeNameOf(child);
-        if (!name.empty()) {
-            overrides[name] = &child;
-            continue;
-        }
-        unnamed.push_back(&child);
+        files.children.push_back(std::move(entry));
     }
+    return files;
+}
+
+// The name a place of a definition answers to. A place left unnamed is the plain one, which is where
+// a copy sends the children that name nothing.
+std::string SlotNameOf(const IrNode& slot) {
+    const std::string name = NodeNameOf(slot);
+    return name.empty() ? "content" : name;
+}
+
+// Places one child of a definition into the copy: a place is filled by the content sent to it, a
+// layer is replaced by the child that names it, and everything else is carried over as the definition
+// wrote it. A place reached anywhere in the definition is filled, so a copy can fill a place a
+// definition keeps inside a box rather than only one it holds at the top.
+void ResolveChild(const IrNode& master, InstanceFiles& files, int& overrideCount, std::vector<IrNode>& out) {
+    if (master.kind == NodeKind::SLOT) {
+        const std::string slotName = SlotNameOf(master);
+        const auto found = files.slotted.find(slotName);
+        if (found != files.slotted.end()) {
+            for (const std::size_t index : found->second) {
+                out.push_back(*files.children[index].node);
+            }
+            return;
+        }
+        if (slotName == "content" && !files.unnamed.empty()) {
+            for (const std::size_t index : files.unnamed) {
+                out.push_back(*files.children[index].node);
+            }
+            return;
+        }
+        // Nothing was sent to this place, so the place itself is kept and draws its own fallback.
+        out.push_back(master);
+        return;
+    }
+    const std::string keys[2] = {master.id, NodeNameOf(master)};
+    for (const std::string& key : keys) {
+        if (key.empty()) {
+            continue;
+        }
+        const auto found = files.byKey.find(key);
+        if (found == files.byKey.end() || files.children[found->second].used) {
+            continue;
+        }
+        files.children[found->second].used = true;
+        ++overrideCount;
+        out.push_back(*files.children[found->second].node);
+        return;
+    }
+    IrNode copy = master;
+    copy.children.clear();
+    for (const IrNode& child : master.children) {
+        ResolveChild(child, files, overrideCount, copy.children);
+    }
+    out.push_back(std::move(copy));
+}
+
+// Fills one master from one copy, and reports how many of the master's layers the copy replaced, so a
+// copy can say how much it differs from its master. A copy holds the whole definition rather than the
+// definition's nodes reached through it, so the two are separate trees afterwards.
+std::vector<IrNode> ResolveInstance(const IrNode& master, const IrNode& instance, int& overrideCount) {
     overrideCount = 0;
+    InstanceFiles files = GatherInstanceFiles(instance);
     std::vector<IrNode> resolved;
     for (const IrNode& child : master.children) {
-        if (child.kind == NodeKind::SLOT) {
-            std::string slotName = NodeNameOf(child);
-            if (slotName.empty()) {
-                slotName = "content";
-            }
-            const auto found = slotted.find(slotName);
-            if (found != slotted.end()) {
-                for (const IrNode* fill : found->second) {
-                    resolved.push_back(*fill);
-                }
-            } else if (slotName == "content") {
-                for (const IrNode* fill : unnamed) {
-                    resolved.push_back(*fill);
-                }
-            }
-            continue;
-        }
-        const std::string name = NodeNameOf(child);
-        const auto found = overrides.find(name);
-        if (found != overrides.end() && !name.empty()) {
-            resolved.push_back(*found->second);
-            ++overrideCount;
-            continue;
-        }
-        resolved.push_back(child);
+        ResolveChild(child, files, overrideCount, resolved);
     }
     return resolved;
 }
@@ -1548,6 +1611,39 @@ void ApplySlot(SlotElement& slot, const IrNode& node) {
     }
 }
 
+// An embed is a frame that holds another document, so it reads everything a frame reads and the name
+// of the document it was read from. The name is kept as it was written rather than resolved here: the
+// document it names was already read and inlined before this node was built, and what is kept is the
+// name a reader can be told, which is what a document built out of several files has to be able to
+// say about itself.
+void ApplyEmbed(EmbedElement& embed, const IrNode& node) {
+    ApplyFrame(embed, node);
+    if (const UiValue* value = FindProperty(node, "src")) embed.SetSource(value->text);
+    if (const UiValue* value = FindProperty(node, "description")) embed.SetDescription(value->text);
+    if (const UiValue* value = FindProperty(node, "badge")) embed.SetBadgeVisible(value->boolean);
+}
+
+// A link is a frame drawn as a link, so it reads everything a frame reads and the two names it can go
+// to. The handler is not read from the document: what going there means is the program's to say, so
+// the handler is the one the program handed to the factory, and a document from a program that handed
+// none is a document whose links are drawn and do nothing.
+void ApplyLink(LinkElement& link, const IrNode& node, const LinkElement::ActivateHandler& onActivate) {
+    ApplyFrame(link, node);
+    if (const UiValue* value = FindProperty(node, "href")) link.SetHref(value->text);
+    if (const UiValue* value = FindProperty(node, "to")) link.SetTo(value->text);
+    if (const UiValue* value = FindProperty(node, "target")) link.SetTarget(value->text);
+    if (const UiValue* value = FindProperty(node, "text")) link.SetLabel(value->text);
+    if (const UiValue* value = FindProperty(node, "description")) link.SetDescription(value->text);
+    if (onActivate) {
+        link.SetActivateHandler(onActivate);
+    }
+    // A link is a place to point at, so the pointer says so before the mouse is pressed rather than
+    // only once it is. A document that wrote a cursor of its own keeps it.
+    if (link.Cursor().empty()) {
+        link.SetCursor("pointer");
+    }
+}
+
 std::unique_ptr<Element> CreateElement(const IrNode& node) {
     switch (node.kind) {
     case NodeKind::WINDOW:
@@ -1596,6 +1692,10 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
         return std::make_unique<InstanceElement>();
     case NodeKind::SLOT:
         return std::make_unique<SlotElement>();
+    case NodeKind::EMBED:
+        return std::make_unique<EmbedElement>();
+    case NodeKind::LINK:
+        return std::make_unique<LinkElement>();
     case NodeKind::PATH:
         return std::make_unique<ShapeElement>(node.kind);
     case NodeKind::SCROLL:
@@ -1604,7 +1704,8 @@ std::unique_ptr<Element> CreateElement(const IrNode& node) {
     return nullptr;
 }
 
-void Populate(Element& element, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks, const IrNode& root) {
+void Populate(Element& element, const IrNode& node, const std::unordered_map<std::string, std::function<void()>>& clicks,
+              const LinkHandler& onLink, const IrNode& root) {
     // The children of an SVG that names a file are the file's, not the document's: they are read
     // here and take the place of the children the node declares, which such a node has none of. An
     // SVG the document carries draws the children it declares, so the art it holds stays in the
@@ -1636,6 +1737,14 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
         // A slot is a frame, so it has to be asked first: the frame branch below would otherwise
         // take it and leave the label of an unfilled slot unread.
         ApplySlot(*slot, node);
+    } else if (EmbedElement* embed = dynamic_cast<EmbedElement*>(&element)) {
+        // An embed is a frame, so it has to be asked first: the frame branch below would otherwise
+        // take it and leave the file it was read from unsaid.
+        ApplyEmbed(*embed, node);
+    } else if (LinkElement* link = dynamic_cast<LinkElement*>(&element)) {
+        // A link is a frame, so it has to be asked first: the frame branch below would otherwise
+        // take it and leave the names it carries, and the handler that acts on them, unwired.
+        ApplyLink(*link, node, onLink);
     } else if (TextElement* text = dynamic_cast<TextElement*>(&element)) {
         ApplyFrame(*text, node);
         ApplyCommon(*text, node);
@@ -1729,23 +1838,46 @@ void Populate(Element& element, const IrNode& node, const std::unordered_map<std
             }
             continue;
         }
+        // A definition borrowed from another document is a name this document can use, not a box it
+        // draws: it stays in the tree the copy was resolved against, and nothing is built for it.
+        if (child.fromImport) {
+            continue;
+        }
         std::unique_ptr<Element> created = CreateElement(child);
         if (created == nullptr) {
             continue;
         }
-        Populate(*created, child, clicks, root);
+        Populate(*created, child, clicks, onLink, root);
         element.AddChild(std::move(created));
+    }
+    // A node that names a handler is wired to it here, where the program's handlers are in hand. The
+    // same wiring serves the mouse and the keyboard, because a click and Enter are the same event to
+    // an element: what an element does with it is the program's to say, and the document only says
+    // which handler it wants.
+    if (const UiValue* click = FindProperty(node, "onClick")) {
+        const auto handler = clicks.find(click->text);
+        if (handler != clicks.end() && handler->second) {
+            // The handler is copied rather than reached through the map, because the map belongs to
+            // the program and may be gone before the element is.
+            const std::function<void()> callback = handler->second;
+            element.Connect("click", [callback](const KeyEvent&) { callback(); });
+        }
     }
 }
 
 }  // namespace
 
-std::unique_ptr<Element> Instantiate(const IrNode& root, const std::unordered_map<std::string, std::function<void()>>& clicks) {
+std::unique_ptr<Element> Instantiate(const IrNode& root, const std::unordered_map<std::string, std::function<void()>>& clicks,
+                                     const LinkHandler& onLink, const IrNode* documentRoot) {
     std::unique_ptr<Element> created = CreateElement(root);
     if (created == nullptr) {
         return nullptr;
     }
-    Populate(*created, root, clicks, root);
+    // The tree a copy is resolved against is the document rather than the screen it stands in. A
+    // definition borrowed from another file does not sit inside each screen that uses it, so a copy
+    // of it is resolved from the document the screen belongs to.
+    const IrNode& definitions = documentRoot != nullptr ? *documentRoot : root;
+    Populate(*created, root, clicks, onLink, definitions);
     if (!root.states.empty()) {
         created->SeedState(root.states);
     } else {

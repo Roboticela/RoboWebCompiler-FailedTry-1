@@ -5,12 +5,14 @@
 #include "components/arrow/ArrowElement.h"
 #include "components/boolean/BooleanElement.h"
 #include "components/component/ComponentElement.h"
+#include "components/embed/EmbedElement.h"
 #include "components/ellipse/EllipseElement.h"
 #include "components/frame/Frame.h"
 #include "components/group/GroupElement.h"
 #include "components/image/ImageElement.h"
 #include "components/instance/InstanceElement.h"
 #include "components/line/LineElement.h"
+#include "components/link/LinkElement.h"
 #include "components/layout/BoardElement.h"
 #include "components/polygon/PolygonElement.h"
 #include "components/layout/WindowElement.h"
@@ -24,6 +26,7 @@
 #include "components/text/TextElement.h"
 #include "components/vector/VectorElement.h"
 #include "components/video/VideoElement.h"
+#include "app/LinkRoute.h"
 #include "designer/model/DesignDocument.h"
 #include "designer/tools/EditorTool.h"
 #include "engine/motion/Motion.h"
@@ -3713,15 +3716,46 @@ void TestCompilerSurface(TestContext& test) {
     // Every tool that draws a shape names a component the compiler knows, and every tool has a
     // name, so the editor can only ever insert a node a document can hold. A tool whose component
     // is not in the catalog would draw a shape the editor cannot compile.
-    const EditorTool tools[] = {EditorTool::SELECT, EditorTool::FRAME,     EditorTool::RECTANGLE, EditorTool::ELLIPSE,
-                                EditorTool::POLYGON, EditorTool::STAR,     EditorTool::TEXT,      EditorTool::IMAGE,
-                                EditorTool::SVG,     EditorTool::LINE,     EditorTool::ARROW,     EditorTool::BOOLEAN,
-                                EditorTool::HAND,    EditorTool::ZOOM};
+    const EditorTool tools[] = {EditorTool::SELECT,     EditorTool::FRAME,         EditorTool::RECTANGLE,     EditorTool::ELLIPSE,
+                                EditorTool::POLYGON,    EditorTool::STAR,          EditorTool::TEXT,          EditorTool::IMAGE,
+                                EditorTool::SVG,        EditorTool::LINE,          EditorTool::ARROW,         EditorTool::BOOLEAN,
+                                EditorTool::COMPONENT,  EditorTool::COMPONENT_SET, EditorTool::INSTANCE,      EditorTool::SLOT,
+                                EditorTool::EMBED,      EditorTool::LINK,          EditorTool::HAND,          EditorTool::ZOOM};
     for (const EditorTool tool : tools) {
         CHECK(test, std::string(EditorToolName(tool)).size() > 0);
         if (const char* component = EditorToolComponent(tool)) {
             CHECK(test, FindComponent(component) != nullptr);
             CHECK(test, ComponentAcceptsProperty(component, "width"));
+        }
+    }
+    // A shape tool draws its node by name, and every tool that draws one names the node it draws. The
+    // four nodes of the component system are drawn by tools like any other node, so they name the
+    // elements the compiler knows rather than being reached only through the library panel.
+    CHECK(test, std::string(EditorToolComponent(EditorTool::COMPONENT)) == "component");
+    CHECK(test, std::string(EditorToolComponent(EditorTool::COMPONENT_SET)) == "componentSet");
+    CHECK(test, std::string(EditorToolComponent(EditorTool::INSTANCE)) == "instance");
+    CHECK(test, std::string(EditorToolComponent(EditorTool::SLOT)) == "slot");
+    CHECK(test, std::string(EditorToolComponent(EditorTool::EMBED)) == "embed");
+    CHECK(test, std::string(EditorToolComponent(EditorTool::LINK)) == "link");
+    // The four nodes of the component system are reached through the command list rather than by keys
+    // of their own, because every letter one could answer to already draws a shape or acts on the
+    // view, and a key given to one of them would take it away from what it already does.
+    CHECK(test, std::string(EditorToolShortcut(EditorTool::COMPONENT)).empty());
+    CHECK(test, std::string(EditorToolShortcut(EditorTool::COMPONENT_SET)).empty());
+    CHECK(test, std::string(EditorToolShortcut(EditorTool::INSTANCE)).empty());
+    CHECK(test, std::string(EditorToolShortcut(EditorTool::SLOT)).empty());
+    CHECK(test, std::string(EditorToolShortcut(EditorTool::EMBED)).empty());
+    CHECK(test, std::string(EditorToolShortcut(EditorTool::LINK)).empty());
+    // No two tools answer to one key, so a key draws the one tool it names.
+    for (const EditorTool tool : tools) {
+        const std::string shortcut = EditorToolShortcut(tool);
+        if (shortcut.empty()) {
+            continue;
+        }
+        for (const EditorTool other : tools) {
+            if (other != tool) {
+                CHECK(test, shortcut != EditorToolShortcut(other));
+            }
         }
     }
     Finish(test, "compiler surface", before);
@@ -6165,12 +6199,161 @@ void TestComponents(TestContext& test) {
     CHECK(test, !CompileUi(Source("<window><frame nonsense=\"1\"/></window>")).Ok());
     CHECK(test, CompileUi(Source("<window><instance component=\"Chip\" custom=\"7\"/></window>")).Ok());
 
+    // A copy names the layer it replaces by the id the layer carries, so one copy can change one
+    // layer of a definition without the document having to invent a second name for it. The id of a
+    // child of a copy is the id of the layer it stands for rather than the id of a new layer, so it
+    // is allowed to repeat it.
+    std::unique_ptr<Element> byId = Layout(
+        "<window width=\"300\" height=\"160\"><frame id=\"idStage\" width=\"300\" height=\"160\">"
+        "<component id=\"tagMaster\" name=\"Tag\" x=\"0\" y=\"0\" width=\"120\" height=\"32\">"
+        "<text id=\"tagLabel\" text=\"Ok\" width=\"120\" height=\"32\"/></component>"
+        "<instance id=\"renamedTag\" component=\"Tag\" position=\"absolute\" x=\"140\" y=\"0\" width=\"120\" height=\"32\">"
+        "<text id=\"tagLabel\" text=\"Renamed\" width=\"120\" height=\"32\"/></instance>"
+        "</frame></window>",
+        300.0f, 160.0f);
+    CHECK(test, byId != nullptr);
+    if (byId != nullptr) {
+        InstanceElement* renamed = dynamic_cast<InstanceElement*>(byId->FindById("renamedTag"));
+        CHECK(test, renamed != nullptr && renamed->Resolved());
+        if (renamed != nullptr) {
+            CHECK(test, renamed->OverrideCount() == 1);
+            CHECK(test, renamed->Children().size() == 1);
+            const TextElement* text = renamed->Children().empty() ? nullptr : dynamic_cast<TextElement*>(renamed->Children().front().get());
+            CHECK(test, text != nullptr && text->Text() == "Renamed");
+        }
+        // The layer of the definition is untouched, so the id names the definition's layer in one
+        // place and the copy's replacement of it in the other.
+        ComponentElement* tag = dynamic_cast<ComponentElement*>(byId->FindById("tagMaster"));
+        CHECK(test, tag != nullptr && tag->FindById("tagLabel") != nullptr);
+    }
+    // Repeating an id outside a copy is still the same second name for one layer, and it is refused.
+    CHECK(test, !CompileUi(Source("<window><frame id=\"twice\" width=\"10\" height=\"10\"/><frame id=\"twice\" width=\"10\" height=\"10\"/></window>")).Ok());
+
+    // A copy replaces a layer wherever the definition keeps it, not only at the top, so a definition
+    // can be built out of boxes the way a screen is and a copy can still reach inside one.
+    std::unique_ptr<Element> nested = Layout(
+        "<window width=\"300\" height=\"200\"><frame id=\"nestedStage\" width=\"300\" height=\"200\">"
+        "<component id=\"cardMaster\" name=\"Card\" x=\"0\" y=\"0\" width=\"160\" height=\"100\">"
+        "<frame id=\"cardBody\" width=\"160\" height=\"100\">"
+        "<text id=\"cardTitle\" text=\"Title\" width=\"160\" height=\"20\"/></frame></component>"
+        "<instance id=\"namedCard\" component=\"Card\" position=\"absolute\" x=\"0\" y=\"110\" width=\"160\" height=\"100\">"
+        "<text id=\"cardTitle\" text=\"Named\" width=\"160\" height=\"20\"/></instance>"
+        "</frame></window>",
+        300.0f, 200.0f);
+    CHECK(test, nested != nullptr);
+    if (nested != nullptr) {
+        InstanceElement* named = dynamic_cast<InstanceElement*>(nested->FindById("namedCard"));
+        CHECK(test, named != nullptr && named->Resolved() && named->OverrideCount() == 1);
+        if (named != nullptr) {
+            Element* body = named->FindById("cardBody");
+            CHECK(test, body != nullptr);
+            const TextElement* title = body == nullptr ? nullptr : dynamic_cast<TextElement*>(body->FindById("cardTitle"));
+            CHECK(test, title != nullptr && title->Text() == "Named");
+        }
+    }
+
+    // The variants of one component stand beside each other rather than replacing one another, so a
+    // usage that names a variant is drawn from the definition that draws it and a usage that names
+    // none is drawn from the first one. A definition of two children is wrapped in a box, which is
+    // what a usage of one becomes, so the whole of what a usage drew can be read off the tree.
+    std::unique_ptr<Element> macros = Layout(
+        "<window width=\"400\" height=\"220\"><frame id=\"macroStage\" width=\"400\" height=\"220\">"
+        "<componentSet name=\"Pill\" layout=\"horizontal\" gap=\"8\" width=\"300\" height=\"40\">"
+        "<component name=\"Pill\" variant=\"Primary\" width=\"140\" height=\"40\">"
+        "<text id=\"primaryA\" text=\"A\" width=\"70\" height=\"40\"/><text id=\"primaryB\" text=\"B\" width=\"70\" height=\"40\"/>"
+        "</component>"
+        "<component name=\"Pill\" variant=\"Danger\" width=\"140\" height=\"40\">"
+        "<text id=\"dangerA\" text=\"A\" width=\"70\" height=\"40\"/><text id=\"dangerB\" text=\"B\" width=\"70\" height=\"40\"/>"
+        "</component>"
+        "</componentSet>"
+        "<Pill variant=\"Danger\" id=\"dangerUse\" position=\"absolute\" x=\"0\" y=\"120\" width=\"140\" height=\"40\"/>"
+        "<Pill id=\"plainUse\" position=\"absolute\" x=\"160\" y=\"120\" width=\"140\" height=\"40\"/>"
+        "</frame></window>",
+        400.0f, 220.0f);
+    CHECK(test, macros != nullptr);
+    if (macros != nullptr) {
+        Element* dangerUse = macros->FindById("dangerUse");
+        Element* plainUse = macros->FindById("plainUse");
+        CHECK(test, dangerUse != nullptr && plainUse != nullptr);
+        if (dangerUse != nullptr && plainUse != nullptr) {
+            CHECK(test, dangerUse->FindById("dangerA") != nullptr && dangerUse->FindById("dangerB") != nullptr);
+            CHECK(test, dangerUse->FindById("primaryA") == nullptr);
+            CHECK(test, plainUse->FindById("primaryA") != nullptr && plainUse->FindById("primaryB") != nullptr);
+            CHECK(test, plainUse->FindById("dangerA") == nullptr);
+        }
+    }
+    // A definition written twice is a definition one of which can never be placed, so it is reported
+    // rather than the second silently replacing the first.
+    CHECK(test, !CompileUi(Source("<window><component name=\"Twice\"><text text=\"a\"/></component>"
+                                  "<component name=\"Twice\"><text text=\"b\"/></component></window>"))
+                     .Ok());
+
+    // What a definition is for is drawn as the tip it shows while it is hovered, so a description is
+    // read off the canvas rather than only out of the node it was written on.
+    std::unique_ptr<Element> described = Layout(
+        "<window width=\"200\" height=\"100\"><frame id=\"describedStage\" width=\"200\" height=\"100\">"
+        "<component id=\"noteMaster\" name=\"Note\" description=\"Shown in the layer list\" width=\"80\" height=\"40\">"
+        "<text text=\"Note\" width=\"80\" height=\"40\"/></component>"
+        "</frame></window>",
+        200.0f, 100.0f);
+    CHECK(test, described != nullptr);
+    if (described != nullptr) {
+        ComponentElement* note = dynamic_cast<ComponentElement*>(described->FindById("noteMaster"));
+        CHECK(test, note != nullptr && note->Description() == "Shown in the layer list");
+        if (note != nullptr) {
+            note->SetPointerHover(true);
+            RecordingRenderer renderer;
+            described->Paint(renderer);
+            bool tipDrawn = false;
+            for (const PaintRecord& record : renderer.records) {
+                if (record.text == "Shown in the layer list") {
+                    tipDrawn = true;
+                }
+            }
+            CHECK(test, tipDrawn);
+            note->SetPointerHover(false);
+        }
+    }
+
+    // A child of a copy that names no layer of its definition and no place of it cannot be placed by
+    // anything, so it is reported. What is reported does not stop the document, because the rest of
+    // it is still drawn: a copy with one child too many still draws the rest of what it holds.
+    const std::string copyHost =
+        "<component name=\"Note\" width=\"80\" height=\"40\"><text name=\"Text\" text=\"Note\" width=\"80\" height=\"40\"/></component>";
+    const CompileResult mismatched = CompileUi(Source("<window width=\"200\" height=\"100\">" + copyHost +
+                                                      "<instance component=\"Note\"><frame name=\"Nowhere\" width=\"10\" height=\"10\"/></instance></window>"));
+    CHECK(test, mismatched.Ok());
+    CHECK(test, !mismatched.diagnostics.empty());
+    if (!mismatched.diagnostics.empty()) {
+        CHECK(test, mismatched.diagnostics.front().code == DIAGNOSTIC_UNKNOWN_OVERRIDE);
+        CHECK(test, mismatched.diagnostics.front().severity == DiagnosticSeverity::WARNING);
+    }
+    // A place the definition does not offer is reported on the child that named it, and a child that
+    // names a layer or a place the definition does offer is reported as nothing at all.
+    const CompileResult wrongPlace = CompileUi(Source("<window width=\"200\" height=\"100\">" + copyHost +
+                                                      "<instance component=\"Note\"><frame slot=\"nowhere\" width=\"10\" height=\"10\"/></instance></window>"));
+    CHECK(test, wrongPlace.Ok() && !wrongPlace.diagnostics.empty());
+    if (!wrongPlace.diagnostics.empty()) {
+        CHECK(test, wrongPlace.diagnostics.front().code == DIAGNOSTIC_UNKNOWN_OVERRIDE);
+        CHECK(test, wrongPlace.diagnostics.front().message.find("nowhere") != std::string::npos);
+    }
+    const CompileResult replaced = CompileUi(Source("<window width=\"200\" height=\"100\">" + copyHost +
+                                                    "<instance component=\"Note\"><text name=\"Text\" text=\"Save\" width=\"80\" height=\"40\"/></instance></window>"));
+    CHECK(test, replaced.Ok());
+    bool complained = false;
+    for (const Diagnostic& diagnostic : replaced.diagnostics) {
+        if (diagnostic.code == DIAGNOSTIC_UNKNOWN_OVERRIDE) {
+            complained = true;
+        }
+    }
+    CHECK(test, !complained);
+
     // The editor can add every one of the four, and what it adds is a document the compiler accepts:
     // a definition born with a body, a set born with two variants, a copy that names a definition,
     // and a slot that names the place it fills.
     DesignDocument editor;
     CHECK(test, editor.LoadText("<window width=\"800\" height=\"600\"><frame name=\"Home\"/></window>", "memory.xml"));
-    const char* addedNodes[] = {"component", "componentSet", "instance", "slot"};
+    const char* addedNodes[] = {"component", "componentSet", "instance", "slot", "embed", "link"};
     for (const char* nodeName : addedNodes) {
         std::vector<int> added;
         CHECK(test, editor.InsertChild({0}, nodeName, added));
@@ -6186,6 +6369,237 @@ void TestComponents(TestContext& test) {
     Finish(test, "components", before);
 }
 
+// A document, and the documents it is made of. A fixture directory holds a screen that imports two
+// libraries, embeds a part, and links to a screen of its own; two documents that import each other;
+// and one that names a file that is not there. Every one of them is a real file, because what is
+// being tested is the reading of files rather than a tree built in memory.
+std::filesystem::path Fixture(const char* name) {
+    return std::filesystem::path(RUNTIME_SOURCE_DIR) / "tests" / "fixtures" / name;
+}
+
+bool HasDiagnostic(const std::vector<Diagnostic>& diagnostics, const char* code) {
+    for (const Diagnostic& diagnostic : diagnostics) {
+        if (diagnostic.code == code) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::unique_ptr<Element> LayoutFile(const std::filesystem::path& path, float width, float height,
+                                    const LinkHandler& onLink = {}) {
+    const CompileResult compiled = CompileUiFile(path);
+    if (!compiled.Ok()) {
+        return nullptr;
+    }
+    std::unique_ptr<Element> root = Instantiate(*compiled.root, {}, onLink);
+    if (root == nullptr) {
+        return nullptr;
+    }
+    FakeMeasurer measurer;
+    root->SetViewport(width, height);
+    root->Measure(measurer, width, height, true);
+    root->Arrange(Rect{0.0f, 0.0f, width, height});
+    return root;
+}
+
+void TestProjects(TestContext& test) {
+    const int before = test.failed;
+
+    // A library is a document written to be borrowed from, so it is read on its own as well as
+    // imported. Reading it alone is what lets the file that holds the definitions be checked without
+    // a screen wrapped around it.
+    const CompileResult library = CompileUiFile(Fixture("Theme.xml"));
+    CHECK(test, library.Ok());
+    CHECK(test, library.root.has_value() && library.root->name == "library");
+    CHECK(test, library.sources.size() == 1);
+
+    // The screen is four files: itself, the two libraries it imports, and the part it embeds. Every
+    // one of them is kept, so a diagnostic found in one is shown beside that one.
+    const CompileResult screen = CompileUiFile(Fixture("Screen.xml"));
+    CHECK(test, screen.Ok());
+    if (!screen.Ok()) {
+        PrintDiagnostics(screen.sources, screen.diagnostics, std::cerr);
+    }
+    CHECK(test, screen.sources.size() == 4);
+    CHECK(test, screen.diagnostics.empty());
+
+    // What an import borrows is available: the screen places definitions that were written in another
+    // file, without that file being drawn. What it borrows is not drawn here, so the definitions the
+    // libraries hold are not nodes of the screen: the screen holds the two copies and nothing else.
+    std::unique_ptr<Element> root = LayoutFile(Fixture("Screen.xml"), 400.0f, 320.0f);
+    CHECK(test, root != nullptr);
+    if (root != nullptr) {
+        Element* card = root->FindById("card");
+        CHECK(test, card != nullptr);
+        if (card != nullptr) {
+            CHECK(test, card->Children().size() == 5);
+        }
+        CHECK(test, root->FindById("heroBadge") != nullptr);
+        CHECK(test, root->FindById("tagChip") != nullptr);
+        // The copy holds the content of the definition the library wrote: a component imported from a
+        // file is a component like any other, not a name that stands for nothing.
+        InstanceElement* badge = dynamic_cast<InstanceElement*>(root->FindById("heroBadge"));
+        CHECK(test, badge != nullptr && badge->Resolved());
+        if (badge != nullptr) {
+            const TextElement* label = dynamic_cast<TextElement*>(badge->FindById("badgeLabel"));
+            CHECK(test, label != nullptr && label->Text() == "New");
+        }
+
+        // An embed is a document inlined where it stands: the content of the named file is part of
+        // the tree, and the node keeps the name of the file it came from.
+        EmbedElement* embed = dynamic_cast<EmbedElement*>(root->FindById("partBox"));
+        CHECK(test, embed != nullptr);
+        if (embed != nullptr) {
+            CHECK(test, embed->Source() == "Part.xml");
+            const TextElement* part = dynamic_cast<TextElement*>(embed->FindById("partLabel"));
+            CHECK(test, part != nullptr && part->Text() == "Embedded part");
+        }
+
+        // A link is a frame that carries somewhere to go. What going there means is the program's to
+        // decide, so what is checked here is that the names arrived rather than that anything was
+        // opened.
+        LinkElement* docs = dynamic_cast<LinkElement*>(root->FindById("docsLink"));
+        CHECK(test, docs != nullptr);
+        if (docs != nullptr) {
+            CHECK(test, docs->Href() == "https://example.com/docs");
+            CHECK(test, !docs->HasTo());
+            CHECK(test, docs->Label() == "Docs");
+            CHECK(test, docs->WantsHandCursor());
+        }
+        LinkElement* settings = dynamic_cast<LinkElement*>(root->FindById("settingsLink"));
+        CHECK(test, settings != nullptr);
+        if (settings != nullptr) {
+            CHECK(test, settings->To() == "Settings");
+            CHECK(test, !settings->HasHref());
+        }
+        // The screen the link names is a screen of the same document, so it is a window the runtime
+        // knows about rather than a name that leads nowhere.
+        CHECK(test, root->FindById("Settings") != nullptr);
+    }
+
+    // Activating a link hands its names to the program's handler, and a link with no handler is
+    // still a link: a document can be shown before the program behind it exists.
+    std::string activatedHref;
+    std::string activatedTo;
+    int activations = 0;
+    std::unique_ptr<Element> wired = LayoutFile(Fixture("Screen.xml"), 400.0f, 320.0f,
+                                                [&](const std::string& href, const std::string& to, const std::string& target) {
+                                                    ++activations;
+                                                    activatedHref = href;
+                                                    activatedTo = to;
+                                                    (void)target;
+                                                });
+    CHECK(test, wired != nullptr);
+    if (wired != nullptr) {
+        LinkElement* docs = dynamic_cast<LinkElement*>(wired->FindById("docsLink"));
+        CHECK(test, docs != nullptr);
+        if (docs != nullptr) {
+            docs->Activate();
+            CHECK(test, activations == 1);
+            CHECK(test, activatedHref == "https://example.com/docs");
+            CHECK(test, activatedTo.empty());
+        }
+        LinkElement* settings = dynamic_cast<LinkElement*>(wired->FindById("settingsLink"));
+        CHECK(test, settings != nullptr);
+        if (settings != nullptr) {
+            settings->Activate();
+            CHECK(test, activations == 2);
+            CHECK(test, activatedTo == "Settings");
+        }
+    }
+
+    // A document that imports a document that imports it back has no first file to read, so the
+    // cycle is refused rather than followed until the stack runs out.
+    const CompileResult cycle = CompileUiFile(Fixture("CycleOne.xml"));
+    CHECK(test, !cycle.Ok());
+    CHECK(test, HasDiagnostic(cycle.diagnostics, DIAGNOSTIC_IMPORT_CYCLE));
+
+    // A name that leads nowhere is reported where it was written, which is the file that named it
+    // rather than the file it would have named.
+    const CompileResult missing = CompileUiFile(Fixture("MissingImport.xml"));
+    CHECK(test, !missing.Ok());
+    CHECK(test, HasDiagnostic(missing.diagnostics, DIAGNOSTIC_CANNOT_READ_FILE));
+    if (!missing.diagnostics.empty()) {
+        CHECK(test, missing.diagnostics.front().location.path.find("MissingImport.xml") != std::string::npos);
+    }
+
+    // A library named twice is one library rather than two, so the definitions it holds are offered
+    // once rather than reported as written twice. A name that repeats is a guard, not a mistake.
+    const CompileResult twice = CompileUiFile(Fixture("Twice.xml"));
+    CHECK(test, twice.Ok());
+    CHECK(test, twice.sources.size() == 2);
+
+    // A link is a link to somewhere: one that names nowhere, and one that names a screen the document
+    // does not hold, are both refused where they were written.
+    const CompileResult nowhere = CompileUi(Source("<window id=\"w\" width=\"100\" height=\"100\"><link text=\"x\"/></window>"));
+    CHECK(test, !nowhere.Ok());
+    CHECK(test, HasDiagnostic(nowhere.diagnostics, DIAGNOSTIC_LINK_TARGET));
+    const CompileResult unknown = CompileUi(Source("<window id=\"w\" width=\"100\" height=\"100\"><link to=\"Nope\" text=\"x\"/></window>"));
+    CHECK(test, !unknown.Ok());
+    CHECK(test, HasDiagnostic(unknown.diagnostics, DIAGNOSTIC_LINK_UNKNOWN));
+    const CompileResult same = CompileUi(Source("<window id=\"w\" width=\"100\" height=\"100\"><link to=\"w\" text=\"x\"/></window>"));
+    CHECK(test, same.Ok());
+
+    // A library that holds something a definition cannot be is reported rather than quietly kept.
+    const CompileResult loose = CompileUi(Source("<library><frame name=\"NotADefinition\"/></library>"));
+    CHECK(test, !loose.Ok());
+    CHECK(test, HasDiagnostic(loose.diagnostics, DIAGNOSTIC_IMPORT_IGNORED));
+
+    // A definition is a definition wherever a document keeps it. A screen holds its components inside
+    // the boxes it lays out, so borrowing from a screen reaches into them, while what the screen's
+    // content is stays behind: what is taken is the name, not the screen.
+    const CompileResult borrowed = CompileUiFile(Fixture("UsesScreenParts.xml"));
+    CHECK(test, borrowed.Ok());
+    if (!borrowed.Ok()) {
+        PrintDiagnostics(borrowed.sources, borrowed.diagnostics, std::cerr);
+    }
+    std::unique_ptr<Element> nested = LayoutFile(Fixture("UsesScreenParts.xml"), 320.0f, 200.0f);
+    CHECK(test, nested != nullptr);
+    if (nested != nullptr) {
+        CHECK(test, nested->Children().size() == 1);
+        InstanceElement* place = dynamic_cast<InstanceElement*>(nested->FindById("inner"));
+        CHECK(test, place != nullptr && place->Resolved());
+        if (place != nullptr) {
+            const TextElement* label = dynamic_cast<TextElement*>(place->FindById("innerLabel"));
+            CHECK(test, label != nullptr && label->Text() == "Inner");
+        }
+    }
+
+    // What a link means, decided without a window: a page is opened, a screen is shown where the link
+    // stands, and a screen asked for in a window of its own is brought forward. A link that carries
+    // both opens the page, because a page is the thing that cannot be shown here.
+    CHECK(test, RouteLink("https://example.com", "", "").action == LinkAction::OPEN);
+    CHECK(test, RouteLink("https://example.com", "Settings", "").action == LinkAction::OPEN);
+    CHECK(test, RouteLink("", "Settings", "").action == LinkAction::SHOW);
+    CHECK(test, RouteLink("", "Settings", "self").action == LinkAction::SHOW);
+    CHECK(test, RouteLink("", "Settings", "window").action == LinkAction::RAISE);
+    CHECK(test, RouteLink("", "Settings", "blank").action == LinkAction::RAISE);
+    CHECK(test, RouteLink("", "", "").action == LinkAction::NONE);
+    CHECK(test, RouteLink("", "Settings", "").name == "Settings");
+    CHECK(test, RouteLink("  ", "  ", "  ").action == LinkAction::NONE);
+    CHECK(test, RouteLink(" https://example.com/docs ", "", "").name == "https://example.com/docs");
+
+    // A node that names a handler is wired to it, and the same event serves the mouse and the
+    // keyboard: what the handler does is the program's, and which handler it is is the document's.
+    int calls = 0;
+    const CompileResult clickable =
+        CompileUi(Source("<window id=\"w\" width=\"100\" height=\"100\"><frame id=\"b\" onClick=\"go\" width=\"40\" height=\"20\"/></window>"));
+    CHECK(test, clickable.Ok());
+    std::unique_ptr<Element> wiredRoot = Instantiate(*clickable.root, {{"go", [&calls]() { ++calls; }}});
+    CHECK(test, wiredRoot != nullptr);
+    if (wiredRoot != nullptr) {
+        Element* button = wiredRoot->FindById("b");
+        CHECK(test, button != nullptr);
+        if (button != nullptr) {
+            button->Activate();
+            CHECK(test, calls == 1);
+        }
+    }
+
+    Finish(test, "projects", before);
+}
+
 int RunUnitTests() {
     TestContext test;
     TestParserAndSerializer(test);
@@ -6195,6 +6609,7 @@ int RunUnitTests() {
     TestFrameLayout(test);
     TestPrimitives(test);
     TestComponents(test);
+    TestProjects(test);
     TestGroup(test);
     TestRectangle(test);
     TestEllipse(test);

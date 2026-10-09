@@ -25,6 +25,18 @@ inline constexpr const char* DIAGNOSTIC_TREE_DEPTH = "UI022";
 inline constexpr const char* DIAGNOSTIC_EVENT_SIGNATURE = "UI031";
 inline constexpr const char* DIAGNOSTIC_BINDING = "UI040";
 inline constexpr const char* DIAGNOSTIC_UNKNOWN_PROPERTY = "UI102";
+// A child of a copy of a component that names neither a layer of its definition nor a place of it:
+// nothing can place such a child, so it is reported rather than dropped in silence.
+inline constexpr const char* DIAGNOSTIC_UNKNOWN_OVERRIDE = "UI105";
+// A document that imports a document that imports it back, so neither can be read first.
+inline constexpr const char* DIAGNOSTIC_IMPORT_CYCLE = "UI106";
+// A document named by an import that cannot be borrowed from: its root is not a document.
+inline constexpr const char* DIAGNOSTIC_IMPORT_ROOT = "UI107";
+// A definition-shaped library that holds something a definition cannot be, so the entry is ignored.
+inline constexpr const char* DIAGNOSTIC_IMPORT_IGNORED = "UI108";
+// A link that names nowhere to go, or names a screen the document does not hold.
+inline constexpr const char* DIAGNOSTIC_LINK_TARGET = "UI109";
+inline constexpr const char* DIAGNOSTIC_LINK_UNKNOWN = "UI110";
 
 enum class DiagnosticSeverity : std::uint8_t {
     NOTE,
@@ -50,5 +62,10 @@ std::optional<SourceFile> ReadSourceFile(const std::filesystem::path& path, std:
 bool HasFailure(const std::vector<Diagnostic>& diagnostics);
 
 void PrintDiagnostics(const SourceFile& source, const std::vector<Diagnostic>& diagnostics, std::ostream& output);
+
+// The same report over a document that was read from several files: each diagnostic is shown beside
+// the file it was found in, which is the file its location names. A diagnostic whose file was not
+// kept is reported without the line it points at rather than against the wrong one.
+void PrintDiagnostics(const std::vector<SourceFile>& sources, const std::vector<Diagnostic>& diagnostics, std::ostream& output);
 
 }  // namespace Runtime
